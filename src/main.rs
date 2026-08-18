@@ -1,16 +1,24 @@
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() {
+    use axum::routing::get;
     use axum::Router;
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use screen_share::app::*;
+    use screen_share::signaling::registry::Registry;
+    use screen_share::signaling::ws::ws_handler;
 
     let conf = get_configuration(None).unwrap();
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
     let routes = generate_route_list(App);
+
+    let signaling_state = Registry::new();
+    let signaling_router = Router::new()
+        .route("/ws", get(ws_handler))
+        .with_state(signaling_state);
 
     let app = Router::new()
         .leptos_routes(&leptos_options, routes, {
@@ -18,7 +26,8 @@ async fn main() {
             move || shell(leptos_options.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
-        .with_state(leptos_options);
+        .with_state(leptos_options)
+        .merge(signaling_router);
 
     log!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
