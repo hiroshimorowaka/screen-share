@@ -72,6 +72,14 @@ configurar.
 Pra rodar de novo depois de qualquer mudança no código, é só `fly deploy`
 outra vez.
 
+**Build incremental:** o `Dockerfile` usa cache mounts do BuildKit pro
+registro do Cargo e pro `target/` de build. Só o primeiro deploy compila as
+~250 dependências do zero (uns 5-7 min); deploys seguintes, quando só o
+código do app muda, reaproveitam esse cache e ficam na casa de segundos —
+testado localmente (rebuild após mudar uma linha em `src/` caiu de 7min pra
+~18s). O cache persiste no builder do Fly entre execuções de `fly deploy`,
+não só localmente.
+
 ## Deploy (geral)
 
 Este projeto compila para um único binário Rust. Em produção:

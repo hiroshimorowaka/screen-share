@@ -12,7 +12,20 @@ RUN rustup target add wasm32-unknown-unknown \
 WORKDIR /app
 COPY . .
 
-RUN cargo leptos build --release
+# Cache Cargo's registry/git downloads and the target/ build directory
+# across builds via BuildKit cache mounts. These persist independently of
+# Docker's layer cache — including on Fly's remote builder between separate
+# `fly deploy` runs — so cargo only recompiles what Cargo.lock or src/*.rs
+# actually changed instead of the whole ~250-crate dependency graph every
+# time. target/ (and target/site, which lives under it) has to be copied
+# out to a normal path before the mount unmounts, since anything left
+# inside a cache mount never makes it into the resulting image layer.
+RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,target=/app/target,sharing=locked \
+    cargo leptos build --release \
+    && cp target/release/screen_share /app/screen_share.out \
+    && cp -r target/site /app/site.out
 
 # --- runtime image: only the compiled binary + generated site assets ---
 FROM debian:bookworm-slim AS runtime
@@ -21,8 +34,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY --from=builder /app/target/release/screen_share ./screen_share
-COPY --from=builder /app/target/site ./site
+COPY --from=builder /app/screen_share.out ./screen_share
+COPY --from=builder /app/site.out ./site
 
 ENV LEPTOS_OUTPUT_NAME=screen_share
 ENV LEPTOS_SITE_ROOT=site
