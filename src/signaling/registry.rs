@@ -1,19 +1,38 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
 use rand::RngExt;
 use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
-use super::protocol::ServerMessage;
+use super::auth::{hash_password, verify_password};
+use super::protocol::{MemberInfo, ServerMessage};
 
-struct Peer {
+pub const MAX_MEMBERS: usize = 8;
+
+struct Member {
+    nick: String,
     sender: UnboundedSender<ServerMessage>,
 }
 
 struct Room {
-    host: String,
-    peers: HashMap<String, Peer>,
+    password_hash: String,
+    members: HashMap<String, Member>,
+    sharers: HashSet<String>,
+}
+
+#[derive(Debug)]
+pub struct JoinedSnapshot {
+    pub peer_id: String,
+    pub members: Vec<MemberInfo>,
+    pub active_sharers: Vec<String>,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum JoinError {
+    NotFound,
+    WrongPassword,
+    Full,
 }
 
 #[derive(Clone, Default)]
@@ -26,71 +45,123 @@ impl Registry {
         Self::default()
     }
 
-    pub fn create_room(&self, host_sender: UnboundedSender<ServerMessage>) -> (String, String) {
+    pub fn create_room(
+        &self,
+        nick: String,
+        password: &str,
+        sender: UnboundedSender<ServerMessage>,
+    ) -> (String, JoinedSnapshot) {
         let room_code = generate_room_code();
-        let host_id = Uuid::new_v4().to_string();
+        let peer_id = Uuid::new_v4().to_string();
+        let password_hash = hash_password(password);
 
-        let mut peers = HashMap::new();
-        peers.insert(host_id.clone(), Peer { sender: host_sender });
+        let mut members = HashMap::new();
+        members.insert(peer_id.clone(), Member { nick: nick.clone(), sender });
 
         let mut rooms = self.rooms.lock().unwrap();
-        rooms.insert(room_code.clone(), Room { host: host_id.clone(), peers });
+        rooms.insert(room_code.clone(), Room { password_hash, members, sharers: HashSet::new() });
 
-        (room_code, host_id)
+        let snapshot = JoinedSnapshot {
+            peer_id: peer_id.clone(),
+            members: vec![MemberInfo { peer_id, nick }],
+            active_sharers: vec![],
+        };
+        (room_code, snapshot)
     }
 
     pub fn join_room(
         &self,
         room_code: &str,
+        nick: String,
+        password: &str,
         sender: UnboundedSender<ServerMessage>,
-    ) -> Option<(String, String)> {
+    ) -> Result<JoinedSnapshot, JoinError> {
         let mut rooms = self.rooms.lock().unwrap();
-        let room = rooms.get_mut(room_code)?;
+        let room = rooms.get_mut(room_code).ok_or(JoinError::NotFound)?;
 
-        let peer_id = Uuid::new_v4().to_string();
-        room.peers.insert(peer_id.clone(), Peer { sender });
-
-        let host_id = room.host.clone();
-        if let Some(host_peer) = room.peers.get(&host_id) {
-            let _ = host_peer.sender.send(ServerMessage::PeerJoined { peer_id: peer_id.clone() });
+        if !verify_password(password, &room.password_hash) {
+            return Err(JoinError::WrongPassword);
+        }
+        if room.members.len() >= MAX_MEMBERS {
+            return Err(JoinError::Full);
         }
 
-        Some((peer_id, host_id))
+        let peer_id = Uuid::new_v4().to_string();
+
+        for member in room.members.values() {
+            let _ = member
+                .sender
+                .send(ServerMessage::PeerJoined { peer_id: peer_id.clone(), nick: nick.clone() });
+        }
+
+        room.members.insert(peer_id.clone(), Member { nick: nick.clone(), sender });
+
+        let members: Vec<MemberInfo> = room
+            .members
+            .iter()
+            .map(|(id, m)| MemberInfo { peer_id: id.clone(), nick: m.nick.clone() })
+            .collect();
+        let active_sharers: Vec<String> = room.sharers.iter().cloned().collect();
+
+        Ok(JoinedSnapshot { peer_id, members, active_sharers })
+    }
+
+    pub fn start_share(&self, room_code: &str, peer_id: &str) {
+        let mut rooms = self.rooms.lock().unwrap();
+        if let Some(room) = rooms.get_mut(room_code) {
+            room.sharers.insert(peer_id.to_string());
+            for (id, member) in room.members.iter() {
+                if id != peer_id {
+                    let _ = member.sender.send(ServerMessage::PeerStartedSharing { peer_id: peer_id.to_string() });
+                }
+            }
+        }
+    }
+
+    pub fn stop_share(&self, room_code: &str, peer_id: &str) {
+        let mut rooms = self.rooms.lock().unwrap();
+        if let Some(room) = rooms.get_mut(room_code) {
+            room.sharers.remove(peer_id);
+            for (id, member) in room.members.iter() {
+                if id != peer_id {
+                    let _ = member.sender.send(ServerMessage::PeerStoppedSharing { peer_id: peer_id.to_string() });
+                }
+            }
+        }
     }
 
     pub fn relay(&self, room_code: &str, to: &str, message: ServerMessage) {
         let rooms = self.rooms.lock().unwrap();
         if let Some(room) = rooms.get(room_code) {
-            if let Some(peer) = room.peers.get(to) {
-                let _ = peer.sender.send(message);
+            if let Some(member) = room.members.get(to) {
+                let _ = member.sender.send(message);
             }
         }
     }
 
     pub fn leave_room(&self, room_code: &str, peer_id: &str) {
         let mut rooms = self.rooms.lock().unwrap();
-        let mut close_room = false;
+        let mut remove_room = false;
 
         if let Some(room) = rooms.get_mut(room_code) {
-            let is_host = peer_id == room.host;
-            room.peers.remove(peer_id);
+            room.members.remove(peer_id);
+            let was_sharing = room.sharers.remove(peer_id);
 
-            if is_host {
-                for peer in room.peers.values() {
-                    let _ = peer.sender.send(ServerMessage::RoomClosed);
+            for member in room.members.values() {
+                let _ = member.sender.send(ServerMessage::PeerLeft { peer_id: peer_id.to_string() });
+                if was_sharing {
+                    let _ = member
+                        .sender
+                        .send(ServerMessage::PeerStoppedSharing { peer_id: peer_id.to_string() });
                 }
-                close_room = true;
-            } else {
-                for peer in room.peers.values() {
-                    let _ = peer.sender.send(ServerMessage::PeerLeft { peer_id: peer_id.to_string() });
-                }
-                if room.peers.is_empty() {
-                    close_room = true;
-                }
+            }
+
+            if room.members.is_empty() {
+                remove_room = true;
             }
         }
 
-        if close_room {
+        if remove_room {
             rooms.remove(room_code);
         }
     }
@@ -110,89 +181,156 @@ mod tests {
     use tokio::sync::mpsc::unbounded_channel;
 
     #[tokio::test]
-    async fn create_room_registers_host_and_returns_code() {
+    async fn create_room_registers_creator_and_returns_snapshot() {
         let registry = Registry::new();
         let (tx, _rx) = unbounded_channel();
 
-        let (room_code, host_id) = registry.create_room(tx);
+        let (room_code, snapshot) = registry.create_room("Ana".to_string(), "senha123", tx);
 
         assert_eq!(room_code.len(), 8);
-        assert!(!host_id.is_empty());
+        assert_eq!(snapshot.members, vec![MemberInfo { peer_id: snapshot.peer_id.clone(), nick: "Ana".to_string() }]);
+        assert!(snapshot.active_sharers.is_empty());
     }
 
     #[tokio::test]
-    async fn join_room_returns_none_for_unknown_code() {
+    async fn join_room_not_found_returns_error() {
         let registry = Registry::new();
         let (tx, _rx) = unbounded_channel();
 
-        assert!(registry.join_room("NOPE0000", tx).is_none());
+        let result = registry.join_room("NOPE0000", "Bia".to_string(), "senha123", tx);
+        assert_eq!(result.unwrap_err(), JoinError::NotFound);
     }
 
     #[tokio::test]
-    async fn join_room_notifies_host_with_new_peer_id() {
+    async fn join_room_with_wrong_password_returns_error() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (viewer_tx, _viewer_rx) = unbounded_channel();
+
+        let (room_code, _snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+        let result = registry.join_room(&room_code, "Bia".to_string(), "senha-errada", viewer_tx);
+
+        assert_eq!(result.unwrap_err(), JoinError::WrongPassword);
+    }
+
+    #[tokio::test]
+    async fn join_room_success_notifies_existing_members_and_includes_them_in_snapshot() {
         let registry = Registry::new();
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, _viewer_rx) = unbounded_channel();
 
-        let (room_code, host_id) = registry.create_room(host_tx);
-        let (viewer_id, returned_host_id) = registry.join_room(&room_code, viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+        let snapshot = registry.join_room(&room_code, "Bia".to_string(), "senha123", viewer_tx).unwrap();
 
-        assert_eq!(returned_host_id, host_id);
+        assert_eq!(snapshot.members.len(), 2);
+        assert!(snapshot.members.iter().any(|m| m.peer_id == creator_snapshot.peer_id && m.nick == "Ana"));
+        assert!(snapshot.members.iter().any(|m| m.peer_id == snapshot.peer_id && m.nick == "Bia"));
+
         let notification = host_rx.recv().await.unwrap();
-        assert_eq!(notification, ServerMessage::PeerJoined { peer_id: viewer_id });
+        assert_eq!(notification, ServerMessage::PeerJoined { peer_id: snapshot.peer_id.clone(), nick: "Bia".to_string() });
     }
 
     #[tokio::test]
-    async fn relay_sends_only_to_target_peer() {
+    async fn join_room_full_returns_error() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, _snapshot) = registry.create_room("Membro0".to_string(), "senha123", host_tx);
+
+        for i in 1..MAX_MEMBERS {
+            let (tx, _rx) = unbounded_channel();
+            registry
+                .join_room(&room_code, format!("Membro{i}"), "senha123", tx)
+                .expect("deveria caber até MAX_MEMBERS");
+        }
+
+        let (extra_tx, _extra_rx) = unbounded_channel();
+        let result = registry.join_room(&room_code, "MembroExtra".to_string(), "senha123", extra_tx);
+        assert_eq!(result.unwrap_err(), JoinError::Full);
+    }
+
+    #[tokio::test]
+    async fn start_share_notifies_others_but_not_self() {
         let registry = Registry::new();
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, host_id) = registry.create_room(host_tx);
-        let (viewer_id, _) = registry.join_room(&room_code, viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "senha123", viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drena o PeerJoined
 
-        registry.relay(
-            &room_code,
-            &viewer_id,
-            ServerMessage::Offer { from: host_id.clone(), sdp: "sdp-data".to_string() },
-        );
+        registry.start_share(&room_code, &creator_snapshot.peer_id);
 
-        let received = viewer_rx.recv().await.unwrap();
-        assert_eq!(received, ServerMessage::Offer { from: host_id, sdp: "sdp-data".to_string() });
+        let notification = viewer_rx.recv().await.unwrap();
+        assert_eq!(notification, ServerMessage::PeerStartedSharing { peer_id: creator_snapshot.peer_id.clone() });
         assert!(host_rx.try_recv().is_err());
     }
 
     #[tokio::test]
-    async fn leave_room_as_viewer_notifies_remaining_peers() {
+    async fn stop_share_notifies_others() {
         let registry = Registry::new();
         let (host_tx, mut host_rx) = unbounded_channel();
-        let (viewer_tx, _viewer_rx) = unbounded_channel();
+        let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, _host_id) = registry.create_room(host_tx);
-        let (viewer_id, _) = registry.join_room(&room_code, viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "senha123", viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drena o PeerJoined
 
-        registry.leave_room(&room_code, &viewer_id);
+        registry.start_share(&room_code, &creator_snapshot.peer_id);
+        viewer_rx.recv().await.unwrap(); // drena o PeerStartedSharing
 
-        let notification = host_rx.recv().await.unwrap();
-        assert_eq!(notification, ServerMessage::PeerLeft { peer_id: viewer_id });
+        registry.stop_share(&room_code, &creator_snapshot.peer_id);
+        let notification = viewer_rx.recv().await.unwrap();
+        assert_eq!(notification, ServerMessage::PeerStoppedSharing { peer_id: creator_snapshot.peer_id });
     }
 
     #[tokio::test]
-    async fn leave_room_as_host_closes_room_and_notifies_viewers() {
+    async fn leave_room_survives_when_members_remain() {
         let registry = Registry::new();
         let (host_tx, _host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, host_id) = registry.create_room(host_tx);
-        let (_viewer_id, _) = registry.join_room(&room_code, viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "senha123", viewer_tx).unwrap();
 
-        registry.leave_room(&room_code, &host_id);
+        registry.leave_room(&room_code, &creator_snapshot.peer_id);
 
         let notification = viewer_rx.recv().await.unwrap();
-        assert_eq!(notification, ServerMessage::RoomClosed);
+        assert_eq!(notification, ServerMessage::PeerLeft { peer_id: creator_snapshot.peer_id });
 
-        assert!(registry.join_room(&room_code, unbounded_channel().0).is_none());
+        // A sala continua existindo — entrar de novo com a senha certa funciona.
+        let (another_tx, _another_rx) = unbounded_channel();
+        assert!(registry.join_room(&room_code, "Caio".to_string(), "senha123", another_tx).is_ok());
+    }
+
+    #[tokio::test]
+    async fn leave_room_removes_room_when_last_member_leaves() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+
+        registry.leave_room(&room_code, &creator_snapshot.peer_id);
+
+        let (tx, _rx) = unbounded_channel();
+        let result = registry.join_room(&room_code, "Bia".to_string(), "senha123", tx);
+        assert_eq!(result.unwrap_err(), JoinError::NotFound);
+    }
+
+    #[tokio::test]
+    async fn leave_room_while_sharing_also_sends_peer_stopped_sharing() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (viewer_tx, mut viewer_rx) = unbounded_channel();
+
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "senha123", host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "senha123", viewer_tx).unwrap();
+        registry.start_share(&room_code, &creator_snapshot.peer_id);
+        viewer_rx.recv().await.unwrap(); // drena o PeerStartedSharing
+
+        registry.leave_room(&room_code, &creator_snapshot.peer_id);
+
+        let left = viewer_rx.recv().await.unwrap();
+        assert_eq!(left, ServerMessage::PeerLeft { peer_id: creator_snapshot.peer_id.clone() });
+        let stopped = viewer_rx.recv().await.unwrap();
+        assert_eq!(stopped, ServerMessage::PeerStoppedSharing { peer_id: creator_snapshot.peer_id });
     }
 }
