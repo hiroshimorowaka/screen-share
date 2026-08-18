@@ -95,6 +95,17 @@ fn setup_viewer_connection(
                         pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
                         onicecandidate.forget();
 
+                        let oniceconnectionstatechange = {
+                            let pc_for_state = pc.clone();
+                            wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                                if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
+                                    set_status.set("Não foi possível conectar. Tente recarregar a página.".to_string());
+                                }
+                            })
+                        };
+                        pc.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
+                        oniceconnectionstatechange.forget();
+
                         if let Ok(answer_sdp) = create_answer(&pc, &sdp).await {
                             if let Some(ws) = ws_slot.borrow().as_ref() {
                                 ws.send(&ClientMessage::Answer { to: from.clone(), sdp: answer_sdp });

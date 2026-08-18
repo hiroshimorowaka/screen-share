@@ -4,13 +4,17 @@ use leptos::prelude::*;
 pub fn HomePage() -> impl IntoView {
     let (status, set_status) = signal("Pronto para compartilhar.".to_string());
     let (room_link, set_room_link) = signal(None::<String>);
+    let supported = display_media_supported();
 
     let start_sharing = start_sharing_handler(set_status, set_room_link);
 
     view! {
         <div class="home">
             <h1>"Compartilhar tela"</h1>
-            <button on:click=start_sharing>"Iniciar compartilhamento"</button>
+            <button on:click=start_sharing disabled=move || !supported>"Iniciar compartilhamento"</button>
+            <Show when=move || !supported>
+                <p>"Seu navegador não suporta compartilhamento de tela. Tente um navegador atualizado (Chrome, Edge, Firefox)."</p>
+            </Show>
             <p>{status}</p>
             <Show when=move || room_link.get().is_some()>
                 <p>
@@ -22,6 +26,16 @@ pub fn HomePage() -> impl IntoView {
             </Show>
         </div>
     }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn display_media_supported() -> bool {
+    true
+}
+
+#[cfg(feature = "hydrate")]
+fn display_media_supported() -> bool {
+    crate::client::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -117,6 +131,20 @@ fn start_sharing_handler(
                             );
                             pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
                             onicecandidate.forget();
+
+                            let failed_peer_id = peer_id.clone();
+                            let oniceconnectionstatechange = {
+                                let pc_for_state = pc.clone();
+                                wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                                    if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
+                                        set_status.set(format!(
+                                            "Não foi possível conectar com um espectador ({failed_peer_id})."
+                                        ));
+                                    }
+                                })
+                            };
+                            pc.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
+                            oniceconnectionstatechange.forget();
 
                             if let Ok(sdp) = create_offer(&pc).await {
                                 if let Some(ws) = ws_slot.borrow().as_ref() {

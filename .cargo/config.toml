@@ -1,0 +1,7 @@
+[env]
+# leptos 0.8's HydrationScripts decides between "<name>.wasm" and
+# "<name>_bg.wasm" at compile time via option_env!("LEPTOS_OUTPUT_NAME").
+# cargo-leptos 0.3.7 always renames the wasm-bindgen output to plain
+# "<name>.wasm" but doesn't set this compile-time env var, so without this,
+# HydrationScripts asks the browser to fetch a file that doesn't exist.
+LEPTOS_OUTPUT_NAME = "screen_share"
