@@ -47,6 +47,7 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "HtmlMediaElement",
     "Clipboard",
 ] }
+argon2 = { version = "0.5.3", optional = true, features = ["std"] }
 
 [features]
 hydrate = [
@@ -64,10 +65,12 @@ ssr = [
     "dep:uuid",
     "dep:rand",
     "dep:futures-util",
+    "dep:argon2",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
 ]
+argon2 = ["dep:argon2"]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
 [profile.wasm-release]
