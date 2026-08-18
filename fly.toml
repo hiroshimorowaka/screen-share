@@ -1,0 +1,23 @@
+app = "hiroshi-screen-share"
+primary_region = "gru"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  LEPTOS_OUTPUT_NAME = "screen_share"
+  LEPTOS_SITE_ROOT = "site"
+  LEPTOS_SITE_PKG_DIR = "pkg"
+  LEPTOS_ENV = "PROD"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+  processes = ["app"]
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

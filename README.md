@@ -42,36 +42,35 @@ são validados manualmente (checklist abaixo).
 7. Abra um link com um código inexistente — confirme "Sessão não encontrada ou
    já terminou."
 
-## Deploy no Render (plano free)
+## Deploy no Fly.io
 
 O projeto já vem pronto pra isso: `Dockerfile` (build multi-stage: compila com
 `cargo-leptos --release`, imagem final só com o binário + assets) e
-`render.yaml` (Blueprint do Render, plano `free`, runtime Docker). Testado
-localmente com `docker build` + `docker run` antes de subir.
+`fly.toml` já configurado (porta fixa 8080, região `gru` — São Paulo,
+`shared-cpu-1x` / 256MB, e as máquinas ficam paradas quando ninguém está
+usando — `auto_stop_machines`/`min_machines_running = 0` — pra não consumir
+saldo à toa). Testado localmente com `docker build` + `docker run` antes de
+configurar.
 
-1. Suba este repositório num GitHub (ou GitLab/Bitbucket) que sua conta do
-   Render consiga acessar.
-2. No [dashboard do Render](https://dashboard.render.com), clique
-   **New +** → **Blueprint**, aponte pro repositório. O Render lê o
-   `render.yaml` sozinho e já cria o serviço configurado — não precisa
-   preencher nada manualmente.
-3. Espere o build (a primeira leva uns minutos, compila tudo do zero).
-4. Pronto — o Render te dá uma URL tipo `https://screen-share-xxxx.onrender.com`,
+1. Instale o `flyctl` (se ainda não tiver):
+   ```bash
+   curl -L https://fly.io/install.sh | sh
+   ```
+2. Faça login (abre o navegador):
+   ```bash
+   fly auth login
+   ```
+3. Na raiz do projeto, suba o app (a primeira vez cria o app no Fly com o
+   nome do `fly.toml`; se `hiroshi-screen-share` já estiver em uso por outra
+   conta, troque o campo `app` no `fly.toml` antes):
+   ```bash
+   fly deploy
+   ```
+4. Pronto — o Fly te dá uma URL tipo `https://hiroshi-screen-share.fly.dev`,
    já com HTTPS. É esse link que você manda pros seus amigos.
 
-Duas coisas do plano free que valem saber:
-
-- **Cold start:** o serviço "dorme" depois de ~15 min sem uso e demora uns
-  segundos pra acordar no primeiro acesso seguinte. Sem problema pra uso
-  esporádico entre amigos, só avise quem for abrir o link que a primeira
-  carga pode demorar um pouco.
-- Não precisa configurar HTTPS/TLS na mão — o Render já termina isso na
-  borda, o container só precisa escutar HTTP na porta que o Render manda
-  (a variável `$PORT`, já tratada no `Dockerfile`).
-
-Se preferir subir manualmente em vez de usar o Blueprint: **New +** →
-**Web Service**, aponte pro repositório, escolha **Docker** como runtime e
-plano **Free** — o Render detecta o `Dockerfile` sozinho.
+Pra rodar de novo depois de qualquer mudança no código, é só `fly deploy`
+outra vez.
 
 ## Deploy (geral)
 

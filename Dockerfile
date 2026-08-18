@@ -28,9 +28,10 @@ ENV LEPTOS_OUTPUT_NAME=screen_share
 ENV LEPTOS_SITE_ROOT=site
 ENV LEPTOS_SITE_PKG_DIR=pkg
 ENV LEPTOS_ENV=PROD
+# Fly.io (unlike Render) doesn't inject a dynamic $PORT — you pick a fixed
+# port and declare it once in fly.toml's internal_port. Keep these in sync.
+ENV LEPTOS_SITE_ADDR=0.0.0.0:8080
 
-EXPOSE 10000
+EXPOSE 8080
 
-# Render (and most PaaS) inject $PORT at run time; LEPTOS_SITE_ADDR can't be
-# set as a static build-time ENV because it needs that value inlined.
-CMD ["/bin/sh", "-c", "LEPTOS_SITE_ADDR=0.0.0.0:${PORT:-10000} ./screen_share"]
+CMD ["./screen_share"]
