@@ -7,9 +7,10 @@ pub fn HomePage() -> impl IntoView {
     let (status, set_status) = signal("Pronto para compartilhar.".to_string());
     let (room_link, set_room_link) = signal(None::<String>);
     let (copied, set_copied) = signal(false);
+    let (is_sharing, set_is_sharing) = signal(false);
     let supported = display_media_supported();
 
-    let start_sharing = start_sharing_handler(set_status, set_room_link);
+    let toggle_sharing = sharing_toggle_handler(set_status, set_room_link, is_sharing, set_is_sharing);
     let copy_link = copy_link_handler(room_link, set_copied);
 
     let lamp_class = move || {
@@ -17,6 +18,13 @@ pub fn HomePage() -> impl IntoView {
         format!("lamp lamp--{variant}")
     };
     let eyebrow_label = move || status_meta(&status.get()).1;
+    let button_class = move || {
+        if is_sharing.get() {
+            "btn btn--danger"
+        } else {
+            "btn btn--primary"
+        }
+    };
 
     view! {
         <div class="panel">
@@ -34,8 +42,8 @@ pub fn HomePage() -> impl IntoView {
                 </p>
             </Show>
 
-            <button class="btn btn--primary" on:click=start_sharing disabled=move || !supported>
-                "Iniciar compartilhamento"
+            <button class=button_class on:click=toggle_sharing disabled=move || !supported>
+                {move || if is_sharing.get() { "Parar compartilhamento" } else { "Iniciar compartilhamento" }}
             </button>
 
             <Show when=move || supported>
@@ -103,9 +111,11 @@ fn copy_link_handler(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn start_sharing_handler(
+fn sharing_toggle_handler(
     set_status: WriteSignal<String>,
     _set_room_link: WriteSignal<Option<String>>,
+    _is_sharing: ReadSignal<bool>,
+    _set_is_sharing: WriteSignal<bool>,
 ) -> impl Fn(leptos::ev::MouseEvent) + 'static {
     move |_| {
         set_status.set("Pronto para compartilhar.".to_string());
@@ -113,9 +123,11 @@ fn start_sharing_handler(
 }
 
 #[cfg(feature = "hydrate")]
-fn start_sharing_handler(
+fn sharing_toggle_handler(
     set_status: WriteSignal<String>,
     set_room_link: WriteSignal<Option<String>>,
+    is_sharing: ReadSignal<bool>,
+    set_is_sharing: WriteSignal<bool>,
 ) -> impl Fn(leptos::ev::MouseEvent) + 'static {
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -133,7 +145,49 @@ fn start_sharing_handler(
     let peers: Rc<RefCell<HashMap<String, RtcPeerConnection>>> = Rc::new(RefCell::new(HashMap::new()));
     let local_stream: Rc<RefCell<Option<MediaStream>>> = Rc::new(RefCell::new(None));
 
+    // Usado tanto quando o navegador avisa que a captura terminou (botão nativo
+    // "Stop sharing") quanto quando a pessoa clica em "Parar compartilhamento"
+    // no nosso próprio botão — as duas situações precisam do mesmo cleanup.
+    fn stop_sharing(
+        ws_slot: &Rc<RefCell<Option<WsClient>>>,
+        peers: &Rc<RefCell<HashMap<String, RtcPeerConnection>>>,
+        local_stream: &Rc<RefCell<Option<MediaStream>>>,
+        set_room_link: WriteSignal<Option<String>>,
+        set_is_sharing: WriteSignal<bool>,
+        set_status: WriteSignal<String>,
+        final_status: &str,
+    ) {
+        if let Some(stream) = local_stream.borrow_mut().take() {
+            for track in stream.get_tracks().iter() {
+                let track: MediaStreamTrack = track.unchecked_into();
+                track.stop();
+            }
+        }
+        if let Some(ws) = ws_slot.borrow_mut().take() {
+            ws.close();
+        }
+        for (_, pc) in peers.borrow_mut().drain() {
+            pc.close();
+        }
+        set_room_link.set(None);
+        set_is_sharing.set(false);
+        set_status.set(final_status.to_string());
+    }
+
     move |_| {
+        if is_sharing.get_untracked() {
+            stop_sharing(
+                &ws_slot,
+                &peers,
+                &local_stream,
+                set_room_link,
+                set_is_sharing,
+                set_status,
+                "Pronto para compartilhar.",
+            );
+            return;
+        }
+
         let ws_slot = ws_slot.clone();
         let peers = peers.clone();
         let local_stream = local_stream.clone();
@@ -149,6 +203,7 @@ fn start_sharing_handler(
                 }
             };
             *local_stream.borrow_mut() = Some(stream);
+            set_is_sharing.set(true);
             set_status.set("Conectando...".to_string());
 
             // O navegador também expõe seu próprio botão "Stop sharing" na barra
@@ -158,15 +213,17 @@ fn start_sharing_handler(
                 if let Some(track) = stream_ref.get_tracks().get(0).dyn_into::<MediaStreamTrack>().ok() {
                     let ws_for_end = ws_slot.clone();
                     let peers_for_end = peers.clone();
+                    let local_stream_for_end = local_stream.clone();
                     let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                        if let Some(ws) = ws_for_end.borrow().as_ref() {
-                            ws.close();
-                        }
-                        for (_, pc) in peers_for_end.borrow_mut().drain() {
-                            pc.close();
-                        }
-                        set_room_link.set(None);
-                        set_status.set("Compartilhamento encerrado.".to_string());
+                        stop_sharing(
+                            &ws_for_end,
+                            &peers_for_end,
+                            &local_stream_for_end,
+                            set_room_link,
+                            set_is_sharing,
+                            set_status,
+                            "Compartilhamento encerrado.",
+                        );
                     });
                     track.set_onended(Some(onended.as_ref().unchecked_ref()));
                     onended.forget();

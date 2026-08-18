@@ -231,6 +231,17 @@ h1 {
   cursor: not-allowed;
 }
 
+.btn--danger {
+  background: var(--error);
+  color: #fff;
+  padding: 0.75rem 1.4rem;
+  width: 100%;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--error) 85%, white 15%);
+}
+
 .btn--ghost {
   background: transparent;
   border: 1px solid var(--border);
