@@ -44,6 +44,7 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "RtcIceConnectionState",
     "RtcRtpSender",
     "HtmlVideoElement",
+    "Clipboard",
 ] }
 
 [features]

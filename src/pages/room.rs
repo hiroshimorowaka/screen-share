@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use crate::pages::status::status_meta;
+
 #[component]
 pub fn RoomPage() -> impl IntoView {
     let params = use_params_map();
@@ -8,15 +10,35 @@ pub fn RoomPage() -> impl IntoView {
     let initial_code = params.read_untracked().get("code").unwrap_or_default();
 
     let (status, set_status) = signal("Conectando...".to_string());
+    let (connected, set_connected) = signal(false);
     let video_ref = NodeRef::<leptos::html::Video>::new();
 
-    setup_viewer_connection(initial_code, set_status, video_ref);
+    setup_viewer_connection(initial_code, set_status, set_connected, video_ref);
+
+    let lamp_class = move || {
+        let (variant, _) = status_meta(&status.get());
+        format!("lamp lamp--{variant}")
+    };
+    let eyebrow_label = move || status_meta(&status.get()).1;
 
     view! {
-        <div class="room">
-            <h1>"Assistindo sala " {code}</h1>
-            <p>{status}</p>
-            <video node_ref=video_ref autoplay=true playsinline=true style="max-width: 100%;"></video>
+        <div class="panel">
+            <div class="status-row">
+                <span class=lamp_class></span>
+                <span class="eyebrow">{eyebrow_label}</span>
+                <span class="status-row__spacer"></span>
+                <span class="status-row__meta">{code}</span>
+            </div>
+
+            <div class="stage">
+                <video node_ref=video_ref autoplay=true playsinline=true></video>
+                <Show when=move || !connected.get()>
+                    <div class="stage__placeholder">
+                        <span class=lamp_class></span>
+                        <span>{status}</span>
+                    </div>
+                </Show>
+            </div>
         </div>
     }
 }
@@ -25,6 +47,7 @@ pub fn RoomPage() -> impl IntoView {
 fn setup_viewer_connection(
     _room_code: String,
     _set_status: WriteSignal<String>,
+    _set_connected: WriteSignal<bool>,
     _video_ref: NodeRef<leptos::html::Video>,
 ) {
 }
@@ -33,6 +56,7 @@ fn setup_viewer_connection(
 fn setup_viewer_connection(
     room_code: String,
     set_status: WriteSignal<String>,
+    set_connected: WriteSignal<bool>,
     video_ref: NodeRef<leptos::html::Video>,
 ) {
     use std::cell::RefCell;
@@ -70,6 +94,7 @@ fn setup_viewer_connection(
                                     if let Some(video) = video_ref.get() {
                                         video.set_src_object(Some(&stream));
                                     }
+                                    set_connected.set(true);
                                 }
                             },
                         );
@@ -99,6 +124,7 @@ fn setup_viewer_connection(
                             let pc_for_state = pc.clone();
                             wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
                                 if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
+                                    set_connected.set(false);
                                     set_status.set("Não foi possível conectar. Tente recarregar a página.".to_string());
                                 }
                             })
@@ -122,6 +148,7 @@ fn setup_viewer_connection(
                     }
                 }
                 ServerMessage::RoomClosed => {
+                    set_connected.set(false);
                     set_status.set("O compartilhamento foi encerrado.".to_string());
                     if let Some(pc) = pc_slot.borrow_mut().take() {
                         pc.close();
@@ -144,6 +171,7 @@ fn setup_viewer_connection(
                 }
             });
             ws.on_close(move || {
+                set_connected.set(false);
                 set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
             });
             *ws_slot.borrow_mut() = Some(ws);

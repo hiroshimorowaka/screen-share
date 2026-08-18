@@ -1,28 +1,61 @@
 use leptos::prelude::*;
 
+use crate::pages::status::status_meta;
+
 #[component]
 pub fn HomePage() -> impl IntoView {
     let (status, set_status) = signal("Pronto para compartilhar.".to_string());
     let (room_link, set_room_link) = signal(None::<String>);
+    let (copied, set_copied) = signal(false);
     let supported = display_media_supported();
 
     let start_sharing = start_sharing_handler(set_status, set_room_link);
+    let copy_link = copy_link_handler(room_link, set_copied);
+
+    let lamp_class = move || {
+        let (variant, _) = status_meta(&status.get());
+        format!("lamp lamp--{variant}")
+    };
+    let eyebrow_label = move || status_meta(&status.get()).1;
 
     view! {
-        <div class="home">
+        <div class="panel">
+            <div class="status-row">
+                <span class=lamp_class></span>
+                <span class="eyebrow">{eyebrow_label}</span>
+            </div>
+
             <h1>"Compartilhar tela"</h1>
-            <button on:click=start_sharing disabled=move || !supported>"Iniciar compartilhamento"</button>
+            <p class="subtext">"Escolha uma janela ou tela e mande o link pra quem quiser ver."</p>
+
             <Show when=move || !supported>
-                <p>"Seu navegador não suporta compartilhamento de tela. Tente um navegador atualizado (Chrome, Edge, Firefox)."</p>
-            </Show>
-            <p>{status}</p>
-            <Show when=move || room_link.get().is_some()>
-                <p>
-                    "Link para convidar: "
-                    <a href=move || room_link.get().unwrap_or_default()>
-                        {move || room_link.get().unwrap_or_default()}
-                    </a>
+                <p class="status-text status-text--error">
+                    "Seu navegador não suporta compartilhamento de tela. Tente um navegador atualizado (Chrome, Edge, Firefox)."
                 </p>
+            </Show>
+
+            <button class="btn btn--primary" on:click=start_sharing disabled=move || !supported>
+                "Iniciar compartilhamento"
+            </button>
+
+            <Show when=move || supported>
+                <p class="status-text" class:status-text--error=move || status_meta(&status.get()).0 == "error">
+                    {status}
+                </p>
+            </Show>
+
+            <Show when=move || room_link.get().is_some()>
+                <div class="invite">
+                    <p class="invite__label">"Link da sala"</p>
+                    <div class="invite__row">
+                        <a class="invite__link" href=move || room_link.get().unwrap_or_default()>
+                            {move || room_link.get().unwrap_or_default()}
+                        </a>
+                        <button class="btn btn--ghost" on:click=copy_link.clone()>
+                            {move || if copied.get() { "Copiado!" } else { "Copiar" }}
+                        </button>
+                    </div>
+                </div>
             </Show>
         </div>
     }
@@ -36,6 +69,37 @@ fn display_media_supported() -> bool {
 #[cfg(feature = "hydrate")]
 fn display_media_supported() -> bool {
     crate::client::webrtc::is_display_media_supported()
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn copy_link_handler(
+    _room_link: ReadSignal<Option<String>>,
+    _set_copied: WriteSignal<bool>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    move |_| {}
+}
+
+#[cfg(feature = "hydrate")]
+fn copy_link_handler(
+    room_link: ReadSignal<Option<String>>,
+    set_copied: WriteSignal<bool>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    use wasm_bindgen::JsCast;
+
+    move |_| {
+        let Some(link) = room_link.get_untracked() else { return };
+        let Some(window) = web_sys::window() else { return };
+        let _ = window.navigator().clipboard().write_text(&link);
+
+        set_copied.set(true);
+        let reset = wasm_bindgen::prelude::Closure::once_into_js(move || {
+            set_copied.set(false);
+        });
+        let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+            reset.as_ref().unchecked_ref(),
+            1500,
+        );
+    }
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -59,7 +123,7 @@ fn start_sharing_handler(
 
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
-    use web_sys::{MediaStream, RtcPeerConnection, RtcPeerConnectionIceEvent};
+    use web_sys::{MediaStream, MediaStreamTrack, RtcPeerConnection, RtcPeerConnectionIceEvent};
 
     use crate::client::socket::WsClient;
     use crate::client::webrtc::{add_ice_candidate, capture_display, create_offer, new_peer_connection};
@@ -86,6 +150,28 @@ fn start_sharing_handler(
             };
             *local_stream.borrow_mut() = Some(stream);
             set_status.set("Conectando...".to_string());
+
+            // O navegador também expõe seu próprio botão "Stop sharing" na barra
+            // de captura — sem isso, clicar nele deixava quem assiste com a
+            // última imagem congelada, porque nunca avisávamos o servidor.
+            if let Some(stream_ref) = local_stream.borrow().as_ref() {
+                if let Some(track) = stream_ref.get_tracks().get(0).dyn_into::<MediaStreamTrack>().ok() {
+                    let ws_for_end = ws_slot.clone();
+                    let peers_for_end = peers.clone();
+                    let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                        if let Some(ws) = ws_for_end.borrow().as_ref() {
+                            ws.close();
+                        }
+                        for (_, pc) in peers_for_end.borrow_mut().drain() {
+                            pc.close();
+                        }
+                        set_room_link.set(None);
+                        set_status.set("Compartilhamento encerrado.".to_string());
+                    });
+                    track.set_onended(Some(onended.as_ref().unchecked_ref()));
+                    onended.forget();
+                }
+            }
 
             let ws_slot_for_messages = ws_slot.clone();
             let peers_for_messages = peers.clone();

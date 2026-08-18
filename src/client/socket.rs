@@ -45,4 +45,8 @@ impl WsClient {
         let cb = Closure::once_into_js(callback);
         self.socket.set_onclose(Some(cb.as_ref().unchecked_ref()));
     }
+
+    pub fn close(&self) {
+        let _ = self.socket.close();
+    }
 }

@@ -59,3 +59,7 @@ Este projeto compila para um único binário Rust. Em produção:
   para o `cargo-leptos` 0.3.7 e o `leptos` 0.8 concordarem no nome do arquivo
   `.wasm` gerado (sem isso, o navegador tenta buscar um arquivo que não existe
   e a página nunca hidrata). Mantenha esse arquivo se atualizar dependências.
+
+**Não** rode o binário compilado diretamente (`./target/debug/screen_share`)
+para testar localmente — nesse modo a página falha ao hidratar. Use sempre
+`cargo leptos watch` (dev) ou `cargo leptos serve --release` (produção local).
