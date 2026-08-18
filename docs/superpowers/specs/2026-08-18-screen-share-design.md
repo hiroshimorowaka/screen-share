@@ -48,7 +48,7 @@ Deploy: um único binário Rust, atrás de um domínio com HTTPS (obrigatório p
 - **Navegador sem suporte** a `getDisplayMedia`: mensagem clara antes de tentar qualquer coisa.
 - **Usuário cancela a seleção de tela**: volta ao estado inicial sem erro, permite tentar de novo.
 - **Falha de ICE/conexão P2P** (ex.: rede restritiva sem TURN): após timeout, mostra "não foi possível conectar" só para o espectador afetado — os demais não são impactados.
-- **WebSocket cai**: tenta reconectar uma vez; se falhar, mostra "conexão perdida, recarregue a página". Como o vídeo já é P2P direto após o handshake, uma queda do WebSocket depois de conectado não interrompe quem já está assistindo.
+- **WebSocket cai**: mostra "conexão perdida, recarregue a página" (sem retry automático — o `peer_id` é atribuído pelo servidor a cada conexão nova, então uma reconexão silenciosa não teria como retomar a `RtcPeerConnection` já negociada; recarregar já refaz o fluxo do zero corretamente). Como o vídeo já é P2P direto após o handshake, uma queda do WebSocket depois de conectado não interrompe quem já está assistindo.
 
 ## Testes
 
