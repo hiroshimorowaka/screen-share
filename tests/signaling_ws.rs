@@ -21,60 +21,81 @@ async fn spawn_test_server() -> String {
     format!("ws://{addr}/ws")
 }
 
+async fn recv_json(ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin)) -> ServerMessage {
+    match ws.next().await.unwrap().unwrap() {
+        Message::Text(text) => serde_json::from_str(&text).unwrap(),
+        other => panic!("mensagem inesperada: {other:?}"),
+    }
+}
+
+async fn send_json(
+    ws: &mut (impl futures_util::Sink<Message, Error = tokio_tungstenite::tungstenite::Error> + Unpin),
+    msg: &ClientMessage,
+) {
+    ws.send(Message::Text(serde_json::to_string(msg).unwrap().into())).await.unwrap();
+}
+
 #[tokio::test]
-async fn host_receives_peer_joined_and_viewer_receives_relayed_offer() {
+async fn create_room_then_join_with_wrong_and_right_password() {
     let url = spawn_test_server().await;
 
-    let (mut host_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    host_ws
-        .send(Message::Text(serde_json::to_string(&ClientMessage::CreateRoom).unwrap().into()))
-        .await
-        .unwrap();
+    let (mut creator_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut creator_ws, &ClientMessage::CreateRoom { nick: "Ana".to_string(), password: "senha123".to_string() }).await;
 
-    let created: ServerMessage = match host_ws.next().await.unwrap().unwrap() {
-        Message::Text(text) => serde_json::from_str(&text).unwrap(),
-        other => panic!("mensagem inesperada: {other:?}"),
-    };
-    let (room_code, host_id) = match created {
-        ServerMessage::RoomCreated { room, peer_id } => (room, peer_id),
-        other => panic!("esperava RoomCreated, recebeu {other:?}"),
-    };
-
-    let (mut viewer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    viewer_ws
-        .send(Message::Text(
-            serde_json::to_string(&ClientMessage::Join { room: room_code.clone() }).unwrap().into(),
-        ))
-        .await
-        .unwrap();
-
-    let joined: ServerMessage = match viewer_ws.next().await.unwrap().unwrap() {
-        Message::Text(text) => serde_json::from_str(&text).unwrap(),
-        other => panic!("mensagem inesperada: {other:?}"),
-    };
-    let viewer_id = match joined {
-        ServerMessage::Joined { peer_id } => peer_id,
+    let room = match recv_json(&mut creator_ws).await {
+        ServerMessage::Joined { room, members, .. } => {
+            assert_eq!(members.len(), 1);
+            room
+        }
         other => panic!("esperava Joined, recebeu {other:?}"),
     };
 
-    let peer_joined: ServerMessage = match host_ws.next().await.unwrap().unwrap() {
-        Message::Text(text) => serde_json::from_str(&text).unwrap(),
-        other => panic!("mensagem inesperada: {other:?}"),
-    };
-    assert_eq!(peer_joined, ServerMessage::PeerJoined { peer_id: viewer_id.clone() });
+    let (mut viewer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut viewer_ws, &ClientMessage::JoinRoom { room: room.clone(), nick: "Bia".to_string(), password: "senha-errada".to_string() }).await;
+    assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::AuthFailed);
 
-    host_ws
-        .send(Message::Text(
-            serde_json::to_string(&ClientMessage::Offer { to: viewer_id.clone(), sdp: "test-sdp".to_string() })
-                .unwrap()
-                .into(),
-        ))
-        .await
-        .unwrap();
-
-    let offer: ServerMessage = match viewer_ws.next().await.unwrap().unwrap() {
-        Message::Text(text) => serde_json::from_str(&text).unwrap(),
-        other => panic!("mensagem inesperada: {other:?}"),
+    send_json(&mut viewer_ws, &ClientMessage::JoinRoom { room: room.clone(), nick: "Bia".to_string(), password: "senha123".to_string() }).await;
+    let viewer_id = match recv_json(&mut viewer_ws).await {
+        ServerMessage::Joined { peer_id, members, .. } => {
+            assert_eq!(members.len(), 2);
+            peer_id
+        }
+        other => panic!("esperava Joined, recebeu {other:?}"),
     };
-    assert_eq!(offer, ServerMessage::Offer { from: host_id, sdp: "test-sdp".to_string() });
+
+    assert_eq!(recv_json(&mut creator_ws).await, ServerMessage::PeerJoined { peer_id: viewer_id, nick: "Bia".to_string() });
+}
+
+#[tokio::test]
+async fn start_share_broadcasts_and_offer_is_relayed() {
+    let url = spawn_test_server().await;
+
+    let (mut sharer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut sharer_ws, &ClientMessage::CreateRoom { nick: "Ana".to_string(), password: "senha123".to_string() }).await;
+    let (room, sharer_id) = match recv_json(&mut sharer_ws).await {
+        ServerMessage::Joined { room, peer_id, .. } => (room, peer_id),
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    let (mut viewer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut viewer_ws, &ClientMessage::JoinRoom { room: room.clone(), nick: "Bia".to_string(), password: "senha123".to_string() }).await;
+    let viewer_id = match recv_json(&mut viewer_ws).await {
+        ServerMessage::Joined { peer_id, .. } => peer_id,
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+    recv_json(&mut sharer_ws).await; // drena o PeerJoined
+
+    send_json(&mut sharer_ws, &ClientMessage::StartShare).await;
+    assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::PeerStartedSharing { peer_id: sharer_id.clone() });
+
+    send_json(&mut sharer_ws, &ClientMessage::Offer { to: viewer_id, sdp: "test-sdp".to_string() }).await;
+    assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::Offer { from: sharer_id, sdp: "test-sdp".to_string() });
+}
+
+#[tokio::test]
+async fn room_not_found_for_unknown_code() {
+    let url = spawn_test_server().await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut ws, &ClientMessage::JoinRoom { room: "NOPE0000".to_string(), nick: "Bia".to_string(), password: "x".to_string() }).await;
+    assert_eq!(recv_json(&mut ws).await, ServerMessage::RoomNotFound);
 }
