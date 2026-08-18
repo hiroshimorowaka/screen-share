@@ -192,6 +192,16 @@ fn start_sharing_handler(
                         spawn_local(async move {
                             let Ok(pc) = new_peer_connection() else { return };
 
+                            // Guarda a conexão já aqui, antes de negociar. Candidatos
+                            // ICE do espectador podem chegar a qualquer momento a partir
+                            // de agora; o navegador só sabe enfileirá-los até a resposta
+                            // (answer) ser aplicada se já houver uma RTCPeerConnection
+                            // para receber. Guardar isso só no fim (como estava antes)
+                            // fazia esses candidatos serem descartados no braço
+                            // `IceCandidate` mais abaixo, deixando a transmissão sem
+                            // rota de mídia utilizável (tela preta do outro lado).
+                            peers.borrow_mut().insert(peer_id.clone(), pc.clone());
+
                             if let Some(stream) = local_stream.borrow().as_ref() {
                                 for track in stream.get_tracks().iter() {
                                     let track: web_sys::MediaStreamTrack = track.unchecked_into();
@@ -234,11 +244,9 @@ fn start_sharing_handler(
 
                             if let Ok(sdp) = create_offer(&pc).await {
                                 if let Some(ws) = ws_slot.borrow().as_ref() {
-                                    ws.send(&ClientMessage::Offer { to: peer_id.clone(), sdp });
+                                    ws.send(&ClientMessage::Offer { to: peer_id, sdp });
                                 }
                             }
-
-                            peers.borrow_mut().insert(peer_id, pc);
                         });
                     }
                     ServerMessage::Answer { from, sdp } => {

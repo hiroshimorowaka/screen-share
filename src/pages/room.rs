@@ -88,11 +88,24 @@ fn setup_viewer_connection(
                     spawn_local(async move {
                         let Ok(pc) = new_peer_connection() else { return };
 
+                        // Guarda a conexão já aqui, antes de negociar. Candidatos ICE
+                        // podem chegar do outro lado a qualquer momento a partir de agora
+                        // (às vezes antes mesmo da resposta/answer terminar); o navegador
+                        // sabe enfileirá-los internamente até a descrição remota ser
+                        // definida em create_answer, mas só se addIceCandidate já tiver
+                        // uma RTCPeerConnection para usar. Guardar isso só no fim (depois
+                        // do await abaixo) fazia esses candidatos serem descartados no
+                        // braço `IceCandidate` mais abaixo, e a tela ficava preta porque a
+                        // negociação "dava certo" sem nenhuma rota de mídia utilizável.
+                        *pc_slot.borrow_mut() = Some(pc.clone());
+
                         let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
                             move |event: RtcTrackEvent| {
                                 if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
                                     if let Some(video) = video_ref.get() {
+                                        video.set_muted(true);
                                         video.set_src_object(Some(&stream));
+                                        let _ = video.play();
                                     }
                                     set_connected.set(true);
                                 }
@@ -138,7 +151,6 @@ fn setup_viewer_connection(
                             }
                         }
 
-                        *pc_slot.borrow_mut() = Some(pc);
                         set_status.set("Conectado.".to_string());
                     });
                 }
