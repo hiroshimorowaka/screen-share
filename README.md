@@ -42,7 +42,38 @@ são validados manualmente (checklist abaixo).
 7. Abra um link com um código inexistente — confirme "Sessão não encontrada ou
    já terminou."
 
-## Deploy
+## Deploy no Render (plano free)
+
+O projeto já vem pronto pra isso: `Dockerfile` (build multi-stage: compila com
+`cargo-leptos --release`, imagem final só com o binário + assets) e
+`render.yaml` (Blueprint do Render, plano `free`, runtime Docker). Testado
+localmente com `docker build` + `docker run` antes de subir.
+
+1. Suba este repositório num GitHub (ou GitLab/Bitbucket) que sua conta do
+   Render consiga acessar.
+2. No [dashboard do Render](https://dashboard.render.com), clique
+   **New +** → **Blueprint**, aponte pro repositório. O Render lê o
+   `render.yaml` sozinho e já cria o serviço configurado — não precisa
+   preencher nada manualmente.
+3. Espere o build (a primeira leva uns minutos, compila tudo do zero).
+4. Pronto — o Render te dá uma URL tipo `https://screen-share-xxxx.onrender.com`,
+   já com HTTPS. É esse link que você manda pros seus amigos.
+
+Duas coisas do plano free que valem saber:
+
+- **Cold start:** o serviço "dorme" depois de ~15 min sem uso e demora uns
+  segundos pra acordar no primeiro acesso seguinte. Sem problema pra uso
+  esporádico entre amigos, só avise quem for abrir o link que a primeira
+  carga pode demorar um pouco.
+- Não precisa configurar HTTPS/TLS na mão — o Render já termina isso na
+  borda, o container só precisa escutar HTTP na porta que o Render manda
+  (a variável `$PORT`, já tratada no `Dockerfile`).
+
+Se preferir subir manualmente em vez de usar o Blueprint: **New +** →
+**Web Service**, aponte pro repositório, escolha **Docker** como runtime e
+plano **Free** — o Render detecta o `Dockerfile` sozinho.
+
+## Deploy (geral)
 
 Este projeto compila para um único binário Rust. Em produção:
 
