@@ -22,8 +22,8 @@ pub fn RoomPage() -> impl IntoView {
     let eyebrow_label = move || status_meta(&status.get()).1;
 
     view! {
-        <div class="panel panel--stage">
-            <div class="status-row">
+        <div class="stage-page">
+            <div class="stage-header">
                 <span class=lamp_class></span>
                 <span class="eyebrow">{eyebrow_label}</span>
                 <span class="status-row__spacer"></span>

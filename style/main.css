@@ -66,12 +66,17 @@ a {
   animation: rise 0.4s ease-out;
 }
 
-/* Página de quem assiste: o player é o conteúdo principal, então o cartão
-   cresce com a janela em vez de ficar limitado à largura de um formulário.
-   O terceiro termo do min() garante que a altura do vídeo 16:9 nunca passe
-   de ~82% da altura da viewport, mesmo em janelas bem largas e baixas. */
-.panel--stage {
-  max-width: min(96vw, 1600px, calc(82vh * 16 / 9));
+/* Página de quem assiste: modo "tela cheia" — sem cartão, o vídeo ocupa
+   praticamente toda a janela, com só uma barra fina de status no topo. */
+body:has(.stage-page) {
+  padding: 0;
+}
+
+.stage-page {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
 }
 
 @keyframes rise {
@@ -283,17 +288,28 @@ h1 {
 
 /* --- viewer stage --- */
 
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  padding: 0.85rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
 .stage {
   position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
   width: 100%;
-  aspect-ratio: 16 / 9;
   background: #000;
-  border-radius: 0.6rem;
   overflow: hidden;
-  border: 1px solid var(--border);
 }
 
 .stage video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
