@@ -1650,6 +1650,7 @@ dependencies = [
  "axum",
  "console_error_panic_hook",
  "futures-util",
+ "js-sys",
  "leptos",
  "leptos_axum",
  "leptos_meta",
@@ -1661,6 +1662,8 @@ dependencies = [
  "tokio-tungstenite 0.30.0",
  "uuid",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]

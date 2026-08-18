@@ -2,8 +2,11 @@ use leptos::prelude::*;
 use leptos_meta::{provide_meta_context, MetaTags, Stylesheet, Title};
 use leptos_router::{
     components::{Route, Router, Routes},
-    StaticSegment,
+    ParamSegment, StaticSegment,
 };
+
+use crate::pages::home::HomePage;
+use crate::pages::room::RoomPage;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -33,14 +36,10 @@ pub fn App() -> impl IntoView {
         <Router>
             <main>
                 <Routes fallback=|| "Página não encontrada.".into_view()>
-                    <Route path=StaticSegment("") view=HomePlaceholder/>
+                    <Route path=StaticSegment("") view=HomePage/>
+                    <Route path=(StaticSegment("r"), ParamSegment("code")) view=RoomPage/>
                 </Routes>
             </main>
         </Router>
     }
-}
-
-#[component]
-fn HomePlaceholder() -> impl IntoView {
-    view! { <h1>"Compartilhamento de tela"</h1> }
 }

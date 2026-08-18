@@ -20,12 +20,39 @@ serde_json = "1.0.151"
 uuid = { version = "1.24.1", features = ["v4"], optional = true }
 rand = { version = "0.10.2", optional = true }
 futures-util = { version = "0.3.34", optional = true }
+wasm-bindgen-futures = { version = "0.4.77", optional = true }
+js-sys = { version = "0.3.104", optional = true }
+web-sys = { version = "0.3.104", optional = true, features = [
+    "WebSocket",
+    "MessageEvent",
+    "MediaDevices",
+    "MediaStream",
+    "MediaStreamConstraints",
+    "MediaStreamTrack",
+    "Navigator",
+    "Window",
+    "Location",
+    "RtcPeerConnection",
+    "RtcConfiguration",
+    "RtcIceServer",
+    "RtcSdpType",
+    "RtcSessionDescriptionInit",
+    "RtcIceCandidateInit",
+    "RtcIceCandidate",
+    "RtcPeerConnectionIceEvent",
+    "RtcTrackEvent",
+    "RtcIceConnectionState",
+    "HtmlVideoElement",
+] }
 
 [features]
 hydrate = [
     "leptos/hydrate",
     "dep:console_error_panic_hook",
     "dep:wasm-bindgen",
+    "dep:wasm-bindgen-futures",
+    "dep:js-sys",
+    "dep:web-sys",
 ]
 ssr = [
     "dep:axum",
