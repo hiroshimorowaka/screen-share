@@ -22,7 +22,7 @@ pub fn RoomPage() -> impl IntoView {
     let eyebrow_label = move || status_meta(&status.get()).1;
 
     view! {
-        <div class="panel">
+        <div class="panel panel--stage">
             <div class="status-row">
                 <span class=lamp_class></span>
                 <span class="eyebrow">{eyebrow_label}</span>

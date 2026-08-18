@@ -40,7 +40,7 @@ body {
   display: flex;
   justify-content: center;
   align-items: flex-start;
-  padding: 10vh 1.25rem 3rem;
+  padding: 6vh 1.25rem 3rem;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
@@ -64,6 +64,14 @@ a {
   padding: 1.75rem;
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
   animation: rise 0.4s ease-out;
+}
+
+/* Página de quem assiste: o player é o conteúdo principal, então o cartão
+   cresce com a janela em vez de ficar limitado à largura de um formulário.
+   O terceiro termo do min() garante que a altura do vídeo 16:9 nunca passe
+   de ~82% da altura da viewport, mesmo em janelas bem largas e baixas. */
+.panel--stage {
+  max-width: min(96vw, 1600px, calc(82vh * 16 / 9));
 }
 
 @keyframes rise {
