@@ -32,7 +32,7 @@
 **Interfaces:**
 - Produces: `crate::signaling::auth::{hash_password(password: &str) -> String, verify_password(password: &str, hash: &str) -> bool}` — usadas pela Task 3.
 
-- [ ] **Step 1: Adicionar a dependência `argon2`**
+- [x] **Step 1: Adicionar a dependência `argon2`**
 
 ```bash
 cargo add argon2 --optional
@@ -55,7 +55,7 @@ ssr = [
 ]
 ```
 
-- [ ] **Step 2: Declarar o módulo**
+- [x] **Step 2: Declarar o módulo**
 
 `src/signaling/mod.rs` — adicione junto aos demais módulos `ssr`:
 
@@ -64,7 +64,7 @@ ssr = [
 pub mod auth;
 ```
 
-- [ ] **Step 3: Escrever os testes que falham**
+- [x] **Step 3: Escrever os testes que falham**
 
 `src/signaling/auth.rs`:
 
@@ -94,12 +94,12 @@ mod tests {
 }
 ```
 
-- [ ] **Step 4: Rodar os testes e confirmar que falham**
+- [x] **Step 4: Rodar os testes e confirmar que falham**
 
 Run: `cargo test --lib --features ssr signaling::auth`
 Expected: FAIL — `hash_password`/`verify_password` não existem.
 
-- [ ] **Step 5: Implementar**
+- [x] **Step 5: Implementar**
 
 No topo de `src/signaling/auth.rs`, antes do `#[cfg(test)]`:
 
@@ -126,12 +126,12 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 
 Se o compilador não encontrar `argon2::password_hash`, rode `cargo add argon2 --optional --features password-hash` — em algumas versões do crate esse submódulo só é reexportado com a feature `password-hash` explícita.
 
-- [ ] **Step 6: Rodar os testes e confirmar que passam**
+- [x] **Step 6: Rodar os testes e confirmar que passam**
 
 Run: `cargo test --lib --features ssr signaling::auth`
 Expected: PASS (3 testes).
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/signaling/auth.rs src/signaling/mod.rs Cargo.toml Cargo.lock
@@ -148,7 +148,7 @@ git commit -m "feat: add argon2 password hashing helpers"
 **Interfaces:**
 - Produces: `crate::signaling::protocol::{ClientMessage, ServerMessage, MemberInfo}` — usados pelas Tasks 3, 4, 5, 6, 7, 8.
 
-- [ ] **Step 1: Escrever os testes que falham (substituindo os testes do v1)**
+- [x] **Step 1: Escrever os testes que falham (substituindo os testes do v1)**
 
 Substitua todo o conteúdo de `src/signaling/protocol.rs` por:
 
@@ -263,17 +263,17 @@ mod tests {
 }
 ```
 
-- [ ] **Step 2: Rodar os testes e confirmar que falham**
+- [x] **Step 2: Rodar os testes e confirmar que falham**
 
 Run: `cargo test --lib signaling::protocol`
 Expected: FAIL — os testes antigos (`join_message_round_trips_through_json`, `offer_server_message_round_trips_through_json`) referenciavam variantes que não existem mais; os novos ainda não existiam antes deste passo, então essa substituição já deixa o arquivo no estado final. Confirme que a compilação falha antes deste step e passa depois (não há um "meio termo" aqui porque estamos substituindo o arquivo inteiro).
 
-- [ ] **Step 3: Rodar os testes e confirmar que passam**
+- [x] **Step 3: Rodar os testes e confirmar que passam**
 
 Run: `cargo test --lib signaling::protocol`
 Expected: PASS (4 testes).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/signaling/protocol.rs
@@ -299,7 +299,7 @@ git commit -m "feat: redesign signaling protocol for multi-sharer authenticated 
   - `JoinedSnapshot { peer_id: String, members: Vec<MemberInfo>, active_sharers: Vec<String> }`.
   - `JoinError { NotFound, WrongPassword, Full }` (`Debug + PartialEq`).
 
-- [ ] **Step 1: Escrever os testes que falham (substituindo os testes do v1)**
+- [x] **Step 1: Escrever os testes que falham (substituindo os testes do v1)**
 
 Substitua todo o conteúdo de `src/signaling/registry.rs` por (implementação incluída já neste passo — ver nota abaixo sobre por que registry e seus testes vêm juntos):
 
@@ -644,12 +644,12 @@ mod tests {
 
 > Nota: diferente das tasks TDD "puras" (escreva teste vazio → veja falhar → implemente), aqui teste e implementação vêm no mesmo passo porque o arquivo inteiro está sendo reescrito de uma vez (o `Registry` do v1 não compila mais depois da Task 2 mudar o protocolo). O Step 2 abaixo é o que garante que você não pulou a verificação.
 
-- [ ] **Step 2: Rodar os testes e confirmar que passam**
+- [x] **Step 2: Rodar os testes e confirmar que passam**
 
 Run: `cargo test --lib --features ssr signaling::registry`
 Expected: PASS (9 testes).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/signaling/registry.rs
@@ -668,7 +668,7 @@ git commit -m "feat: rewrite room registry for authenticated multi-sharer rooms"
 - Consumes: `crate::signaling::registry::{Registry, JoinError}` (Task 3), `crate::signaling::protocol::{ClientMessage, ServerMessage}` (Task 2).
 - Produces: `crate::signaling::ws::ws_handler` — mesma assinatura de antes, agora roteando as mensagens novas.
 
-- [ ] **Step 1: Escrever o teste de integração que falha (substituindo o do v1)**
+- [x] **Step 1: Escrever o teste de integração que falha (substituindo o do v1)**
 
 Substitua todo o conteúdo de `tests/signaling_ws.rs` por:
 
@@ -776,12 +776,12 @@ async fn room_not_found_for_unknown_code() {
 }
 ```
 
-- [ ] **Step 2: Rodar os testes e confirmar que falham**
+- [x] **Step 2: Rodar os testes e confirmar que falham**
 
 Run: `cargo test --features ssr --test signaling_ws`
 Expected: FAIL — `ws_handler` ainda usa o protocolo antigo (não compila com os novos tipos de `ClientMessage`/`ServerMessage`).
 
-- [ ] **Step 3: Implementar o handler**
+- [x] **Step 3: Implementar o handler**
 
 Substitua todo o conteúdo de `src/signaling/ws.rs` por:
 
@@ -893,12 +893,12 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
 }
 ```
 
-- [ ] **Step 4: Rodar os testes e confirmar que passam**
+- [x] **Step 4: Rodar os testes e confirmar que passam**
 
 Run: `cargo test --features ssr --test signaling_ws`
 Expected: PASS (3 testes).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/signaling/ws.rs tests/signaling_ws.rs
@@ -921,11 +921,11 @@ git commit -m "feat: wire authenticated multi-sharer protocol to the /ws endpoin
 
 > **Por que não um contexto do Leptos:** a ideia óbvia seria guardar `{room, nick, password}` num `RwSignal` fornecido via `provide_context` em `App` (Task 6 manda, Task 7 lê, Task 7 reabre a conexão do zero com `JoinRoom`). Isso *parecia* funcionar mas tem um bug real: fechar a conexão da Home assim que a sala é criada esvazia a sala (ela fica com 0 membros por um instante) e o servidor a remove antes da Room conseguir reabrir com `JoinRoom` — confirmado em teste manual no navegador (a Room mostrava "Sala não encontrada ou já foi encerrada" logo após criar a sala). A correção é não fechar a conexão: a Home deixa a mesma `WsClient` já autenticada pronta pra Room assumir. Isso não pode viajar por `provide_context`/`use_context`, porque `WsClient` só existe sob a feature `hydrate` e o componente `App` (que registraria o contexto) também é compilado sob `ssr` — um campo desse tipo no contexto quebraria a build do servidor. Por isso o handoff usa um `thread_local!` em `client/session.rs`, que só existe no binário WASM.
 
-- [ ] **Step 1: Adicionar `Storage` às features do `web-sys`**
+- [x] **Step 1: Adicionar `Storage` às features do `web-sys`**
 
 Em `Cargo.toml`, no bloco `web-sys = { ..., features = [...] }`, adicione `"Storage"` à lista (ex.: logo após `"Location"`).
 
-- [ ] **Step 2: Implementar o helper de `localStorage`**
+- [x] **Step 2: Implementar o helper de `localStorage`**
 
 `src/client/storage.rs`:
 
@@ -963,7 +963,7 @@ pub fn save_nick(nick: &str) {
 pub mod storage;
 ```
 
-- [ ] **Step 3: Implementar o handoff de sessão (`client/session.rs`) e `WsClient::set_on_message`**
+- [x] **Step 3: Implementar o handoff de sessão (`client/session.rs`) e `WsClient::set_on_message`**
 
 `src/client/session.rs`:
 
@@ -1039,7 +1039,7 @@ pub fn set_on_message(&mut self, on_message: impl Fn(ServerMessage) + 'static) {
 
 Isso exige que o campo `socket` de `WsClient` seja acessível dentro do próprio `impl` (já é, por estar no mesmo módulo) e reaproveita a mesma lógica de parsing de `WsClient::connect`.
 
-- [ ] **Step 4: Verificar manualmente no navegador**
+- [x] **Step 4: Verificar manualmente no navegador**
 
 Run: `cargo leptos watch`, abra `http://127.0.0.1:3000/`, abra o console do navegador e rode:
 
@@ -1049,7 +1049,7 @@ localStorage.setItem("screen_share_nick", "teste-manual");
 
 Recarregue a página — não deve haver nenhum erro no console (a `HomePage` ainda não lê isso, será usado na Task 6; este passo só confirma que `Storage` foi habilitado sem quebrar a build WASM).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/client/storage.rs src/client/session.rs src/client/mod.rs src/client/socket.rs Cargo.toml
@@ -1066,7 +1066,7 @@ git commit -m "feat: add nick localStorage persistence and session handoff"
 **Interfaces:**
 - Consumes: `crate::client::socket::WsClient`, `crate::client::storage::save_nick`, `crate::client::session::{self, PendingSession}` (Task 5), `crate::signaling::protocol::{ClientMessage, ServerMessage}` (Task 2).
 
-- [ ] **Step 1: Substituir `src/pages/home.rs`**
+- [x] **Step 1: Substituir `src/pages/home.rs`**
 
 ```rust
 use leptos::prelude::*;
@@ -1218,12 +1218,12 @@ fn create_room_handler(
 }
 ```
 
-- [ ] **Step 2: Verificar manualmente no navegador**
+- [x] **Step 2: Verificar manualmente no navegador**
 
 Run: `cargo leptos watch`, abra `http://127.0.0.1:3000/`.
 Expected: formulário com nick + senha; ao enviar, navega para `/r/<código>` e a Room já entra autenticada direto (ver Task 7 — a conexão é assumida, não reaberta). Nenhum erro no console.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/pages/home.rs
@@ -1241,7 +1241,7 @@ git commit -m "feat: replace direct-share home page with create-room form"
 - Consumes: `crate::client::socket::WsClient`, `crate::client::storage::{load_nick, save_nick}`, `crate::client::session` (Task 5), `crate::signaling::protocol::{ClientMessage, ServerMessage, MemberInfo}` (Task 2).
 - Produces: `crate::pages::room::RoomMember { peer_id: String, nick: String, sharing: bool }` (`Clone + PartialEq`) — usada pela Task 8. `RoomConnection` (struct interna, só `hydrate`) — a Task 8 estende esta mesma struct em vez de criar outra.
 
-- [ ] **Step 1: Substituir `src/pages/room.rs`**
+- [x] **Step 1: Substituir `src/pages/room.rs`**
 
 ```rust
 use leptos::prelude::*;
@@ -1565,14 +1565,14 @@ fn setup_room_connection(
 
 > Duas conexões são possíveis para chegar autenticado numa sala: `adopt_pending_session` (veio da Home, criou a sala) e `setup_room_connection` (digitou nick/senha na própria Room, seja porque abriu o link direto, seja porque recarregou a página). As duas convergem em `apply_joined_snapshot`/`build_message_handler` pra não duplicar a lógica de aplicar o snapshot de `Joined` e reagir às mensagens seguintes.
 
-- [ ] **Step 2: Verificar manualmente no navegador**
+- [x] **Step 2: Verificar manualmente no navegador**
 
 Run: `cargo leptos watch`
 1. Abra `http://127.0.0.1:3000/`, crie uma sala com nick "Ana" e senha "teste123" — Expected: navega para `/r/<código>` e entra direto (sem formulário), mostra "Ana" na grade.
 2. Numa aba separada (**sem fechar a primeira** — fechar a aba/navegar pra fora dela derruba a conexão e, como a Ana seria a única integrante, o servidor apaga a sala), abra o mesmo link — Expected: pede nick + senha. Digite a senha errada — Expected: "Senha incorreta.". Digite a certa com outro nick (ex. "Bruno") — Expected: entra, e as duas abas mostram os dois nicks na grade.
 3. Abra um link com um código inexistente (ex. `/r/ZZZZZZZZ`) — Expected: "Sala não encontrada ou já foi encerrada."
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add src/pages/room.rs
@@ -1591,7 +1591,7 @@ git commit -m "feat: add room auth gate and live member/sharer roster"
 
 > A Task 7 já deixou `RoomConnection` (só com `ws`), `apply_joined_snapshot`, `build_message_handler`, `adopt_pending_session` e `setup_room_connection` prontos — foi o jeito de resolver o handoff de sessão da Home sem contexto do Leptos (ver a nota na Task 5). Esta task **estende** essas peças em vez de recriá-las: os campos de WebRTC entram em `RoomConnection`, e o roteamento de `Offer`/`Answer`/`IceCandidate` entra em `build_message_handler` — que é chamado tanto por quem chega via `adopt_pending_session` (criou a sala) quanto por quem chega via `setup_room_connection` (digitou nick/senha), então as duas vias precisam do roteamento igualmente. Não duplique essa lógica dentro de `setup_room_connection` como um `on_message` à parte — quem adota a sessão pendente (o caso mais comum: todo criador de sala) ficaria sem receber `Offer`/`Answer`/`IceCandidate`.
 
-- [ ] **Step 1: Estender `RoomConnection` com os mapas de conexão WebRTC**
+- [x] **Step 1: Estender `RoomConnection` com os mapas de conexão WebRTC**
 
 Em `src/pages/room.rs`, na `struct RoomConnection` que a Task 7 já criou (variante `#[cfg(feature = "hydrate")]`), adicione os três campos novos e atualize `RoomConnection::new()` de acordo:
 
@@ -1620,7 +1620,7 @@ impl RoomConnection {
 
 (A variante `#[cfg(not(feature = "hydrate"))]` — `struct RoomConnection;` — não muda; ela é só um stub pro lado `ssr`.)
 
-- [ ] **Step 2: Estender `build_message_handler` com o roteamento de `Offer`/`Answer`/`IceCandidate` e a limpeza de conexões em `PeerLeft`/`PeerStoppedSharing`**
+- [x] **Step 2: Estender `build_message_handler` com o roteamento de `Offer`/`Answer`/`IceCandidate` e a limpeza de conexões em `PeerLeft`/`PeerStoppedSharing`**
 
 `build_message_handler` (Task 7) ganha dois parâmetros novos — `conn: RoomConnection` e `connection_errors: RwSignal<std::collections::HashSet<String>>` — logo após `set_my_peer_id`, e o `match` ganha limpeza de conexão em dois braços existentes mais três braços novos:
 
@@ -1757,7 +1757,7 @@ fn build_message_handler(
 
 > A rota `stream_owner == from` decide se a mensagem é sobre a conexão em que `from` está me enviando a tela dele (`incoming`) ou sobre a conexão em que eu estou enviando a minha tela pra ele (`outgoing`) — ver a explicação completa no protocolo da spec. Não dá pra simplificar pra "sempre olhar os dois mapas" porque um par pode ter as duas conexões abertas ao mesmo tempo (os dois compartilhando um pro outro).
 
-- [ ] **Step 3: Threadar `conn` e `connection_errors` por `adopt_pending_session` e `setup_room_connection`**
+- [x] **Step 3: Threadar `conn` e `connection_errors` por `adopt_pending_session` e `setup_room_connection`**
 
 Ambas as funções (variantes `hydrate` e stub) ganham um parâmetro `connection_errors: RwSignal<std::collections::HashSet<String>>` (a `conn: RoomConnection` elas já recebem desde a Task 7) e repassam os dois pra `build_message_handler` na chamada que já existe:
 
@@ -1866,7 +1866,7 @@ fn setup_room_connection(
 }
 ```
 
-- [ ] **Step 4: Adicionar o botão de compartilhar/parar e a lógica de oferta**
+- [x] **Step 4: Adicionar o botão de compartilhar/parar e a lógica de oferta**
 
 No final de `src/pages/room.rs`, adicione:
 
@@ -2046,7 +2046,7 @@ fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>) {
 }
 ```
 
-- [ ] **Step 5: Atualizar o corpo de `RoomPage` para usar `RoomConnection`, o botão e os tiles de vídeo**
+- [x] **Step 5: Atualizar o corpo de `RoomPage` para usar `RoomConnection`, o botão e os tiles de vídeo**
 
 Substitua o começo do componente `RoomPage` (do `let (nick, ...)` até a chamada de `adopt_pending_session`) por:
 
@@ -2152,7 +2152,7 @@ Substitua o `<div class="stage-header">...</div>` e o `<div class="grid">...</di
                 </Show>
 ```
 
-- [ ] **Step 6: Verificar manualmente no navegador (ponta a ponta)**
+- [x] **Step 6: Verificar manualmente no navegador (ponta a ponta)**
 
 Run: `cargo leptos watch`
 1. Aba 1: crie a sala (nick "Ana", senha "teste123").
@@ -2164,7 +2164,7 @@ Run: `cargo leptos watch`
 7. Feche a aba 2 — reabra `/r/<mesmo código>` numa aba nova e tente entrar — Expected: "Sala não encontrada ou já foi encerrada." (a sala morreu quando o último membro saiu).
 8. Num navegador ou contexto sem `getDisplayMedia` (ex.: aba anônima com a API desabilitada, ou usando as ferramentas do desenvolvedor pra apagar `navigator.mediaDevices.getDisplayMedia` antes de carregar a página), entre numa sala — Expected: sem botão "Compartilhar minha tela", aparece o aviso "Seu navegador não suporta compartilhar tela — você ainda pode assistir."; a pessoa continua vendo normalmente as transmissões dos outros membros.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/pages/room.rs
@@ -2180,7 +2180,7 @@ git commit -m "feat: implement multi-sharer WebRTC mesh with self-preview and vi
 
 **Interfaces:** nenhuma (CSS puro).
 
-- [ ] **Step 1: Adicionar estilos de formulário (nick/senha) e de grade/tiles**
+- [x] **Step 1: Adicionar estilos de formulário (nick/senha) e de grade/tiles**
 
 No final de `style/main.css`, adicione:
 
@@ -2288,11 +2288,11 @@ No final de `style/main.css`, adicione:
 }
 ```
 
-- [ ] **Step 2: Verificar manualmente no navegador**
+- [x] **Step 2: Verificar manualmente no navegador**
 
 Run: `cargo leptos watch`, revise as telas de "Criar sala", "Entrar na sala" e a grade de tiles com 2+ transmissões ativas (repetindo o fluxo da Task 8, Step 5). Expected: formulários legíveis, tiles em grade responsiva, sem overflow horizontal na janela.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add style/main.css
@@ -2309,13 +2309,13 @@ git commit -m "style: add form and video-grid styles for multi-sharer rooms"
 
 **Interfaces:** nenhuma (documentação).
 
-- [ ] **Step 1: Atualizar `CLAUDE.md`**
+- [x] **Step 1: Atualizar `CLAUDE.md`**
 
 Na seção "## What this project is", troque o parágrafo que descreve o modelo 1-para-N por uma descrição do modelo de sala persistente e multiusuário: uma sala com ID e senha, onde qualquer participante entra com nick + senha, pode compartilhar sua tela a qualquer momento, e todos veem simultaneamente as transmissões ativas dos outros numa grade. Mantenha a menção de que não há áudio (ainda fora de escopo) e que é tudo em navegador (Windows/Linux), sem instalar nada.
 
 Na seção "### Room lifecycle", substitua a descrição do modelo host/viewer por: qualquer membro pode iniciar/parar seu compartilhamento a qualquer momento; a sala é identificada por um código com senha (hash `argon2`, verificada no servidor); a sala só é removida do registro quando o último membro sai — sair de quem criou não afeta os demais; não existe hierarquia entre participantes.
 
-- [ ] **Step 2: Atualizar `README.md`**
+- [x] **Step 2: Atualizar `README.md`**
 
 No parágrafo de abertura, troque "Site para compartilhar a tela com até 5 amigos ao mesmo tempo... sem contas" pela descrição do v2 (sala com senha, até 8 pessoas, nick salvo localmente, qualquer um pode compartilhar).
 
@@ -2323,7 +2323,7 @@ Substitua a seção "## Checklist de teste manual (fluxo completo)" pelos passos
 
 Na seção "## Deploy (geral)", mantenha a observação de que não há banco de dados — mas ajuste a frase sobre "estado de salas" para deixar explícito que isso agora inclui o hash de senha de cada sala (também descartado num restart, como o resto do estado em memória).
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add CLAUDE.md README.md
