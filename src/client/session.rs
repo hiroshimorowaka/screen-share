@@ -11,6 +11,7 @@ use crate::signaling::protocol::MemberInfo;
 /// `ssr`.
 pub struct PendingSession {
     pub room: String,
+    pub room_name: String,
     pub ws: WsClient,
     pub peer_id: String,
     pub members: Vec<MemberInfo>,
