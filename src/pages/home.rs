@@ -12,8 +12,16 @@ pub fn HomePage() -> impl IntoView {
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
     let (submitting, set_submitting) = signal(false);
-    let (recent_rooms, set_recent_rooms) = signal(initial_recent_rooms());
+    // O signal SEMPRE começa vazio, igual ao HTML gerado no servidor (que não
+    // tem acesso a localStorage) — se ele começasse com o valor real do
+    // cliente, a lista de itens do <For> divergiria em tamanho da lista que
+    // o servidor renderizou, e a hidratação do Leptos quebra tentando casar
+    // nós de DOM que não existem (RuntimeError: unreachable /
+    // failed_to_cast_element). O valor real é carregado depois, de forma
+    // assíncrona, só depois que a hidratação já terminou.
+    let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::profile::RecentRoom>::new());
 
+    load_recent_rooms_after_mount(set_recent_rooms);
     prune_recent_rooms(set_recent_rooms);
 
     let create_room = create_room_handler(nick, color, room_name, password, set_status, set_submitting);
@@ -109,18 +117,16 @@ fn initial_profile_impl() -> crate::profile::Profile {
     crate::client::storage::load_profile()
 }
 
-fn initial_recent_rooms() -> Vec<crate::profile::RecentRoom> {
-    initial_recent_rooms_impl()
-}
-
 #[cfg(not(feature = "hydrate"))]
-fn initial_recent_rooms_impl() -> Vec<crate::profile::RecentRoom> {
-    Vec::new()
-}
+fn load_recent_rooms_after_mount(_set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {}
 
 #[cfg(feature = "hydrate")]
-fn initial_recent_rooms_impl() -> Vec<crate::profile::RecentRoom> {
-    crate::client::storage::load_recent_rooms()
+fn load_recent_rooms_after_mount(set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {
+    use leptos::task::spawn_local;
+
+    spawn_local(async move {
+        set_recent_rooms.set(crate::client::storage::load_recent_rooms());
+    });
 }
 
 #[cfg(not(feature = "hydrate"))]
