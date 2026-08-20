@@ -4,12 +4,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this project is
 
-A way to share your screen with several people at once, quickly and simply:
-open the site, click a button, send a link. Nobody installs anything — the
-person sharing and everyone watching just use a browser, on Windows or
-Linux. The video goes directly from the sharer's browser to each viewer's
-browser (WebRTC, peer-to-peer); the server's only job is introducing peers
-to each other so that direct connection can be established.
+A persistent, password-protected room where a small group can share their
+screens with each other — any number of them, at any time, not just one
+person presenting to the rest. Someone creates a room (it gets a short code
+and a password), shares the link and password with whoever should join, and
+from then on anyone in the room can start or stop sharing their own screen
+independently; everyone sees everyone else's active shares at once, laid
+out in a grid, plus a small preview of their own. There's no audio yet
+(still out of scope). Nobody installs anything — everyone just uses a
+browser, on Windows or Linux. Video goes directly from each sharer's
+browser to each viewer's browser (WebRTC, peer-to-peer); the server's only
+job is introducing peers to each other so those direct connections can be
+established.
 
 ## Tech stack
 
@@ -126,18 +132,20 @@ server, meaning and behavior on the client.
 
 ### Room lifecycle
 
-One peer starts a room and becomes its host; that action produces a short
-room code embedded in a shareable link. Anyone opening that link joins the
-same room as a viewer. The host is the one who fans out a direct
-peer-to-peer connection to each viewer that joins — from the host's
-perspective this is one connection per viewer; viewers don't connect to
-each other. When the host's connection to the signaling server ends, the
-room and everyone's peer connections are torn down and viewers are told the
-session ended. The same teardown path handles every way a sharing session
-can end — the person deliberately stopping, the browser's own screen-share
-controls being used to stop, or the connection simply dropping — so there
-is one place that owns "what happens when sharing stops," not several
-divergent ones.
+There is no host — every member of a room is equal. A room is identified by
+a short code and protected by a password (hashed with `argon2`, verified
+server-side); anyone with the code and password can join under whatever
+nick they choose. Any member can start or stop sharing their own screen at
+any time, independently of what anyone else is doing — sharing fans out a
+direct peer-to-peer connection to each other member currently in the room,
+so a room with multiple active sharers has multiple independent viewer
+meshes running at once. A room is only removed from the registry when its
+last member leaves; the person who created it leaving early doesn't affect
+anyone else still there. The same per-connection teardown path handles
+every way a member's sharing session can end — stopping deliberately, using
+the browser's own screen-share controls, or the connection simply
+dropping — so there is one place that owns "what happens when this sharer
+stops," not several divergent ones.
 
 ### Client-side building blocks
 
@@ -146,10 +154,12 @@ divergent ones.
 - A WebRTC helper module wraps the browser calls needed to capture the
   screen and drive a peer connection through its lifecycle (create, offer,
   answer, exchange ICE candidates, tear down).
-- Each page (the "share" page and the "watch" page) owns its own state —
-  connection status, the set of active peer connections, whatever's needed
-  for its side of the exchange — and wires the WebSocket and WebRTC helpers
-  together to implement its half of the room lifecycle described above.
+- The home page only creates a room; the room page is where everyone
+  actually is — there's no separate "share" page or "watch" page, since
+  every member can do both. The room page owns its own state (connection
+  status, nick/auth, the roster and who's currently sharing, the set of
+  active peer connections) and wires the WebSocket and WebRTC helpers
+  together to implement the room lifecycle described above.
 
 ### Status-driven UI
 

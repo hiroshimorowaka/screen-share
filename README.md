@@ -1,8 +1,13 @@
 # Compartilhamento de tela P2P
 
-Site para compartilhar a tela com até 5 amigos ao mesmo tempo, direto do navegador
-(Windows e Linux) — sem instalar nada, sem contas, sem áudio/chat. O vídeo trafega
-P2P via WebRTC; o servidor só faz a sinalização inicial (troca de offer/answer/ICE).
+Salas persistentes e protegidas por senha pra compartilhar a tela entre um
+grupo pequeno (até 8 pessoas), direto do navegador (Windows e Linux) — sem
+instalar nada, sem contas, sem áudio/chat. Qualquer pessoa na sala pode
+compartilhar a tela a qualquer momento (não só uma "apresentando" pras
+outras), e a sala não morre até o último membro sair. O nick fica salvo no
+navegador (`localStorage`); a senha, não. O vídeo trafega P2P via WebRTC; o
+servidor só faz a sinalização inicial (autenticação da sala e troca de
+offer/answer/ICE).
 
 ## Rodando localmente
 
@@ -29,18 +34,32 @@ são validados manualmente (checklist abaixo).
 
 ## Checklist de teste manual (fluxo completo)
 
-1. Abra `/` numa aba, clique "Iniciar compartilhamento", escolha uma janela/tela.
-2. Confirme que aparece um link `/r/<código>`.
-3. Abra esse link em outra aba (ou outra máquina) — confirme que o vídeo aparece
-   em poucos segundos.
-4. Abra o mesmo link numa terceira aba — confirme que ambos os espectadores
-   recebem o vídeo simultaneamente.
-5. Feche a aba de um espectador — confirme que os demais continuam recebendo
-   vídeo normalmente.
-6. Pare o compartilhamento (feche a aba de quem compartilha) — confirme que os
-   espectadores restantes veem "O compartilhamento foi encerrado."
-7. Abra um link com um código inexistente — confirme "Sessão não encontrada ou
-   já terminou."
+1. Abra `/`, crie uma sala com nick "Ana" e senha "teste123" — confirme que
+   navega direto para `/r/<código>` já autenticada (sem pedir nick/senha de
+   novo) e mostra "Ana" no cabeçalho.
+2. Numa aba separada (sem fechar a primeira — ver nota abaixo), abra o mesmo
+   link — confirme que pede nick + senha. Digite a senha errada — "Senha
+   incorreta.". Digite a certa com outro nick (ex. "Bia") — confirme que
+   entra.
+3. Na aba da Ana, clique "Compartilhar minha tela" e escolha uma janela —
+   confirme que a aba da Ana mostra o preview local e a aba da Bia mostra um
+   tile novo com o vídeo da Ana em poucos segundos.
+4. Na aba da Bia, clique "Compartilhar minha tela" também — confirme que as
+   duas abas agora mostram dois tiles cada (o próprio preview + a tela da
+   outra pessoa).
+5. Clique "Parar de compartilhar" na aba da Ana — confirme que o tile dela
+   desativa nas duas abas; a Bia continua compartilhando normalmente.
+6. Feche a aba da Ana — confirme que a aba da Bia continua na sala sozinha
+   (a sala não morre com uma pessoa saindo, nem sendo quem a criou).
+7. Feche a aba da Bia também — reabra `/r/<mesmo código>` numa aba nova e
+   tente entrar — confirme "Sala não encontrada ou já foi encerrada." (a
+   sala só morre quando o último membro sai).
+8. Abra um link com um código inexistente (ex. `/r/ZZZZZZZZ`) — confirme a
+   mesma mensagem do passo 7.
+
+Nota: fechar a única aba de uma sala fecha sua conexão WebSocket, e o
+servidor apaga a sala assim que ela fica sem membros — por isso o passo 2
+pede pra manter a primeira aba aberta.
 
 ## Deploy no Fly.io
 
@@ -88,7 +107,8 @@ Este projeto compila para um único binário Rust. Em produção:
   fora de `localhost`) — por exemplo, um reverse proxy como Caddy com TLS
   automático, ou uma plataforma que já termina TLS (Fly.io, Render).
 - Não é necessário banco de dados nem armazenamento persistente — todo o
-  estado de salas vive em memória e é descartado quando o processo reinicia.
+  estado de salas (incluindo o hash da senha de cada uma) vive em memória e
+  é descartado quando o processo reinicia, junto com o resto do estado.
 - Sem TURN configurado (só STUN público). Se algum amigo estiver numa rede
   muito restritiva (CGNAT, firewall corporativo) e não conseguir conectar,
   isso é uma limitação conhecida da v1 — um servidor TURN (`coturn`) resolveria,
