@@ -1,3 +1,4 @@
+pub mod rooms_api;
 pub mod session;
 pub mod socket;
 pub mod storage;
