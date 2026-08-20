@@ -83,6 +83,7 @@ panic = "abort"
 
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"
+reqwest = { version = "0.12", features = ["json"] }
 
 [package.metadata.leptos]
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name

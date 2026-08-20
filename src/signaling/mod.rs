@@ -7,4 +7,7 @@ pub mod auth;
 pub mod registry;
 
 #[cfg(feature = "ssr")]
+pub mod rooms_status;
+
+#[cfg(feature = "ssr")]
 pub mod ws;
