@@ -1,12 +1,15 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
+use crate::signaling::protocol::MAX_MEMBERS;
 
 #[derive(Clone, PartialEq)]
 pub struct RoomMember {
     pub peer_id: String,
     pub nick: String,
+    pub color: String,
     pub sharing: bool,
 }
 
@@ -48,10 +51,14 @@ pub fn RoomPage() -> impl IntoView {
     let code = move || params.read().get("code").unwrap_or_default();
     let initial_code = params.read_untracked().get("code").unwrap_or_default();
 
-    let (nick, set_nick) = signal(initial_nick());
+    let profile = initial_profile();
+    let (nick, set_nick) = signal(profile.nick);
+    let (color, set_color) = signal(profile.color);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
     let (authenticated, set_authenticated) = signal(false);
+    let (room_exists, set_room_exists) = signal(None::<bool>);
+    let (room_name, set_room_name) = signal(None::<String>);
     let (members, set_members) = signal(Vec::<RoomMember>::new());
     let (my_peer_id, set_my_peer_id) = signal(None::<String>);
     let (is_sharing, set_is_sharing) = signal(false);
@@ -66,16 +73,24 @@ pub fn RoomPage() -> impl IntoView {
         conn.clone(),
         set_status,
         set_authenticated,
+        set_room_name,
         set_members,
         set_my_peer_id,
         connection_errors,
     );
 
-    // Se viemos da criação da sala na home, a conexão já está autenticada
-    // (ver `client::session`) — assume ela em vez de pedir nick/senha de
-    // novo. Chamada direta (não via Effect): `initial_code` já está
-    // disponível de forma síncrona na montagem do componente.
-    adopt_pending_session(initial_code, conn.clone(), set_status, set_authenticated, set_members, set_my_peer_id, connection_errors);
+    adopt_pending_session(
+        initial_code.clone(),
+        conn.clone(),
+        set_status,
+        set_authenticated,
+        set_room_name,
+        set_members,
+        set_my_peer_id,
+        connection_errors,
+    );
+
+    start_room_check(initial_code, authenticated, set_room_exists, set_room_name);
 
     let manual_join = {
         let join_room = join_room.clone();
@@ -87,20 +102,9 @@ pub fn RoomPage() -> impl IntoView {
                 set_status.set("Preencha nick e senha.".to_string());
                 return;
             }
-            join_room(nick_value, password_value);
+            join_room(nick_value, color.get_untracked(), password_value);
         }
     };
-
-    let toggle_share = share_toggle_handler(
-        conn,
-        members,
-        my_peer_id,
-        is_sharing,
-        set_is_sharing,
-        set_status,
-        local_video_ref,
-        connection_errors,
-    );
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -108,7 +112,21 @@ pub fn RoomPage() -> impl IntoView {
     };
 
     view! {
-        // As duas seções ficam sempre montadas e alternam por CSS
+        <div
+            class="panel"
+            class:hidden=move || authenticated.get() || room_exists.get().is_some()
+        >
+            <h1>"Verificando sala..."</h1>
+            <p class="status-row__meta">{code}</p>
+        </div>
+        <div
+            class="panel"
+            class:hidden=move || authenticated.get() || room_exists.get() != Some(false)
+        >
+            <h1>"Sala não encontrada"</h1>
+            <p class="status-text status-text--error">"Sala não encontrada ou já foi encerrada."</p>
+        </div>
+        // As seções abaixo ficam sempre montadas e alternam por CSS
         // (class:hidden), não por montagem/desmontagem condicional
         // (`<Show>`): o Leptos 0.8 exige que qualquer closure de filho
         // dinâmico (o que `<Show>` usa para seus filhos e para `fallback`)
@@ -119,15 +137,36 @@ pub fn RoomPage() -> impl IntoView {
         // evita esse requisito, no mesmo espírito do padrão "estado por
         // classificação, não por montagem" que o resto do app já usa (ver
         // `CLAUDE.md`, seção "Status-driven UI").
-        <div class="panel" class:hidden=move || authenticated.get()>
+        <div class="panel" class:hidden=move || authenticated.get() || room_exists.get() != Some(true)>
             <h1>"Entrar na sala"</h1>
-            <p class="status-row__meta">{code}</p>
+            <p class="status-row__meta">
+                {move || room_name.get().unwrap_or_default()} " — " {code}
+            </p>
             <form on:submit=manual_join.clone()>
                 <label class="field">
                     <span class="field__label">"Nick"</span>
                     <input class="field__input" type="text" required prop:value=nick
                         on:input:target=move |ev| set_nick.set(ev.target().value())/>
                 </label>
+                <div class="field">
+                    <span class="field__label">"Sua cor"</span>
+                    <div class="color-picker">
+                        {palette_ids()
+                            .map(|id| {
+                                let (border, _) = color_hex(id);
+                                view! {
+                                    <button
+                                        type="button"
+                                        class="color-swatch"
+                                        class:color-swatch--selected=move || color.get() == id
+                                        style=format!("background-color: {border}")
+                                        on:click=move |_| set_color.set(id.to_string())
+                                    ></button>
+                                }
+                            })
+                            .collect::<Vec<_>>()}
+                    </div>
+                </div>
                 <label class="field">
                     <span class="field__label">"Senha da sala"</span>
                     <input class="field__input" type="password" required prop:value=password
@@ -142,89 +181,173 @@ pub fn RoomPage() -> impl IntoView {
         <div class="room-page" class:hidden=move || !authenticated.get()>
             <div class="stage-header">
                 <span class=lamp_class></span>
-                <span class="status-row__meta">{code}</span>
+                <span class="status-row__meta">{move || room_name.get().unwrap_or_default()}</span>
                 <span class="status-row__spacer"></span>
-                // Assim como o portão de autenticação (topo do arquivo): o
-                // botão fica sempre montado e alterna por `class:hidden`, não
-                // por `<Show>` — `on:click` captura `toggle_share`, que
-                // carrega um `RoomConnection` (`Rc<RefCell<...>>`, não
-                // Send+Sync), e `<Show>` exige Send+Sync dos seus filhos.
-                <button
-                    class=move || if is_sharing.get() { "btn btn--danger" } else { "btn btn--primary" }
-                    class:hidden=move || !can_share
-                    on:click=toggle_share.clone()
-                >
-                    {move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }}
-                </button>
-                <span class="status-text status-text--error" class:hidden=move || can_share>
-                    "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
-                </span>
             </div>
             <div class="grid">
-                <Show when=move || is_sharing.get()>
-                    <div class="tile tile--self">
-                        <video node_ref=local_video_ref autoplay=true playsinline=true muted=true></video>
-                        <div class="tile__label">"Você (preview)"</div>
-                    </div>
-                </Show>
-                <For
-                    each=move || {
-                        let my_id = my_peer_id.get();
-                        members.get().into_iter().filter(move |m| m.sharing && Some(&m.peer_id) != my_id.as_ref()).collect::<Vec<_>>()
-                    }
-                    key=|m| m.peer_id.clone()
-                    let(member)
-                >
-                    <div class="tile">
-                        <Show
-                            when={
-                                let peer_id = member.peer_id.clone();
-                                move || !connection_errors.get().contains(&peer_id)
-                            }
-                            fallback=|| view! { <div class="tile__error">"Não foi possível conectar."</div> }
-                        >
-                            <video id=format!("video-{}", member.peer_id) autoplay=true playsinline=true></video>
-                        </Show>
-                        <div class="tile__label">{member.nick.clone()}</div>
-                    </div>
-                </For>
+                {member_cards(members, my_peer_id, is_sharing, local_video_ref, connection_errors)}
             </div>
-            <Show when=move || !members.get().iter().any(|m| m.sharing) && !is_sharing.get()>
-                <p class="status-text">"Ninguém está compartilhando a tela agora."</p>
-            </Show>
         </div>
     }
 }
 
+fn initial_profile() -> crate::profile::Profile {
+    initial_profile_impl()
+}
+
 #[cfg(not(feature = "hydrate"))]
-fn initial_nick() -> String {
-    String::new()
+fn initial_profile_impl() -> crate::profile::Profile {
+    crate::profile::Profile::default()
 }
 
 #[cfg(feature = "hydrate")]
-fn initial_nick() -> String {
-    crate::client::storage::load_nick().unwrap_or_default()
+fn initial_profile_impl() -> crate::profile::Profile {
+    crate::client::storage::load_profile()
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn start_room_check(
+    _room_code: String,
+    _authenticated: ReadSignal<bool>,
+    _set_room_exists: WriteSignal<Option<bool>>,
+    _set_room_name: WriteSignal<Option<String>>,
+) {
+}
+
+#[cfg(feature = "hydrate")]
+fn start_room_check(
+    room_code: String,
+    authenticated: ReadSignal<bool>,
+    set_room_exists: WriteSignal<Option<bool>>,
+    set_room_name: WriteSignal<Option<String>>,
+) {
+    use leptos::task::spawn_local;
+
+    use crate::client::rooms_api::check_room;
+
+    spawn_local(async move {
+        let result = check_room(&room_code).await;
+        // Se a sessão pendente da home já autenticou enquanto essa checagem
+        // estava em voo, ignora o resultado — já sabemos que a sala existe.
+        if authenticated.get_untracked() {
+            return;
+        }
+        match result {
+            Some(status) if status.exists => {
+                set_room_name.set(status.name);
+                set_room_exists.set(Some(true));
+            }
+            Some(_) => set_room_exists.set(Some(false)),
+            None => set_room_exists.set(Some(true)), // rede falhou: não bloqueia, deixa tentar entrar
+        }
+    });
+}
+
+/// Constrói `MAX_MEMBERS` cards estáticos, uma vez só — não uma `<For>`
+/// reativa. Cada card vai ganhar botões (assistir, parar de assistir,
+/// expandir) que capturam `RoomConnection` (Task 9), e o Leptos 0.8 exige
+/// `Send + Sync` de qualquer closure de filho dinâmico usada por `<For>`
+/// (mesma restrição documentada no topo do arquivo pra `<Show>`). Construir
+/// os cards uma única vez, fora de qualquer closure reativa, e deixar toda a
+/// reatividade nos atributos internos (`class:hidden`, `{move || ...}`)
+/// evita esse requisito — o mesmo padrão já usado pro portão de autenticação
+/// e pelo botão de compartilhar do v2.
+///
+/// Cada slot `i` mostra o membro atualmente na posição `i` de `members`
+/// (não um id fixo) — se alguém sai, os slots depois dele deslizam pra cima.
+/// É uma simplificação aceita: a sala não promete posição estável por
+/// membro, só mostrar quem está presente agora.
+fn member_cards(
+    members: ReadSignal<Vec<RoomMember>>,
+    my_peer_id: ReadSignal<Option<String>>,
+    is_sharing: ReadSignal<bool>,
+    local_video_ref: NodeRef<leptos::html::Video>,
+    connection_errors: RwSignal<std::collections::HashSet<String>>,
+) -> Vec<impl IntoView> {
+    (0..MAX_MEMBERS)
+        .map(|i| {
+            let member_at = move || members.get().get(i).cloned();
+            let is_self = move || {
+                member_at()
+                    .zip(my_peer_id.get())
+                    .map(|(m, my_id)| m.peer_id == my_id)
+                    .unwrap_or(false)
+            };
+            // Por enquanto (antes da Task 9) só o próprio card mostra vídeo,
+            // exatamente como no v2 — cards de outros membros só têm avatar.
+            let showing_video = move || is_self() && is_sharing.get();
+
+            view! {
+                <div class="card" class:hidden=move || member_at().is_none()>
+                    <div
+                        class="card__avatar"
+                        class:hidden=showing_video
+                        style=move || {
+                            let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                            format!("background-color: {bg}; border-color: {border};")
+                        }
+                    >
+                        <span class="card__avatar-letter">
+                            {move || member_at().map(|m| crate::pages::palette::avatar_letter(&m.nick)).unwrap_or_default()}
+                        </span>
+                    </div>
+                    <video
+                        node_ref=local_video_ref
+                        class:hidden=move || !(is_self() && showing_video())
+                        autoplay=true
+                        playsinline=true
+                        muted=true
+                    ></video>
+                    <video
+                        id=move || member_at().map(|m| format!("video-{}", m.peer_id)).unwrap_or_default()
+                        class:hidden=move || !(!is_self() && showing_video())
+                        autoplay=true
+                        playsinline=true
+                    ></video>
+                    <div
+                        class="card__error"
+                        class:hidden=move || {
+                            member_at().map(|m| !connection_errors.get().contains(&m.peer_id)).unwrap_or(true)
+                        }
+                    >
+                        "Não foi possível conectar."
+                    </div>
+                    <div class="card__footer">
+                        <span class="card__nick">{move || member_at().map(|m| m.nick).unwrap_or_default()}</span>
+                    </div>
+                </div>
+            }
+        })
+        .collect::<Vec<_>>()
 }
 
 #[cfg(feature = "hydrate")]
 fn apply_joined_snapshot(
+    room_code: String,
+    room_name: String,
     peer_id: String,
     joined_members: Vec<crate::signaling::protocol::MemberInfo>,
     active_sharers: Vec<String>,
     set_my_peer_id: WriteSignal<Option<String>>,
     set_members: WriteSignal<Vec<RoomMember>>,
+    set_room_name: WriteSignal<Option<String>>,
     set_authenticated: WriteSignal<bool>,
     set_status: WriteSignal<String>,
 ) {
     use std::collections::HashSet;
 
+    use crate::client::storage::save_recent_room;
+    use crate::profile::RecentRoom;
+
     let sharer_set: HashSet<String> = active_sharers.into_iter().collect();
     let members: Vec<RoomMember> = joined_members
         .into_iter()
-        .map(|m| RoomMember { sharing: sharer_set.contains(&m.peer_id), peer_id: m.peer_id, nick: m.nick })
+        .map(|m| RoomMember { sharing: sharer_set.contains(&m.peer_id), peer_id: m.peer_id, nick: m.nick, color: m.color })
         .collect();
+    save_recent_room(RecentRoom { code: room_code, name: room_name.clone() });
     set_my_peer_id.set(Some(peer_id));
     set_members.set(members);
+    set_room_name.set(Some(room_name));
     set_authenticated.set(true);
     set_status.set("Conectado.".to_string());
 }
@@ -233,6 +356,7 @@ fn apply_joined_snapshot(
 fn build_message_handler(
     set_status: WriteSignal<String>,
     set_authenticated: WriteSignal<bool>,
+    set_room_name: WriteSignal<Option<String>>,
     set_members: WriteSignal<Vec<RoomMember>>,
     set_my_peer_id: WriteSignal<Option<String>>,
     conn: RoomConnection,
@@ -246,14 +370,25 @@ fn build_message_handler(
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
     move |msg: ServerMessage| match msg {
-        ServerMessage::Joined { peer_id, members: joined_members, active_sharers, .. } => {
-            apply_joined_snapshot(peer_id, joined_members, active_sharers, set_my_peer_id, set_members, set_authenticated, set_status);
+        ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers } => {
+            apply_joined_snapshot(
+                room,
+                room_name,
+                peer_id,
+                joined_members,
+                active_sharers,
+                set_my_peer_id,
+                set_members,
+                set_room_name,
+                set_authenticated,
+                set_status,
+            );
         }
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
         ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
-        ServerMessage::RoomFull => set_status.set("Essa sala já está cheia (máximo de 8 pessoas).".to_string()),
-        ServerMessage::PeerJoined { peer_id, nick } => {
-            set_members.update(|members| members.push(RoomMember { peer_id, nick, sharing: false }));
+        ServerMessage::RoomFull => set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string()),
+        ServerMessage::PeerJoined { peer_id, nick, color } => {
+            set_members.update(|members| members.push(RoomMember { peer_id, nick, color, sharing: false }));
         }
         ServerMessage::PeerLeft { peer_id } => {
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
@@ -317,8 +452,6 @@ fn build_message_handler(
                 pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
                 onicecandidate.forget();
 
-                // Isola a falha: só o tile desse sharer específico vira
-                // erro, o resto da sala continua recebendo vídeo normal.
                 let failed_peer_id = from.clone();
                 let oniceconnectionstatechange = {
                     let pc_for_state = pc.clone();
@@ -355,6 +488,8 @@ fn build_message_handler(
                 add_ice_candidate(&pc, &candidate, sdp_mid, sdp_m_line_index);
             }
         }
+        // WatchRequested/WatchStopped chegam na Task 9.
+        _ => {}
     }
 }
 
@@ -364,6 +499,7 @@ fn adopt_pending_session(
     _conn: RoomConnection,
     _set_status: WriteSignal<String>,
     _set_authenticated: WriteSignal<bool>,
+    _set_room_name: WriteSignal<Option<String>>,
     _set_members: WriteSignal<Vec<RoomMember>>,
     _set_my_peer_id: WriteSignal<Option<String>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
@@ -376,6 +512,7 @@ fn adopt_pending_session(
     conn: RoomConnection,
     set_status: WriteSignal<String>,
     set_authenticated: WriteSignal<bool>,
+    set_room_name: WriteSignal<Option<String>>,
     set_members: WriteSignal<Vec<RoomMember>>,
     set_my_peer_id: WriteSignal<Option<String>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
@@ -384,18 +521,21 @@ fn adopt_pending_session(
 
     let Some(mut session) = session::take(&room_code) else { return };
 
-    let on_message = build_message_handler(set_status, set_authenticated, set_members, set_my_peer_id, conn.clone(), connection_errors);
+    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), connection_errors);
     session.ws.set_on_message(on_message);
     session.ws.on_close(move || {
         set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
     });
 
     apply_joined_snapshot(
+        session.room,
+        session.room_name,
         session.peer_id,
         session.members,
         session.active_sharers,
         set_my_peer_id,
         set_members,
+        set_room_name,
         set_authenticated,
         set_status,
     );
@@ -409,11 +549,12 @@ fn setup_room_connection(
     _conn: RoomConnection,
     _set_status: WriteSignal<String>,
     _set_authenticated: WriteSignal<bool>,
+    _set_room_name: WriteSignal<Option<String>>,
     _set_members: WriteSignal<Vec<RoomMember>>,
     _set_my_peer_id: WriteSignal<Option<String>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> impl Fn(String, String) + Clone + 'static {
-    move |_nick: String, _password: String| {}
+) -> impl Fn(String, String, String) + Clone + 'static {
+    move |_nick: String, _color: String, _password: String| {}
 }
 
 #[cfg(feature = "hydrate")]
@@ -422,20 +563,22 @@ fn setup_room_connection(
     conn: RoomConnection,
     set_status: WriteSignal<String>,
     set_authenticated: WriteSignal<bool>,
+    set_room_name: WriteSignal<Option<String>>,
     set_members: WriteSignal<Vec<RoomMember>>,
     set_my_peer_id: WriteSignal<Option<String>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> impl Fn(String, String) + Clone + 'static {
+) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
-    use crate::client::storage::save_nick;
+    use crate::client::storage::save_profile;
+    use crate::profile::Profile;
     use crate::signaling::protocol::ClientMessage;
 
-    move |nick: String, password: String| {
+    move |nick: String, color: String, password: String| {
         let conn = conn.clone();
         let room_code = room_code.clone();
         set_status.set("Conectando...".to_string());
 
-        let on_message = build_message_handler(set_status, set_authenticated, set_members, set_my_peer_id, conn.clone(), connection_errors);
+        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), connection_errors);
 
         match WsClient::connect("/ws", on_message) {
             Ok(ws) => {
@@ -443,10 +586,11 @@ fn setup_room_connection(
                     let conn = conn.clone();
                     let room_code = room_code.clone();
                     let nick = nick.clone();
+                    let color = color.clone();
                     let password = password.clone();
                     move || {
                         if let Some(ws) = conn.ws.borrow().as_ref() {
-                            ws.send(&ClientMessage::JoinRoom { room: room_code.clone(), nick: nick.clone(), password: password.clone() });
+                            ws.send(&ClientMessage::JoinRoom { room: room_code.clone(), nick: nick.clone(), password: password.clone(), color: color.clone() });
                         }
                     }
                 });
@@ -454,7 +598,7 @@ fn setup_room_connection(
                     set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
                 });
                 *conn.ws.borrow_mut() = Some(ws);
-                save_nick(&nick);
+                save_profile(&Profile { nick, color });
             }
             Err(_) => set_status.set("Não foi possível conectar ao servidor.".to_string()),
         }
@@ -469,168 +613,4 @@ fn share_supported() -> bool {
 #[cfg(feature = "hydrate")]
 fn share_supported() -> bool {
     crate::client::webrtc::is_display_media_supported()
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn share_toggle_handler(
-    _conn: RoomConnection,
-    _members: ReadSignal<Vec<RoomMember>>,
-    _my_peer_id: ReadSignal<Option<String>>,
-    _is_sharing: ReadSignal<bool>,
-    _set_is_sharing: WriteSignal<bool>,
-    _set_status: WriteSignal<String>,
-    _local_video_ref: NodeRef<leptos::html::Video>,
-    _connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    move |_| {}
-}
-
-#[cfg(feature = "hydrate")]
-fn share_toggle_handler(
-    conn: RoomConnection,
-    members: ReadSignal<Vec<RoomMember>>,
-    my_peer_id: ReadSignal<Option<String>>,
-    is_sharing: ReadSignal<bool>,
-    set_is_sharing: WriteSignal<bool>,
-    set_status: WriteSignal<String>,
-    local_video_ref: NodeRef<leptos::html::Video>,
-    connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    use leptos::task::spawn_local;
-    use wasm_bindgen::JsCast;
-    use web_sys::{MediaStreamTrack, RtcPeerConnectionIceEvent};
-
-    use crate::client::webrtc::{capture_display, create_offer, new_peer_connection};
-    use crate::signaling::protocol::ClientMessage;
-
-    move |_| {
-        if is_sharing.get_untracked() {
-            stop_sharing(&conn, set_is_sharing);
-            return;
-        }
-
-        let conn = conn.clone();
-        set_status.set("Selecione a tela para compartilhar...".to_string());
-
-        spawn_local(async move {
-            let stream = match capture_display().await {
-                Ok(stream) => stream,
-                Err(_) => {
-                    set_status.set("Conectado.".to_string());
-                    return;
-                }
-            };
-
-            if let Some(video) = local_video_ref.get_untracked() {
-                video.set_src_object(Some(&stream));
-                let _ = video.play();
-            }
-            *conn.local_stream.borrow_mut() = Some(stream.clone());
-            set_is_sharing.set(true);
-
-            // O botão nativo "Stop sharing" da barra de captura do navegador
-            // também precisa disparar a mesma limpeza — sem isso, quem está
-            // assistindo fica com a última imagem congelada.
-            if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
-                let conn_for_end = conn.clone();
-                let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                    stop_sharing(&conn_for_end, set_is_sharing);
-                });
-                track.set_onended(Some(onended.as_ref().unchecked_ref()));
-                onended.forget();
-            }
-
-            if let Some(ws) = conn.ws.borrow().as_ref() {
-                ws.send(&ClientMessage::StartShare);
-            }
-
-            let Some(my_id) = my_peer_id.get_untracked() else { return };
-
-            // A ordem importa: StartShare precisa sair antes das ofertas (abaixo)
-            // para que o PeerStartedSharing chegue em cada espectador antes do
-            // Offer correspondente — é o que garante que o tile <video> já
-            // exista no DOM quando o ontrack tentar encontrá-lo.
-            for member in members.get_untracked() {
-                if member.peer_id == my_id {
-                    continue;
-                }
-                let viewer_id = member.peer_id.clone();
-                let conn = conn.clone();
-                let my_id = my_id.clone();
-
-                spawn_local(async move {
-                    let Ok(pc) = new_peer_connection() else { return };
-                    conn.outgoing.borrow_mut().insert(viewer_id.clone(), pc.clone());
-                    connection_errors.update(|errors| { errors.remove(&viewer_id); });
-
-                    if let Some(stream) = conn.local_stream.borrow().as_ref() {
-                        for track in stream.get_tracks().iter() {
-                            let track: MediaStreamTrack = track.unchecked_into();
-                            pc.add_track_0(&track, stream);
-                        }
-                    }
-
-                    let target_id = viewer_id.clone();
-                    let conn_for_ice = conn.clone();
-                    let my_id_for_ice = my_id.clone();
-                    let onicecandidate = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(move |event: RtcPeerConnectionIceEvent| {
-                        if let Some(candidate) = event.candidate() {
-                            if let Some(ws) = conn_for_ice.ws.borrow().as_ref() {
-                                ws.send(&ClientMessage::IceCandidate {
-                                    to: target_id.clone(),
-                                    stream_owner: my_id_for_ice.clone(),
-                                    candidate: candidate.candidate(),
-                                    sdp_mid: candidate.sdp_mid(),
-                                    sdp_m_line_index: candidate.sdp_m_line_index(),
-                                });
-                            }
-                        }
-                    });
-                    pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-                    onicecandidate.forget();
-
-                    // Mesmo princípio de isolamento do lado de quem assiste:
-                    // se a conexão com ESSE espectador falhar, só o tile dele
-                    // (do lado dele) fica com erro — não afeta os outros
-                    // espectadores da minha transmissão.
-                    let failed_viewer_id = viewer_id.clone();
-                    let oniceconnectionstatechange = {
-                        let pc_for_state = pc.clone();
-                        wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                            if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
-                                connection_errors.update(|errors| { errors.insert(failed_viewer_id.clone()); });
-                            }
-                        })
-                    };
-                    pc.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
-                    oniceconnectionstatechange.forget();
-
-                    if let Ok(sdp) = create_offer(&pc).await {
-                        if let Some(ws) = conn.ws.borrow().as_ref() {
-                            ws.send(&ClientMessage::Offer { to: viewer_id, sdp });
-                        }
-                    }
-                });
-            }
-        });
-    }
-}
-
-#[cfg(feature = "hydrate")]
-fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>) {
-    use wasm_bindgen::JsCast;
-
-    if let Some(stream) = conn.local_stream.borrow_mut().take() {
-        for track in stream.get_tracks().iter() {
-            let track: web_sys::MediaStreamTrack = track.unchecked_into();
-            track.stop();
-        }
-    }
-    for (_, pc) in conn.outgoing.borrow_mut().drain() {
-        pc.close();
-    }
-    if let Some(ws) = conn.ws.borrow().as_ref() {
-        ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
-    }
-    set_is_sharing.set(false);
 }
