@@ -1038,6 +1038,8 @@ git commit -m "feat: add fixed member color palette and avatar-letter helper"
 ## Task 6: Estado do cliente — perfil (nick + cor), salas recentes e checagem HTTP
 
 **Files:**
+- Create: `src/profile.rs`
+- Modify: `src/lib.rs` (registrar `pub mod profile;`)
 - Modify: `src/client/storage.rs`
 - Create: `src/client/rooms_api.rs`
 - Modify: `src/client/mod.rs`
@@ -1045,30 +1047,47 @@ git commit -m "feat: add fixed member color palette and avatar-letter helper"
 
 **Interfaces:**
 - Consumes: `palette::DEFAULT_COLOR` (Task 5), `protocol::RoomStatus` (Task 1).
-- Produces: `storage::{Profile, load_profile() -> Profile, save_profile(&Profile)}`,
-  `storage::{RecentRoom, load_recent_rooms() -> Vec<RecentRoom>, save_recent_room(RecentRoom), remove_recent_room(code: &str)}`,
+- Produces: `profile::{Profile, RecentRoom}` (as duas structs de dados, sem
+  nenhuma dependência de `web-sys`). `storage::{load_profile() -> Profile,
+  save_profile(&Profile), load_recent_rooms() -> Vec<RecentRoom>,
+  save_recent_room(RecentRoom), remove_recent_room(code: &str)}`,
   `rooms_api::check_room(code: &str) -> impl Future<Output = Option<RoomStatus>>` —
   usados pelas Tasks 7 e 8. `storage::{load_nick, save_nick}` (do v2) continuam
   existindo por enquanto — a Task 8 é quem os remove, depois de migrar o último
   chamador.
+
+> **Por que `Profile`/`RecentRoom` não vivem dentro de `client/`:** o módulo
+> `client` inteiro é `#[cfg(feature = "hydrate")]` em `src/lib.rs` — sob `ssr`
+> ele simplesmente não existe. Isso é seguro para funções que só são chamadas
+> de dentro de código já `#[cfg(feature = "hydrate")]`, mas `home.rs`/`room.rs`
+> têm funções wrapper (`initial_profile`, `initial_recent_rooms`, etc.) que
+> **não** são bloqueadas por `cfg` — elas compilam tanto sob `ssr` quanto sob
+> `hydrate`, e sua assinatura precisa nomear o tipo `Profile`/`RecentRoom`
+> mesmo do lado `ssr` (mesmo que o corpo, do lado `ssr`, nunca toque
+> `localStorage`). Um tipo referenciado dentro de `client::storage` não existe
+> nesse contexto. A solução é a mesma já usada por `MemberInfo`/`RoomStatus`
+> em `signaling::protocol` (que também servem os dois lados): as structs de
+> dado puro (sem `web-sys`) ficam num módulo à parte, sempre compilado;
+> só as funções de I/O de navegador (que de fato precisam de `web-sys`) ficam
+> atrás do `cfg` em `client/storage.rs`.
 
 - [ ] **Step 1: Adicionar a feature `Response` ao `web-sys`**
 
 Em `Cargo.toml`, no bloco `web-sys = { ..., features = [...] }`, adicione
 `"Response"` à lista (ex.: logo após `"Storage"`).
 
-- [ ] **Step 2: Implementar `Profile` e salas recentes em `storage.rs`**
+- [ ] **Step 2: Criar `src/profile.rs` com os tipos de dado puro**
 
-No topo de `src/client/storage.rs` (mantendo `load_nick`/`save_nick` como estão
-hoje, logo abaixo), adicione:
+`src/profile.rs`:
 
 ```rust
 use serde::{Deserialize, Serialize};
 
-const PROFILE_KEY: &str = "screen_share_profile";
-const RECENT_ROOMS_KEY: &str = "screen_share_recent_rooms";
-const MAX_RECENT_ROOMS: usize = 10;
-
+/// Identidade local do usuário (nick + cor). Vive fora de `client/` (que é
+/// inteiramente bloqueado sob a feature `hydrate`) porque `home.rs`/`room.rs`
+/// referenciam este tipo em assinaturas de função que precisam compilar tanto
+/// sob `ssr` quanto sob `hydrate` — só as funções de leitura/escrita no
+/// `localStorage` (em `client::storage`) são específicas de navegador.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Profile {
     pub nick: String,
@@ -1080,6 +1099,33 @@ impl Default for Profile {
         Self { nick: String::new(), color: crate::pages::palette::DEFAULT_COLOR.to_string() }
     }
 }
+
+/// Uma sala recentemente criada ou visitada, lembrada localmente (sem senha).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecentRoom {
+    pub code: String,
+    pub name: String,
+}
+```
+
+Em `src/lib.rs`, adicione (junto dos outros módulos de topo, antes do bloco
+`#[cfg(feature = "hydrate")] pub mod client;`):
+
+```rust
+pub mod profile;
+```
+
+- [ ] **Step 3: Implementar leitura/escrita de perfil e salas recentes em `storage.rs`**
+
+No topo de `src/client/storage.rs` (mantendo `load_nick`/`save_nick` como estão
+hoje, logo abaixo), adicione:
+
+```rust
+use crate::profile::{Profile, RecentRoom};
+
+const PROFILE_KEY: &str = "screen_share_profile";
+const RECENT_ROOMS_KEY: &str = "screen_share_recent_rooms";
+const MAX_RECENT_ROOMS: usize = 10;
 
 #[cfg(not(feature = "hydrate"))]
 pub fn load_profile() -> Profile {
@@ -1106,12 +1152,6 @@ pub fn save_profile(profile: &Profile) {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RecentRoom {
-    pub code: String,
-    pub name: String,
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -1161,7 +1201,7 @@ fn save_recent_rooms_list(rooms: &[RecentRoom]) {
 }
 ```
 
-- [ ] **Step 3: Implementar o helper de checagem HTTP**
+- [ ] **Step 4: Implementar o helper de checagem HTTP**
 
 `src/client/rooms_api.rs`:
 
@@ -1194,19 +1234,21 @@ Em `src/client/mod.rs`, adicione:
 pub mod rooms_api;
 ```
 
-- [ ] **Step 4: Verificar que compila nos dois alvos**
+- [ ] **Step 5: Verificar que compila nos dois alvos**
 
 Run: `cargo check --features ssr --bin screen_share`
-Expected: sucesso (o módulo `client` inteiro é `#[cfg(feature = "hydrate")]` em
-`src/lib.rs`, então nem entra na compilação `ssr`).
+Expected: sucesso — `src/profile.rs` é um módulo comum (não bloqueado por
+`cfg`), então compila em ambos os alvos; só `client/storage.rs` e
+`client/rooms_api.rs` ficam de fora da compilação `ssr` (o módulo `client`
+inteiro é `#[cfg(feature = "hydrate")]` em `src/lib.rs`).
 
 Run: `cargo check --features hydrate --target wasm32-unknown-unknown --lib`
 Expected: sucesso.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Cargo.toml src/client/storage.rs src/client/rooms_api.rs src/client/mod.rs
+git add Cargo.toml src/profile.rs src/lib.rs src/client/storage.rs src/client/rooms_api.rs src/client/mod.rs
 git commit -m "feat: add profile/recent-rooms storage and a room-existence fetch helper"
 ```
 
@@ -1219,7 +1261,7 @@ git commit -m "feat: add profile/recent-rooms storage and a room-existence fetch
 - Modify: `src/client/session.rs` (adicionar `room_name` a `PendingSession`)
 
 **Interfaces:**
-- Consumes: `client::storage::{Profile, load_profile, save_profile, RecentRoom, load_recent_rooms, save_recent_room, remove_recent_room}`,
+- Consumes: `profile::{Profile, RecentRoom}`, `client::storage::{load_profile, save_profile, load_recent_rooms, save_recent_room, remove_recent_room}`,
   `client::rooms_api::check_room` (Task 6), `client::session::{self, PendingSession}`,
   `pages::palette::{palette_ids, color_hex}` (Task 5), `protocol::{ClientMessage, ServerMessage}` (Task 1).
 - Produces: `PendingSession.room_name: String` (novo campo, consumido pela Task 8).
@@ -1340,39 +1382,39 @@ pub fn HomePage() -> impl IntoView {
     }
 }
 
-fn initial_profile() -> crate::client::storage::Profile {
+fn initial_profile() -> crate::profile::Profile {
     initial_profile_impl()
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn initial_profile_impl() -> crate::client::storage::Profile {
-    crate::client::storage::Profile::default()
+fn initial_profile_impl() -> crate::profile::Profile {
+    crate::profile::Profile::default()
 }
 
 #[cfg(feature = "hydrate")]
-fn initial_profile_impl() -> crate::client::storage::Profile {
+fn initial_profile_impl() -> crate::profile::Profile {
     crate::client::storage::load_profile()
 }
 
-fn initial_recent_rooms() -> Vec<crate::client::storage::RecentRoom> {
+fn initial_recent_rooms() -> Vec<crate::profile::RecentRoom> {
     initial_recent_rooms_impl()
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn initial_recent_rooms_impl() -> Vec<crate::client::storage::RecentRoom> {
+fn initial_recent_rooms_impl() -> Vec<crate::profile::RecentRoom> {
     Vec::new()
 }
 
 #[cfg(feature = "hydrate")]
-fn initial_recent_rooms_impl() -> Vec<crate::client::storage::RecentRoom> {
+fn initial_recent_rooms_impl() -> Vec<crate::profile::RecentRoom> {
     crate::client::storage::load_recent_rooms()
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn prune_recent_rooms(_set_recent_rooms: WriteSignal<Vec<crate::client::storage::RecentRoom>>) {}
+fn prune_recent_rooms(_set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {}
 
 #[cfg(feature = "hydrate")]
-fn prune_recent_rooms(set_recent_rooms: WriteSignal<Vec<crate::client::storage::RecentRoom>>) {
+fn prune_recent_rooms(set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {
     use leptos::task::spawn_local;
 
     use crate::client::{rooms_api::check_room, storage::remove_recent_room};
@@ -1418,7 +1460,8 @@ fn create_room_handler(
 
     use crate::client::session::{self, PendingSession};
     use crate::client::socket::WsClient;
-    use crate::client::storage::{save_profile, save_recent_room, Profile, RecentRoom};
+    use crate::client::storage::{save_profile, save_recent_room};
+    use crate::profile::{Profile, RecentRoom};
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
     move |ev: leptos::ev::SubmitEvent| {
@@ -1536,7 +1579,7 @@ sem a outra sem deixar o arquivo num estado que não compila no meio do caminho.
 - Modify: `src/pages/status.rs` (corrigir classificação de "sala não encontrada")
 
 **Interfaces:**
-- Consumes: tudo que a Task 7 produz (`PendingSession.room_name`, `client::storage::{load_profile, save_profile, RecentRoom, save_recent_room}` — substituindo `load_nick`/`save_nick`), `client::rooms_api::check_room`, `pages::palette::{palette_ids, color_hex, avatar_letter}`, `protocol::{MemberInfo, MAX_MEMBERS, ClientMessage, ServerMessage}` com os campos novos.
+- Consumes: tudo que a Task 7 produz (`PendingSession.room_name`, `profile::{Profile, RecentRoom}`, `client::storage::{load_profile, save_profile, save_recent_room}` — substituindo `load_nick`/`save_nick`), `client::rooms_api::check_room`, `pages::palette::{palette_ids, color_hex, avatar_letter}`, `protocol::{MemberInfo, MAX_MEMBERS, ClientMessage, ServerMessage}` com os campos novos.
 - Produces: `apply_joined_snapshot`, `build_message_handler`, `adopt_pending_session`,
   `setup_room_connection` com as assinaturas finais desta fase (`room_code`/
   `room_name` inclusos, ainda sem `watching`) e `member_cards` — tudo consumido
@@ -1770,17 +1813,17 @@ Substitua as duas funções `initial_nick` (a `#[cfg(not(feature = "hydrate"))]`
 `#[cfg(feature = "hydrate")]`) por:
 
 ```rust
-fn initial_profile() -> crate::client::storage::Profile {
+fn initial_profile() -> crate::profile::Profile {
     initial_profile_impl()
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn initial_profile_impl() -> crate::client::storage::Profile {
-    crate::client::storage::Profile::default()
+fn initial_profile_impl() -> crate::profile::Profile {
+    crate::profile::Profile::default()
 }
 
 #[cfg(feature = "hydrate")]
-fn initial_profile_impl() -> crate::client::storage::Profile {
+fn initial_profile_impl() -> crate::profile::Profile {
     crate::client::storage::load_profile()
 }
 
@@ -2179,7 +2222,8 @@ fn setup_room_connection(
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
-    use crate::client::storage::{save_profile, Profile};
+    use crate::client::storage::save_profile;
+    use crate::profile::Profile;
     use crate::signaling::protocol::ClientMessage;
 
     move |nick: String, color: String, password: String| {
@@ -2705,7 +2749,8 @@ fn setup_room_connection(
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
-    use crate::client::storage::{save_profile, Profile};
+    use crate::client::storage::save_profile;
+    use crate::profile::Profile;
     use crate::signaling::protocol::ClientMessage;
 
     move |nick: String, color: String, password: String| {
