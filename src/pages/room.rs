@@ -3,191 +3,309 @@ use leptos_router::hooks::use_params_map;
 
 use crate::pages::status::status_meta;
 
+#[derive(Clone, PartialEq)]
+pub struct RoomMember {
+    pub peer_id: String,
+    pub nick: String,
+    pub sharing: bool,
+}
+
+#[cfg(feature = "hydrate")]
+#[derive(Clone)]
+struct RoomConnection {
+    ws: std::rc::Rc<std::cell::RefCell<Option<crate::client::socket::WsClient>>>,
+}
+
+#[cfg(feature = "hydrate")]
+impl RoomConnection {
+    fn new() -> Self {
+        Self { ws: Default::default() }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+#[derive(Clone)]
+struct RoomConnection;
+
+#[cfg(not(feature = "hydrate"))]
+impl RoomConnection {
+    fn new() -> Self {
+        Self
+    }
+}
+
 #[component]
 pub fn RoomPage() -> impl IntoView {
     let params = use_params_map();
     let code = move || params.read().get("code").unwrap_or_default();
     let initial_code = params.read_untracked().get("code").unwrap_or_default();
 
-    let (status, set_status) = signal("Conectando...".to_string());
-    let (connected, set_connected) = signal(false);
-    let video_ref = NodeRef::<leptos::html::Video>::new();
+    let (nick, set_nick) = signal(initial_nick());
+    let (password, set_password) = signal(String::new());
+    let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
+    let (authenticated, set_authenticated) = signal(false);
+    let (members, set_members) = signal(Vec::<RoomMember>::new());
+    let (_my_peer_id, set_my_peer_id) = signal(None::<String>);
 
-    setup_viewer_connection(initial_code, set_status, set_connected, video_ref);
+    let conn = RoomConnection::new();
+
+    let join_room = setup_room_connection(
+        initial_code.clone(),
+        conn.clone(),
+        set_status,
+        set_authenticated,
+        set_members,
+        set_my_peer_id,
+    );
+
+    // Se viemos da criação da sala na home, a conexão já está autenticada
+    // (ver `client::session`) — assume ela em vez de pedir nick/senha de
+    // novo. Chamada direta (não via Effect): `initial_code` já está
+    // disponível de forma síncrona na montagem do componente.
+    adopt_pending_session(initial_code, conn, set_status, set_authenticated, set_members, set_my_peer_id);
+
+    let manual_join = {
+        let join_room = join_room.clone();
+        move |ev: leptos::ev::SubmitEvent| {
+            ev.prevent_default();
+            let nick_value = nick.get_untracked().trim().to_string();
+            let password_value = password.get_untracked();
+            if nick_value.is_empty() || password_value.is_empty() {
+                set_status.set("Preencha nick e senha.".to_string());
+                return;
+            }
+            join_room(nick_value, password_value);
+        }
+    };
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
         format!("lamp lamp--{variant}")
     };
-    let eyebrow_label = move || status_meta(&status.get()).1;
 
     view! {
-        <div class="stage-page">
+        // As duas seções ficam sempre montadas e alternam por CSS
+        // (class:hidden), não por montagem/desmontagem condicional
+        // (`<Show>`): o Leptos 0.8 exige que qualquer closure de filho
+        // dinâmico (o que `<Show>` usa para seus filhos e para `fallback`)
+        // seja Send + Sync, mesmo rodando single-threaded no navegador — e o
+        // formulário de entrada captura um `Rc<RefCell<WsClient>>` (via
+        // `manual_join` → `join_room`), que não é. Mantendo o formulário
+        // como filho estático (avaliado uma vez) e só alternando a classe
+        // evita esse requisito, no mesmo espírito do padrão "estado por
+        // classificação, não por montagem" que o resto do app já usa (ver
+        // `CLAUDE.md`, seção "Status-driven UI").
+        <div class="panel" class:hidden=move || authenticated.get()>
+            <h1>"Entrar na sala"</h1>
+            <p class="status-row__meta">{code}</p>
+            <form on:submit=manual_join.clone()>
+                <label class="field">
+                    <span class="field__label">"Nick"</span>
+                    <input class="field__input" type="text" required prop:value=nick
+                        on:input:target=move |ev| set_nick.set(ev.target().value())/>
+                </label>
+                <label class="field">
+                    <span class="field__label">"Senha da sala"</span>
+                    <input class="field__input" type="password" required prop:value=password
+                        on:input:target=move |ev| set_password.set(ev.target().value())/>
+                </label>
+                <button class="btn btn--primary" type="submit">"Entrar"</button>
+            </form>
+            <p class="status-text" class:status-text--error=move || status_meta(&status.get()).0 == "error">
+                {status}
+            </p>
+        </div>
+        <div class="room-page" class:hidden=move || !authenticated.get()>
             <div class="stage-header">
                 <span class=lamp_class></span>
-                <span class="eyebrow">{eyebrow_label}</span>
-                <span class="status-row__spacer"></span>
                 <span class="status-row__meta">{code}</span>
             </div>
-
-            <div class="stage">
-                <video node_ref=video_ref autoplay=true playsinline=true></video>
-                <Show when=move || !connected.get()>
-                    <div class="stage__placeholder">
-                        <span class=lamp_class></span>
-                        <span>{status}</span>
+            <div class="grid">
+                <For
+                    each=move || members.get()
+                    key=|m| m.peer_id.clone()
+                    let(member)
+                >
+                    <div class="tile">
+                        <div class="tile__label">
+                            {member.nick.clone()}
+                            {move || if member.sharing { " (compartilhando)" } else { "" }}
+                        </div>
                     </div>
-                </Show>
+                </For>
             </div>
         </div>
     }
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn setup_viewer_connection(
+fn initial_nick() -> String {
+    String::new()
+}
+
+#[cfg(feature = "hydrate")]
+fn initial_nick() -> String {
+    crate::client::storage::load_nick().unwrap_or_default()
+}
+
+#[cfg(feature = "hydrate")]
+fn apply_joined_snapshot(
+    peer_id: String,
+    joined_members: Vec<crate::signaling::protocol::MemberInfo>,
+    active_sharers: Vec<String>,
+    set_my_peer_id: WriteSignal<Option<String>>,
+    set_members: WriteSignal<Vec<RoomMember>>,
+    set_authenticated: WriteSignal<bool>,
+    set_status: WriteSignal<String>,
+) {
+    use std::collections::HashSet;
+
+    let sharer_set: HashSet<String> = active_sharers.into_iter().collect();
+    let members: Vec<RoomMember> = joined_members
+        .into_iter()
+        .map(|m| RoomMember { sharing: sharer_set.contains(&m.peer_id), peer_id: m.peer_id, nick: m.nick })
+        .collect();
+    set_my_peer_id.set(Some(peer_id));
+    set_members.set(members);
+    set_authenticated.set(true);
+    set_status.set("Conectado.".to_string());
+}
+
+#[cfg(feature = "hydrate")]
+fn build_message_handler(
+    set_status: WriteSignal<String>,
+    set_authenticated: WriteSignal<bool>,
+    set_members: WriteSignal<Vec<RoomMember>>,
+    set_my_peer_id: WriteSignal<Option<String>>,
+) -> impl Fn(crate::signaling::protocol::ServerMessage) + 'static {
+    use crate::signaling::protocol::ServerMessage;
+
+    move |msg: ServerMessage| match msg {
+        ServerMessage::Joined { peer_id, members: joined_members, active_sharers, .. } => {
+            apply_joined_snapshot(peer_id, joined_members, active_sharers, set_my_peer_id, set_members, set_authenticated, set_status);
+        }
+        ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
+        ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
+        ServerMessage::RoomFull => set_status.set("Essa sala já está cheia (máximo de 8 pessoas).".to_string()),
+        ServerMessage::PeerJoined { peer_id, nick } => {
+            set_members.update(|members| members.push(RoomMember { peer_id, nick, sharing: false }));
+        }
+        ServerMessage::PeerLeft { peer_id } => {
+            set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
+        }
+        ServerMessage::PeerStartedSharing { peer_id } => {
+            set_members.update(|members| {
+                if let Some(m) = members.iter_mut().find(|m| m.peer_id == peer_id) {
+                    m.sharing = true;
+                }
+            });
+        }
+        ServerMessage::PeerStoppedSharing { peer_id } => {
+            set_members.update(|members| {
+                if let Some(m) = members.iter_mut().find(|m| m.peer_id == peer_id) {
+                    m.sharing = false;
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn adopt_pending_session(
     _room_code: String,
+    _conn: RoomConnection,
     _set_status: WriteSignal<String>,
-    _set_connected: WriteSignal<bool>,
-    _video_ref: NodeRef<leptos::html::Video>,
+    _set_authenticated: WriteSignal<bool>,
+    _set_members: WriteSignal<Vec<RoomMember>>,
+    _set_my_peer_id: WriteSignal<Option<String>>,
 ) {
 }
 
 #[cfg(feature = "hydrate")]
-fn setup_viewer_connection(
+fn adopt_pending_session(
     room_code: String,
+    conn: RoomConnection,
     set_status: WriteSignal<String>,
-    set_connected: WriteSignal<bool>,
-    video_ref: NodeRef<leptos::html::Video>,
+    set_authenticated: WriteSignal<bool>,
+    set_members: WriteSignal<Vec<RoomMember>>,
+    set_my_peer_id: WriteSignal<Option<String>>,
 ) {
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use crate::client::session;
 
-    use leptos::task::spawn_local;
-    use wasm_bindgen::JsCast;
-    use web_sys::{MediaStream, RtcPeerConnection, RtcPeerConnectionIceEvent, RtcTrackEvent};
+    let Some(mut session) = session::take(&room_code) else { return };
 
+    let on_message = build_message_handler(set_status, set_authenticated, set_members, set_my_peer_id);
+    session.ws.set_on_message(on_message);
+    session.ws.on_close(move || {
+        set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+    });
+
+    apply_joined_snapshot(
+        session.peer_id,
+        session.members,
+        session.active_sharers,
+        set_my_peer_id,
+        set_members,
+        set_authenticated,
+        set_status,
+    );
+
+    *conn.ws.borrow_mut() = Some(session.ws);
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn setup_room_connection(
+    _room_code: String,
+    _conn: RoomConnection,
+    _set_status: WriteSignal<String>,
+    _set_authenticated: WriteSignal<bool>,
+    _set_members: WriteSignal<Vec<RoomMember>>,
+    _set_my_peer_id: WriteSignal<Option<String>>,
+) -> impl Fn(String, String) + Clone + 'static {
+    move |_nick: String, _password: String| {}
+}
+
+#[cfg(feature = "hydrate")]
+fn setup_room_connection(
+    room_code: String,
+    conn: RoomConnection,
+    set_status: WriteSignal<String>,
+    set_authenticated: WriteSignal<bool>,
+    set_members: WriteSignal<Vec<RoomMember>>,
+    set_my_peer_id: WriteSignal<Option<String>>,
+) -> impl Fn(String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
-    use crate::client::webrtc::{add_ice_candidate, create_answer, new_peer_connection};
-    use crate::signaling::protocol::{ClientMessage, ServerMessage};
+    use crate::client::storage::save_nick;
+    use crate::signaling::protocol::ClientMessage;
 
-    let ws_slot: Rc<RefCell<Option<WsClient>>> = Rc::new(RefCell::new(None));
-    let pc_slot: Rc<RefCell<Option<RtcPeerConnection>>> = Rc::new(RefCell::new(None));
+    move |nick: String, password: String| {
+        let conn = conn.clone();
+        let room_code = room_code.clone();
+        set_status.set("Conectando...".to_string());
 
-    let on_message = {
-        let ws_slot = ws_slot.clone();
-        let pc_slot = pc_slot.clone();
-        move |msg: ServerMessage| {
-            let ws_slot = ws_slot.clone();
-            let pc_slot = pc_slot.clone();
+        let on_message = build_message_handler(set_status, set_authenticated, set_members, set_my_peer_id);
 
-            match msg {
-                ServerMessage::RoomNotFound => {
-                    set_status.set("Sessão não encontrada ou já terminou.".to_string());
-                }
-                ServerMessage::Offer { from, sdp } => {
-                    spawn_local(async move {
-                        let Ok(pc) = new_peer_connection() else { return };
-
-                        // Guarda a conexão já aqui, antes de negociar. Candidatos ICE
-                        // podem chegar do outro lado a qualquer momento a partir de agora
-                        // (às vezes antes mesmo da resposta/answer terminar); o navegador
-                        // sabe enfileirá-los internamente até a descrição remota ser
-                        // definida em create_answer, mas só se addIceCandidate já tiver
-                        // uma RTCPeerConnection para usar. Guardar isso só no fim (depois
-                        // do await abaixo) fazia esses candidatos serem descartados no
-                        // braço `IceCandidate` mais abaixo, e a tela ficava preta porque a
-                        // negociação "dava certo" sem nenhuma rota de mídia utilizável.
-                        *pc_slot.borrow_mut() = Some(pc.clone());
-
-                        let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
-                            move |event: RtcTrackEvent| {
-                                if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
-                                    if let Some(video) = video_ref.get() {
-                                        video.set_muted(true);
-                                        video.set_src_object(Some(&stream));
-                                        let _ = video.play();
-                                    }
-                                    set_connected.set(true);
-                                }
-                            },
-                        );
-                        pc.set_ontrack(Some(ontrack.as_ref().unchecked_ref()));
-                        ontrack.forget();
-
-                        let target_id = from.clone();
-                        let ws_for_ice = ws_slot.clone();
-                        let onicecandidate = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(
-                            move |event: RtcPeerConnectionIceEvent| {
-                                if let Some(candidate) = event.candidate() {
-                                    if let Some(ws) = ws_for_ice.borrow().as_ref() {
-                                        ws.send(&ClientMessage::IceCandidate {
-                                            to: target_id.clone(),
-                                            candidate: candidate.candidate(),
-                                            sdp_mid: candidate.sdp_mid(),
-                                            sdp_m_line_index: candidate.sdp_m_line_index(),
-                                        });
-                                    }
-                                }
-                            },
-                        );
-                        pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-                        onicecandidate.forget();
-
-                        let oniceconnectionstatechange = {
-                            let pc_for_state = pc.clone();
-                            wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                                if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
-                                    set_connected.set(false);
-                                    set_status.set("Não foi possível conectar. Tente recarregar a página.".to_string());
-                                }
-                            })
-                        };
-                        pc.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
-                        oniceconnectionstatechange.forget();
-
-                        if let Ok(answer_sdp) = create_answer(&pc, &sdp).await {
-                            if let Some(ws) = ws_slot.borrow().as_ref() {
-                                ws.send(&ClientMessage::Answer { to: from.clone(), sdp: answer_sdp });
-                            }
+        match WsClient::connect("/ws", on_message) {
+            Ok(ws) => {
+                ws.on_open({
+                    let conn = conn.clone();
+                    let room_code = room_code.clone();
+                    let nick = nick.clone();
+                    let password = password.clone();
+                    move || {
+                        if let Some(ws) = conn.ws.borrow().as_ref() {
+                            ws.send(&ClientMessage::JoinRoom { room: room_code.clone(), nick: nick.clone(), password: password.clone() });
                         }
-
-                        set_status.set("Conectado.".to_string());
-                    });
-                }
-                ServerMessage::IceCandidate { candidate, sdp_mid, sdp_m_line_index, .. } => {
-                    if let Some(pc) = pc_slot.borrow().as_ref() {
-                        add_ice_candidate(pc, &candidate, sdp_mid, sdp_m_line_index);
                     }
-                }
-                ServerMessage::RoomClosed => {
-                    set_connected.set(false);
-                    set_status.set("O compartilhamento foi encerrado.".to_string());
-                    if let Some(pc) = pc_slot.borrow_mut().take() {
-                        pc.close();
-                    }
-                }
-                _ => {}
+                });
+                ws.on_close(move || {
+                    set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+                });
+                *conn.ws.borrow_mut() = Some(ws);
+                save_nick(&nick);
             }
+            Err(_) => set_status.set("Não foi possível conectar ao servidor.".to_string()),
         }
-    };
-
-    match WsClient::connect("/ws", on_message) {
-        Ok(ws) => {
-            ws.on_open({
-                let ws_slot = ws_slot.clone();
-                let room_code = room_code.clone();
-                move || {
-                    if let Some(ws) = ws_slot.borrow().as_ref() {
-                        ws.send(&ClientMessage::Join { room: room_code.clone() });
-                    }
-                }
-            });
-            ws.on_close(move || {
-                set_connected.set(false);
-                set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
-            });
-            *ws_slot.borrow_mut() = Some(ws);
-        }
-        Err(_) => set_status.set("Não foi possível conectar ao servidor.".to_string()),
     }
 }
