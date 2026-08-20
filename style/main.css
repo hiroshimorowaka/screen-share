@@ -380,7 +380,7 @@ h1 {
   outline-offset: 1px;
 }
 
-/* --- sala: cabeçalho + grade de transmissões --- */
+/* --- sala: cabeçalho + grade de membros (v3) --- */
 
 .room-page {
   width: 100%;
@@ -410,39 +410,46 @@ h1 {
   background: #000;
 }
 
-.tile {
+.card {
   position: relative;
-  background: #111;
   border-radius: 0.6rem;
   overflow: hidden;
   aspect-ratio: 16 / 9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--surface-2);
+  border: 2px solid var(--border);
 }
 
-.tile video {
+.card video {
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: contain;
   background: #000;
 }
 
-.tile__label {
+.card__avatar {
+  width: 4rem;
+  height: 4rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid;
+}
+
+.card__avatar-letter {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.card__error {
   position: absolute;
-  left: 0.5rem;
-  bottom: 0.5rem;
-  padding: 0.25rem 0.6rem;
-  border-radius: 0.4rem;
-  background: rgba(0, 0, 0, 0.55);
-  color: var(--text);
-  font-size: 0.78rem;
-}
-
-.tile--self {
-  border: 1px solid var(--accent);
-}
-
-.tile__error {
-  width: 100%;
-  height: 100%;
+  inset: 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -450,4 +457,120 @@ h1 {
   padding: 1rem;
   color: var(--error);
   font-size: 0.85rem;
+  background: #111;
+}
+
+.card__footer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.card__nick {
+  color: var(--text);
+  font-size: 0.82rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.card__actions .btn--ghost {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.72rem;
+}
+
+/* Aproximação puramente CSS de "foco + tirinha", sem duplicar nenhum
+   elemento (o <video> de cada card é único, precisa continuar sendo o
+   mesmo nó DOM pro ontrack/srcObject continuarem funcionando). O card em
+   foco recebe posicionamento explícito de grid; os demais ficam em
+   auto-placement, o que naturalmente os organiza ao redor do card grande. */
+.grid--focused {
+  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
+  grid-auto-rows: 4.5rem;
+}
+
+.grid--focused .card:not(.card--focus) {
+  aspect-ratio: auto;
+}
+
+.card--focus {
+  grid-column: 1 / -1;
+  grid-row: span 5;
+}
+
+/* --- paleta de cores --- */
+
+.color-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.color-swatch {
+  appearance: none;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+}
+
+.color-swatch--selected {
+  border-color: var(--text);
+}
+
+/* --- salas recentes --- */
+
+.recent-rooms {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.recent-room {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  margin-bottom: 0.5rem;
+}
+
+.recent-room:hover {
+  border-color: var(--accent-strong);
+}
+
+.recent-room__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-room__code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
 }

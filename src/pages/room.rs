@@ -324,7 +324,15 @@ fn member_cards(
             let toggle_preview_click = move |_: leptos::ev::MouseEvent| own_preview_hidden.update(|hidden| *hidden = !*hidden);
 
             view! {
-                <div class="card" class:hidden=move || member_at().is_none() class:card--focus=is_expanded>
+                <div
+                    class="card"
+                    class:hidden=move || member_at().is_none()
+                    class:card--focus=is_expanded
+                    style=move || {
+                        let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                        format!("border-color: {border}; background-color: {bg};")
+                    }
+                >
                     <div
                         class="card__avatar"
                         class:hidden=showing_video
