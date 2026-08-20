@@ -1891,7 +1891,7 @@ fn share_toggle_handler(
     _set_status: WriteSignal<String>,
     _local_video_ref: NodeRef<leptos::html::Video>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> impl Fn(leptos::ev::MouseEvent) + 'static {
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
 
@@ -1905,7 +1905,7 @@ fn share_toggle_handler(
     set_status: WriteSignal<String>,
     local_video_ref: NodeRef<leptos::html::Video>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> impl Fn(leptos::ev::MouseEvent) + 'static {
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
     use web_sys::{MediaStreamTrack, RtcPeerConnectionIceEvent};
@@ -2101,19 +2101,22 @@ Substitua o `<div class="stage-header">...</div>` e o `<div class="grid">...</di
                     <span class=lamp_class></span>
                     <span class="status-row__meta">{code}</span>
                     <span class="status-row__spacer"></span>
-                    <Show when=move || can_share>
-                        <button
-                            class=move || if is_sharing.get() { "btn btn--danger" } else { "btn btn--primary" }
-                            on:click=toggle_share
-                        >
-                            {move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }}
-                        </button>
-                    </Show>
-                    <Show when=move || !can_share>
-                        <span class="status-text status-text--error">
-                            "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
-                        </span>
-                    </Show>
+                    // O botão fica sempre montado e alterna por `class:hidden`,
+                    // não por `<Show>`: `on:click` captura `toggle_share`, que
+                    // carrega um `RoomConnection` (`Rc<RefCell<...>>`, não
+                    // Send+Sync), e `<Show>` exige Send+Sync dos seus filhos —
+                    // mesma restrição da Task 7 (`class:hidden` no lugar de
+                    // `<Show>`), só que agora no botão em vez da seção inteira.
+                    <button
+                        class=move || if is_sharing.get() { "btn btn--danger" } else { "btn btn--primary" }
+                        class:hidden=move || !can_share
+                        on:click=toggle_share.clone()
+                    >
+                        {move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }}
+                    </button>
+                    <span class="status-text status-text--error" class:hidden=move || can_share>
+                        "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
+                    </span>
                 </div>
                 <div class="grid">
                     <Show when=move || is_sharing.get()>
