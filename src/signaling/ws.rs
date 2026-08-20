@@ -32,23 +32,25 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
         let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) else { continue };
 
         match client_msg {
-            ClientMessage::CreateRoom { nick, password } => {
-                let (code, snapshot) = registry.create_room(nick, &password, tx.clone());
+            ClientMessage::CreateRoom { nick, password, room_name, color } => {
+                let (code, snapshot) = registry.create_room(nick, color, room_name, &password, tx.clone());
                 let _ = tx.send(ServerMessage::Joined {
                     peer_id: snapshot.peer_id.clone(),
                     room: code.clone(),
+                    room_name: snapshot.room_name,
                     members: snapshot.members,
                     active_sharers: snapshot.active_sharers,
                 });
                 room_code = Some(code);
                 peer_id = Some(snapshot.peer_id);
             }
-            ClientMessage::JoinRoom { room, nick, password } => {
-                match registry.join_room(&room, nick, &password, tx.clone()) {
+            ClientMessage::JoinRoom { room, nick, password, color } => {
+                match registry.join_room(&room, nick, color, &password, tx.clone()) {
                     Ok(snapshot) => {
                         let _ = tx.send(ServerMessage::Joined {
                             peer_id: snapshot.peer_id.clone(),
                             room: room.clone(),
+                            room_name: snapshot.room_name,
                             members: snapshot.members,
                             active_sharers: snapshot.active_sharers,
                         });
@@ -74,6 +76,16 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
             ClientMessage::StopShare => {
                 if let (Some(room), Some(id)) = (&room_code, &peer_id) {
                     registry.stop_share(room, id);
+                }
+            }
+            ClientMessage::WatchShare { sharer_id } => {
+                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
+                    registry.relay(room, &sharer_id, ServerMessage::WatchRequested { from: from.clone() });
+                }
+            }
+            ClientMessage::StopWatching { sharer_id } => {
+                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
+                    registry.relay(room, &sharer_id, ServerMessage::WatchStopped { from: from.clone() });
                 }
             }
             ClientMessage::Offer { to, sdp } => {
