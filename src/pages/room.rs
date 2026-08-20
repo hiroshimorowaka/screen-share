@@ -112,6 +112,7 @@ pub fn RoomPage() -> impl IntoView {
     };
 
     let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, set_status, local_video_ref);
+    let leave_room = leave_room_handler(conn.clone());
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -200,6 +201,7 @@ pub fn RoomPage() -> impl IntoView {
                 <span class="status-text status-text--error" class:hidden=move || can_share>
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
+                <button class="btn--ghost" on:click=leave_room>"Sair da sala"</button>
             </div>
             <div class="grid" class:grid--focused=move || expanded.get().is_some()>
                 {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, own_preview_hidden, local_video_ref, connection_errors)}
@@ -882,4 +884,22 @@ fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>) {
         ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
     }
     set_is_sharing.set(false);
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn leave_room_handler(_conn: RoomConnection) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    move |_| {}
+}
+
+#[cfg(feature = "hydrate")]
+fn leave_room_handler(conn: RoomConnection) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    use leptos_router::hooks::use_navigate;
+
+    move |_| {
+        if let Some(ws) = conn.ws.borrow().as_ref() {
+            ws.close();
+        }
+        let navigate = use_navigate();
+        navigate("/", Default::default());
+    }
 }
