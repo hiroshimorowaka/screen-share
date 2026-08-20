@@ -1,11 +1,19 @@
 # Compartilhamento de tela P2P
 
-Salas persistentes e protegidas por senha pra compartilhar a tela entre um
-grupo pequeno (até 8 pessoas), direto do navegador (Windows e Linux) — sem
-instalar nada, sem contas, sem áudio/chat. Qualquer pessoa na sala pode
-compartilhar a tela a qualquer momento (não só uma "apresentando" pras
-outras), e a sala não morre até o último membro sair. O nick fica salvo no
-navegador (`localStorage`); a senha, não. O vídeo trafega P2P via WebRTC; o
+Salas persistentes, com nome e protegidas por senha, pra compartilhar a tela
+entre um grupo pequeno (até 10 pessoas), direto do navegador (Windows e
+Linux) — sem instalar nada, sem contas, sem áudio/chat. Cada pessoa escolhe
+um nick e uma cor ao entrar (vira um avatar redondo com a inicial do nick
+sobre a cor escolhida). Qualquer pessoa na sala pode compartilhar a tela a
+qualquer momento, mas compartilhar e assistir são coisas separadas, estilo
+Discord: ligar o compartilhamento só acende um botão "Assistir
+compartilhamento" no card de quem compartilhou — cada pessoa decide,
+individualmente, quem quer assistir e quando parar, sem afetar quem mais
+está assistindo a mesma pessoa. A sala não morre até o último membro sair.
+O navegador lembra localmente (`localStorage`, nunca no servidor) das salas
+que você criou ou entrou — código e nome, nunca a senha — e mostra isso como
+"salas recentes" na home; abrir um link de sala já avisa na hora se ela não
+existe mais, antes de pedir nick e senha. O vídeo trafega P2P via WebRTC; o
 servidor só faz a sinalização inicial (autenticação da sala e troca de
 offer/answer/ICE).
 
@@ -34,32 +42,51 @@ são validados manualmente (checklist abaixo).
 
 ## Checklist de teste manual (fluxo completo)
 
-1. Abra `/`, crie uma sala com nick "Ana" e senha "teste123" — confirme que
-   navega direto para `/r/<código>` já autenticada (sem pedir nick/senha de
-   novo) e mostra "Ana" no cabeçalho.
+1. Abra `/`, crie uma sala com nick "Ana", uma cor à sua escolha, nome "Sala
+   de teste" e senha "teste123" — confirme que navega direto para
+   `/r/<código>` já autenticada (sem pedir nick/cor/senha de novo), mostra o
+   nome da sala no cabeçalho e o card da Ana com um avatar redondo ("A" sobre
+   a cor escolhida).
 2. Numa aba separada (sem fechar a primeira — ver nota abaixo), abra o mesmo
-   link — confirme que pede nick + senha. Digite a senha errada — "Senha
-   incorreta.". Digite a certa com outro nick (ex. "Bia") — confirme que
-   entra.
+   link — confirme que pede nick, cor e senha (não pede nome de sala, ela já
+   existe). Digite a senha errada — "Senha incorreta.". Digite a certa com
+   outro nick (ex. "Bia") e outra cor — confirme que entra e que os dois
+   cards aparecem, cada um com borda e fundo na cor escolhida por aquela
+   pessoa.
 3. Na aba da Ana, clique "Compartilhar minha tela" e escolha uma janela —
-   confirme que a aba da Ana mostra o preview local e a aba da Bia mostra um
-   tile novo com o vídeo da Ana em poucos segundos.
-4. Na aba da Bia, clique "Compartilhar minha tela" também — confirme que as
-   duas abas agora mostram dois tiles cada (o próprio preview + a tela da
-   outra pessoa).
-5. Clique "Parar de compartilhar" na aba da Ana — confirme que o tile dela
-   desativa nas duas abas; a Bia continua compartilhando normalmente.
-6. Feche a aba da Ana — confirme que a aba da Bia continua na sala sozinha
-   (a sala não morre com uma pessoa saindo, nem sendo quem a criou).
-7. Feche a aba da Bia também — reabra `/r/<mesmo código>` numa aba nova e
-   tente entrar — confirme "Sala não encontrada ou já foi encerrada." (a
-   sala só morre quando o último membro sai).
-8. Abra um link com um código inexistente (ex. `/r/ZZZZZZZZ`) — confirme a
-   mesma mensagem do passo 7.
+   confirme que só a aba da Ana passa a mostrar o próprio preview (com um
+   botão "Esconder preview" que some com ele sem parar a transmissão); na
+   aba da Bia, o card da Ana continua mostrando o avatar, mas ganha um botão
+   "Assistir compartilhamento" — o vídeo não aparece sozinho pra ninguém.
+4. Na aba da Bia, clique "Assistir compartilhamento" no card da Ana —
+   confirme que o vídeo da Ana aparece em poucos segundos, só nessa aba.
+   Clique "Expandir" nesse card — confirme que ele ocupa a maior parte da
+   grade e os outros cards encolhem numa tirinha ao redor; clique "Encolher"
+   pra voltar ao normal.
+5. Clique "Parar de assistir" na aba da Bia — confirme que o vídeo da Ana
+   some (volta a mostrar o avatar dela) só na aba da Bia, e que o
+   compartilhamento da Ana continua ativo (o botão de assistir continua
+   disponível pra quem quiser).
+6. Clique "Parar de compartilhar" na aba da Ana — confirme que o botão
+   "Assistir compartilhamento" some do card da Ana na aba da Bia.
+7. Clique "Sair da sala" na aba da Bia — confirme que ela volta pra `/` e o
+   card dela some da aba da Ana; a aba da Ana continua na sala sozinha (a
+   sala não morre com uma pessoa saindo, nem sendo quem a criou).
+8. Feche a aba da Ana também — reabra `/r/<mesmo código>` numa aba nova e
+   tente entrar — confirme que aparece "Sala não encontrada ou já foi
+   encerrada." imediatamente, antes de qualquer formulário de nick/senha (a
+   checagem acontece via `GET /api/rooms/:code`, antes do portão).
+9. Abra um link com um código inexistente (ex. `/r/ZZZZZZZZ`) — confirme a
+   mesma mensagem do passo 8.
+10. Volte pra `/` — confirme que a sala do passo 1 não aparece mais em
+    "Salas recentes" (foi removida por não existir mais). Crie uma sala
+    nova e, sem sair dela, abra `/` numa aba adicional — confirme que a
+    sala nova aparece em "Salas recentes" com o nome certo.
 
 Nota: fechar a única aba de uma sala fecha sua conexão WebSocket, e o
 servidor apaga a sala assim que ela fica sem membros — por isso o passo 2
-pede pra manter a primeira aba aberta.
+pede pra manter a primeira aba aberta, e o passo 10 pede pra manter a sala
+nova aberta numa aba enquanto confere a outra.
 
 ## Deploy no Fly.io
 

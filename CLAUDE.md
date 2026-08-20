@@ -6,16 +6,21 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 A persistent, password-protected room where a small group can share their
 screens with each other — any number of them, at any time, not just one
-person presenting to the rest. Someone creates a room (it gets a short code
-and a password), shares the link and password with whoever should join, and
-from then on anyone in the room can start or stop sharing their own screen
-independently; everyone sees everyone else's active shares at once, laid
-out in a grid, plus a small preview of their own. There's no audio yet
-(still out of scope). Nobody installs anything — everyone just uses a
-browser, on Windows or Linux. Video goes directly from each sharer's
-browser to each viewer's browser (WebRTC, peer-to-peer); the server's only
-job is introducing peers to each other so those direct connections can be
-established.
+person presenting to the rest. Someone creates a room (it gets a short code,
+a name, and a password), shares the link and password with whoever should
+join, and from then on anyone in the room can start or stop sharing their
+own screen independently. Sharing and watching are decoupled, Discord-style:
+starting a share never pushes video to anyone automatically — it just lights
+up a "watch" button on that member's card for everyone else. Watching
+someone is an explicit, per-person choice, made and revoked independently by
+each viewer, and doesn't affect anyone else watching the same sharer. Each
+member picks a nick and a color when they join; a small round avatar (the
+nick's first letter over that color) stands in for their card until they're
+sharing and someone is watching them. There's no audio yet (still out of
+scope). Nobody installs anything — everyone just uses a browser, on Windows
+or Linux. Video goes directly from each sharer's browser to each viewer's
+browser (WebRTC, peer-to-peer); the server's only job is introducing peers
+to each other so those direct connections can be established.
 
 ## Tech stack
 
@@ -133,19 +138,35 @@ server, meaning and behavior on the client.
 ### Room lifecycle
 
 There is no host — every member of a room is equal. A room is identified by
-a short code and protected by a password (hashed with `argon2`, verified
-server-side); anyone with the code and password can join under whatever
-nick they choose. Any member can start or stop sharing their own screen at
-any time, independently of what anyone else is doing — sharing fans out a
-direct peer-to-peer connection to each other member currently in the room,
-so a room with multiple active sharers has multiple independent viewer
-meshes running at once. A room is only removed from the registry when its
-last member leaves; the person who created it leaving early doesn't affect
+a short code and a name, and protected by a password (hashed with `argon2`,
+verified server-side); anyone with the code and password can join under
+whatever nick and color they choose, up to 10 members per room. Any member
+can start or stop sharing their own screen at any time, independently of
+what anyone else is doing, but a share alone opens no connections — it only
+flips a flag every member sees on that person's card. A peer-to-peer
+connection between a sharer and a viewer only exists while that specific
+viewer has chosen to watch that specific sharer; a room with several active
+sharers and several people watching them ends up with as many independent
+connections as there are (sharer, viewer) pairs currently watching, not one
+mesh per sharer. A room is only removed from the registry when its last
+member leaves; the person who created it leaving early doesn't affect
 anyone else still there. The same per-connection teardown path handles
 every way a member's sharing session can end — stopping deliberately, using
 the browser's own screen-share controls, or the connection simply
 dropping — so there is one place that owns "what happens when this sharer
 stops," not several divergent ones.
+
+### Descoberta de salas
+
+Each browser remembers, purely client-side (`localStorage`, never sent to
+or stored by the server), the rooms that browser has created or joined —
+code and name, deliberately never the password — and lists them as "salas
+recentes" on the home page; an entry disappears once its room no longer
+exists. Opening a room link checks a plain HTTP endpoint
+(`GET /api/rooms/:code`, outside the WebSocket signaling protocol) for
+whether that room still exists before showing the nick/password form, so a
+dead link fails immediately instead of after the user has already typed in
+a nick.
 
 ### Client-side building blocks
 
