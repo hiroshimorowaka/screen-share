@@ -65,6 +65,8 @@ pub fn RoomPage() -> impl IntoView {
     let local_video_ref = NodeRef::<leptos::html::Video>::new();
     let connection_errors = RwSignal::new(std::collections::HashSet::<String>::new());
     let watching = RwSignal::new(std::collections::HashSet::<String>::new());
+    let expanded = RwSignal::new(None::<String>);
+    let own_preview_hidden = RwSignal::new(false);
     let can_share = share_supported();
 
     let conn = RoomConnection::new();
@@ -199,8 +201,8 @@ pub fn RoomPage() -> impl IntoView {
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
             </div>
-            <div class="grid">
-                {member_cards(conn, members, my_peer_id, is_sharing, watching, local_video_ref, connection_errors)}
+            <div class="grid" class:grid--focused=move || expanded.get().is_some()>
+                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, own_preview_hidden, local_video_ref, connection_errors)}
             </div>
         </div>
     }
@@ -278,6 +280,8 @@ fn member_cards(
     my_peer_id: ReadSignal<Option<String>>,
     is_sharing: ReadSignal<bool>,
     watching: RwSignal<std::collections::HashSet<String>>,
+    expanded: RwSignal<Option<String>>,
+    own_preview_hidden: RwSignal<bool>,
     local_video_ref: NodeRef<leptos::html::Video>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> Vec<impl IntoView> {
@@ -293,16 +297,32 @@ fn member_cards(
             let is_watching_this = move || {
                 member_at().map(|m| watching.get().contains(&m.peer_id)).unwrap_or(false)
             };
-            let showing_video = move || (is_self() && is_sharing.get()) || (!is_self() && is_watching_this());
             let can_watch = move || {
                 member_at().map(|m| m.sharing).unwrap_or(false) && !is_self() && !is_watching_this()
             };
+            let is_expanded = move || {
+                member_at().map(|m| expanded.get().as_deref() == Some(m.peer_id.as_str())).unwrap_or(false)
+            };
+            let own_preview_visible = move || is_self() && is_sharing.get() && !own_preview_hidden.get();
+            // Com a Task 10, o vídeo do próprio card só aparece se não estiver
+            // escondido — troca a definição de `showing_video` da Task 9.
+            let showing_video = move || own_preview_visible() || (!is_self() && is_watching_this());
+            let can_expand = move || showing_video();
 
             let watch = watch_click_handler(conn.clone(), members, watching, i);
             let stop_watch = stop_watching_click_handler(conn.clone(), members, watching, i);
+            let expand_click = {
+                move |_: leptos::ev::MouseEvent| {
+                    if let Some(member) = member_at() {
+                        expanded.set(Some(member.peer_id));
+                    }
+                }
+            };
+            let shrink_click = move |_: leptos::ev::MouseEvent| expanded.set(None);
+            let toggle_preview_click = move |_: leptos::ev::MouseEvent| own_preview_hidden.update(|hidden| *hidden = !*hidden);
 
             view! {
-                <div class="card" class:hidden=move || member_at().is_none()>
+                <div class="card" class:hidden=move || member_at().is_none() class:card--focus=is_expanded>
                     <div
                         class="card__avatar"
                         class:hidden=showing_video
@@ -344,6 +364,15 @@ fn member_cards(
                             </button>
                             <button class="btn--ghost" class:hidden=move || !is_watching_this() on:click=stop_watch.clone()>
                                 "Parar de assistir"
+                            </button>
+                            <button class="btn--ghost" class:hidden=move || !(is_self() && is_sharing.get()) on:click=toggle_preview_click>
+                                {move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }}
+                            </button>
+                            <button class="btn--ghost" class:hidden=move || !can_expand() || is_expanded() on:click=expand_click>
+                                "Expandir"
+                            </button>
+                            <button class="btn--ghost" class:hidden=move || !is_expanded() on:click=shrink_click>
+                                "Encolher"
                             </button>
                         </div>
                     </div>
