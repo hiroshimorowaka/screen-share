@@ -1540,13 +1540,44 @@ fn create_room_handler(
 > restrição de `Send + Sync` que força `class:hidden` em outros lugares deste
 > projeto.
 
+> **Bug real descoberto ao verificar a Task 12 num navegador (não é sobre
+> `Send + Sync` — é sobre SSR vs. hidratação):** inicializar o signal
+> `recent_rooms` direto com `signal(initial_recent_rooms())`, onde a versão
+> `hydrate` de `initial_recent_rooms_impl` lê o `localStorage`, quebra a
+> hidratação. O HTML gerado no servidor não tem acesso a `localStorage`, então
+> sempre renderiza a lista vazia (0 nós dentro do `<For>`); se o valor inicial
+> do lado do cliente já vier com 1+ itens, a estrutura do DOM que a hidratação
+> espera encontrar diverge da estrutura que o servidor realmente mandou, e o
+> Leptos aborta com `RuntimeError: unreachable` /
+> `tachys::hydration::failed_to_cast_element` (confirmado no console do
+> navegador) — a página de "Criar sala" fica inutilizável. A correção: o
+> signal **sempre** começa com `Vec::new()` (igual ao servidor), e o valor
+> real do `localStorage` é aplicado depois, via `spawn_local` (que só roda
+> depois que a hidratação termina) — o mesmo mecanismo de timing que
+> `prune_recent_rooms` já usava. Renomeie a função auxiliar de
+> `initial_recent_rooms`/`initial_recent_rooms_impl` para
+> `load_recent_rooms_after_mount(set_recent_rooms)` (par hydrate/non-hydrate,
+> non-hydrate é um no-op) e chame-a logo depois de criar o signal, antes de
+> `prune_recent_rooms`:
+> ```rust
+> let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::profile::RecentRoom>::new());
+> load_recent_rooms_after_mount(set_recent_rooms);
+> prune_recent_rooms(set_recent_rooms);
+> ```
+> Essa mesma armadilha não afeta `initial_profile()` (nick/cor pré-preenchidos
+> no formulário) porque ali a diferença SSR-vs-cliente é só o *valor* de um
+> atributo (`value=`/`class:selected`) num elemento que já existe nos dois
+> lados — não muda quantos nós existem. Só listas dinâmicas (`<For>`) cujo
+> tamanho no servidor e no cliente pode divergir têm esse problema.
+
 - [ ] **Step 3: Verificar manualmente no navegador**
 
 Run: `cargo leptos watch`, abra `http://127.0.0.1:3000/`.
 Expected: formulário com nick, paleta de cores (clicar numa cor a marca como
 selecionada), nome da sala e senha, todos obrigatórios. Ao criar uma sala, navega
 pra `/r/<código>`. Reabra `/` — a sala aparece em "Salas recentes" com o nome
-certo.
+certo, sem erro no console (especialmente após um hard-reload, que é quando a
+hidratação de fato acontece).
 
 - [ ] **Step 4: Verificar os dois alvos e a suíte de testes**
 
@@ -3303,17 +3334,36 @@ No final de `style/main.css`, adicione:
 }
 ```
 
+- [ ] **Step 2.1: Corrigir uma lacuna da Task 8 — o card em si não tinha a
+  cor do membro**
+
+Revisão de código durante esta task descobriu que a Task 8 só tinha aplicado
+a cor do membro (via `color_hex`) no `<div class="card__avatar">` — o card
+em si (`<div class="card">`, o "banner" descrito na spec) continuava com
+`border`/`background` estáticos vindos só do CSS (`var(--border)` /
+`var(--surface-2)`), nunca a cor escolhida pela pessoa. A spec (linha 56-58
+de `docs/superpowers/specs/2026-08-20-sala-estilo-discord-design.md`) é
+explícita: "Borda e fundo usam a cor escolhida (borda na cor cheia, fundo na
+mesma cor escurecida e com baixa opacidade)". Corrigido adicionando o mesmo
+padrão de `style=` reativo já usado em `card__avatar` também no `<div
+class="card">` em `member_cards` (`src/pages/room.rs`), usando a mesma
+`color_hex(&m.color)`. Isso é puramente `src/pages/room.rs`, não
+`style/main.css` — por isso essa correção conta como parte desta task (é
+sobre "cores de card") mas o arquivo tocado é diferente do que a task
+originalmente listava.
+
 - [ ] **Step 3: Verificar manualmente no navegador**
 
 Run: `cargo leptos watch`. Revise: paleta de cores nos formulários de criar/
-entrar, avatares circulares nos cards com a cor certa, lista de salas recentes
-na home, e o modo expandido (card grande + os outros pequenos ao redor) numa
-sala com pelo menos 3 membros.
+entrar, avatares circulares nos cards com a cor certa, cards com borda e
+fundo na cor de cada membro, lista de salas recentes na home, e o modo
+expandido (card grande + os outros pequenos ao redor) numa sala com pelo
+menos 3 membros.
 
 - [ ] **Step 4: Commit**
 
 ```bash
-git add style/main.css
+git add style/main.css src/pages/room.rs
 git commit -m "style: add avatar, card color, palette, recent-rooms, and focused-grid styles"
 ```
 
