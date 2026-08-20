@@ -1,21 +1,9 @@
-use serde::{Deserialize, Serialize};
+use crate::profile::{Profile, RecentRoom};
 
 const NICK_KEY: &str = "screen_share_nick";
 const PROFILE_KEY: &str = "screen_share_profile";
 const RECENT_ROOMS_KEY: &str = "screen_share_recent_rooms";
 const MAX_RECENT_ROOMS: usize = 10;
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct Profile {
-    pub nick: String,
-    pub color: String,
-}
-
-impl Default for Profile {
-    fn default() -> Self {
-        Self { nick: String::new(), color: crate::pages::palette::DEFAULT_COLOR.to_string() }
-    }
-}
 
 #[cfg(not(feature = "hydrate"))]
 pub fn load_profile() -> Profile {
@@ -42,12 +30,6 @@ pub fn save_profile(profile: &Profile) {
             }
         }
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RecentRoom {
-    pub code: String,
-    pub name: String,
 }
 
 #[cfg(not(feature = "hydrate"))]

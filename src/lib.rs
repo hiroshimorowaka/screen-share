@@ -1,5 +1,6 @@
 pub mod app;
 pub mod pages;
+pub mod profile;
 pub mod signaling;
 
 #[cfg(feature = "hydrate")]
