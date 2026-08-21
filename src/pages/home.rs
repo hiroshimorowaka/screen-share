@@ -1,7 +1,10 @@
+use std::collections::HashMap;
+
 use leptos::prelude::*;
 
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
+use crate::signaling::protocol::MAX_MEMBERS;
 
 #[component]
 pub fn HomePage() -> impl IntoView {
@@ -33,9 +36,14 @@ pub fn HomePage() -> impl IntoView {
     // failed_to_cast_element). O valor real é carregado depois, de forma
     // assíncrona, só depois que a hidratação já terminou.
     let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::profile::RecentRoom>::new());
+    // Contagem de membros por sala — ao contrário de `recent_rooms` (que vem
+    // do localStorage), isso é sempre buscado do servidor: é um dado que
+    // muda a cada entrada/saída de alguém, não faz sentido persistir junto
+    // do resto do perfil da sala salvo no navegador.
+    let (member_counts, set_member_counts) = signal(HashMap::<String, usize>::new());
 
     load_recent_rooms_after_mount(set_recent_rooms);
-    prune_recent_rooms(set_recent_rooms);
+    prune_recent_rooms(set_recent_rooms, set_member_counts);
 
     let create_room = create_room_handler(nick, color, room_name, password, set_status, set_submitting);
 
@@ -106,10 +114,26 @@ pub fn HomePage() -> impl IntoView {
             <div class="recent-rooms" class:hidden=move || recent_rooms.get().is_empty()>
                 <p class="invite__label">"Salas recentes"</p>
                 <For each=move || recent_rooms.get() key=|r| r.code.clone() let(room)>
-                    <a class="recent-room" href=format!("/r/{}", room.code)>
-                        <span class="recent-room__name">{room.name.clone()}</span>
-                        <span class="recent-room__code">{room.code.clone()}</span>
-                    </a>
+                    {
+                        let code_for_hidden = room.code.clone();
+                        let code_for_count = room.code.clone();
+                        view! {
+                            <a class="recent-room" href=format!("/r/{}", room.code)>
+                                <span class="recent-room__name">{room.name.clone()}</span>
+                                <div class="recent-room__meta">
+                                    <span class="recent-room__code">{room.code.clone()}</span>
+                                    <span
+                                        class="room-member-count"
+                                        class:hidden=move || !member_counts.get().contains_key(&code_for_hidden)
+                                    >
+                                        {move || {
+                                            member_counts.get().get(&code_for_count).map(|count| format!("{count}/{MAX_MEMBERS}")).unwrap_or_default()
+                                        }}
+                                    </span>
+                                </div>
+                            </a>
+                        }
+                    }
                 </For>
             </div>
         </div>
@@ -143,10 +167,16 @@ fn load_recent_rooms_after_mount(set_recent_rooms: WriteSignal<Vec<crate::profil
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn prune_recent_rooms(_set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {}
+fn prune_recent_rooms(
+    _set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>,
+    _set_member_counts: WriteSignal<HashMap<String, usize>>,
+) {}
 
 #[cfg(feature = "hydrate")]
-fn prune_recent_rooms(set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {
+fn prune_recent_rooms(
+    set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>,
+    set_member_counts: WriteSignal<HashMap<String, usize>>,
+) {
     use leptos::task::spawn_local;
 
     use crate::client::{rooms_api::check_room, storage::remove_recent_room};
@@ -155,7 +185,13 @@ fn prune_recent_rooms(set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRo
         let code = room.code.clone();
         spawn_local(async move {
             if let Some(status) = check_room(&code).await {
-                if !status.exists {
+                if status.exists {
+                    if let Some(count) = status.member_count {
+                        set_member_counts.update(|counts| {
+                            counts.insert(code.clone(), count);
+                        });
+                    }
+                } else {
                     remove_recent_room(&code);
                     set_recent_rooms.update(|rooms| rooms.retain(|r| r.code != code));
                 }

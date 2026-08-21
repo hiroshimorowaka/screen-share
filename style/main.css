@@ -874,3 +874,10 @@ h1 {
   color: var(--text-dim);
   flex-shrink: 0;
 }
+
+.recent-room__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
