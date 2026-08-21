@@ -440,6 +440,17 @@ h1 {
   filter: brightness(1.08);
 }
 
+/* Em tela cheia (o botão de maximizar dá fullscreen no .card, não no
+   <video> — ver comentário em request_fullscreen no room.rs), o card
+   ocupa a janela inteira: a borda arredondada colorida não faz sentido
+   mais, então some junto. O selo de espectadores e o rodapé com o nick
+   continuam visíveis normalmente, porque são filhos do próprio .card. */
+.card:fullscreen {
+  border: none;
+  border-radius: 0;
+  background: #000;
+}
+
 .card video {
   position: absolute;
   inset: 0;

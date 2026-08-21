@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize};
+use crate::pages::icons::{icon_eye, icon_log_out, icon_maximize, icon_screen_off};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -470,7 +470,7 @@ fn member_cards(
                                     stop_watch(ev);
                                 }
                             >
-                                {icon_eye_off}
+                                {icon_screen_off}
                             </button>
                         </div>
                     </div>
@@ -552,25 +552,31 @@ fn stop_watching_click_handler(
 #[cfg(not(feature = "hydrate"))]
 fn request_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<leptos::html::Video>) {}
 
-/// Coloca o `<video>` da pessoa (o próprio preview ou o vídeo de quem
-/// estamos assistindo) em tela cheia nativa do navegador — não a `.card`
-/// inteira, pra reaproveitar os controles e o comportamento padrão do
-/// `<video>` em fullscreen (duplo clique, Esc pra sair, etc.) em vez de
-/// reimplementar isso.
+/// Coloca o `.card` inteiro em tela cheia — não só o `<video>`. Quando o
+/// próprio `<video>` é o elemento em fullscreen, o Chrome injeta os
+/// controles nativos de mídia por cima dele (barra de play/pause, seek),
+/// como se fosse um player comum — errado aqui, já que uma transmissão de
+/// tela ao vivo não é algo que faça sentido "pausar". Colocando o `.card`
+/// (uma div comum) em fullscreen em vez do vídeo, esses controles nunca
+/// aparecem, e como bônus o selo de espectadores e o rodapé com o nick —
+/// que são irmãos do `<video>` dentro do card — continuam visíveis.
 #[cfg(feature = "hydrate")]
 fn request_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<leptos::html::Video>) {
     use wasm_bindgen::JsCast;
 
-    let video: Option<web_sys::HtmlVideoElement> = if is_self {
-        local_video_ref.get_untracked().map(|v| v.into())
+    let video: Option<web_sys::Element> = if is_self {
+        local_video_ref.get_untracked().map(|v| {
+            let video: web_sys::HtmlVideoElement = v.into();
+            video.unchecked_into()
+        })
     } else {
         web_sys::window()
             .and_then(|w| w.document())
             .and_then(|d| d.get_element_by_id(&format!("video-{peer_id}")))
-            .and_then(|el| el.dyn_into::<web_sys::HtmlVideoElement>().ok())
     };
-    if let Some(video) = video {
-        let _ = video.request_fullscreen();
+    let card = video.and_then(|v| v.closest(".card").ok().flatten());
+    if let Some(card) = card {
+        let _ = card.request_fullscreen();
     }
 }
 
