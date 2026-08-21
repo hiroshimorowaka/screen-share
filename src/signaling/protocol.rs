@@ -9,6 +9,16 @@ pub struct MemberInfo {
     pub color: String,
 }
 
+/// Quem está assistindo a transmissão de um membro específico, no momento
+/// em que alguém entra numa sala já em andamento — dá pra mostrar a
+/// contagem/lista de espectadores de cada compartilhamento ativo sem
+/// esperar o primeiro `WatchersChanged` chegar.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WatcherInfo {
+    pub sharer_id: String,
+    pub watchers: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -38,6 +48,7 @@ pub enum ServerMessage {
         room_name: String,
         members: Vec<MemberInfo>,
         active_sharers: Vec<String>,
+        watcher_info: Vec<WatcherInfo>,
     },
     AuthFailed,
     RoomNotFound,
@@ -48,6 +59,10 @@ pub enum ServerMessage {
     PeerStoppedSharing { peer_id: String },
     WatchRequested { from: String },
     WatchStopped { from: String },
+    /// Manda pra sala inteira (quem compartilha e quem assiste), não só
+    /// pro dono da transmissão — é o que permite mostrar "N assistindo"
+    /// no card de qualquer um, pro ponto de vista de qualquer membro.
+    WatchersChanged { sharer_id: String, watchers: Vec<String> },
     Offer { from: String, sdp: String },
     Answer { from: String, sdp: String },
     IceCandidate {
@@ -119,8 +134,25 @@ mod tests {
                 color: "coral".to_string(),
             }],
             active_sharers: vec![],
+            watcher_info: vec![WatcherInfo { sharer_id: "peer-1".to_string(), watchers: vec!["peer-2".to_string()] }],
         };
         let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn watchers_changed_message_round_trips_through_json() {
+        let msg = ServerMessage::WatchersChanged {
+            sharer_id: "peer-1".to_string(),
+            watchers: vec!["peer-2".to_string(), "peer-3".to_string()],
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"watchers_changed","sharer_id":"peer-1","watchers":["peer-2","peer-3"]}"#
+        );
+
         let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);
     }

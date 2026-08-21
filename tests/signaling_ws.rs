@@ -126,7 +126,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
 }
 
 #[tokio::test]
-async fn watch_share_is_relayed_only_to_the_sharer() {
+async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     let url = spawn_test_server().await;
 
     let (mut sharer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
@@ -158,9 +158,27 @@ async fn watch_share_is_relayed_only_to_the_sharer() {
 
     send_json(&mut viewer_ws, &ClientMessage::WatchShare { sharer_id: sharer_id.clone() }).await;
     assert_eq!(recv_json(&mut sharer_ws).await, ServerMessage::WatchRequested { from: viewer_id.clone() });
+    // A contagem nova vai pra sala inteira — quem compartilha e quem assiste
+    // enxergam o mesmo "1 assistindo".
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::WatchersChanged { sharer_id: sharer_id.clone(), watchers: vec![viewer_id.clone()] }
+    );
+    assert_eq!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::WatchersChanged { sharer_id: sharer_id.clone(), watchers: vec![viewer_id.clone()] }
+    );
 
-    send_json(&mut viewer_ws, &ClientMessage::StopWatching { sharer_id }).await;
-    assert_eq!(recv_json(&mut sharer_ws).await, ServerMessage::WatchStopped { from: viewer_id });
+    send_json(&mut viewer_ws, &ClientMessage::StopWatching { sharer_id: sharer_id.clone() }).await;
+    assert_eq!(recv_json(&mut sharer_ws).await, ServerMessage::WatchStopped { from: viewer_id.clone() });
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::WatchersChanged { sharer_id: sharer_id.clone(), watchers: vec![] }
+    );
+    assert_eq!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::WatchersChanged { sharer_id, watchers: vec![] }
+    );
 }
 
 #[tokio::test]

@@ -40,6 +40,7 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
                     room_name: snapshot.room_name,
                     members: snapshot.members,
                     active_sharers: snapshot.active_sharers,
+                    watcher_info: snapshot.watcher_info,
                 });
                 room_code = Some(code);
                 peer_id = Some(snapshot.peer_id);
@@ -53,6 +54,7 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
                             room_name: snapshot.room_name,
                             members: snapshot.members,
                             active_sharers: snapshot.active_sharers,
+                            watcher_info: snapshot.watcher_info,
                         });
                         peer_id = Some(snapshot.peer_id);
                         room_code = Some(room);
@@ -80,12 +82,12 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
             }
             ClientMessage::WatchShare { sharer_id } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(room, &sharer_id, ServerMessage::WatchRequested { from: from.clone() });
+                    registry.add_watcher(room, &sharer_id, from);
                 }
             }
             ClientMessage::StopWatching { sharer_id } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(room, &sharer_id, ServerMessage::WatchStopped { from: from.clone() });
+                    registry.remove_watcher(room, &sharer_id, from);
                 }
             }
             ClientMessage::Offer { to, sdp } => {
