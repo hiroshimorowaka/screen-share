@@ -45,6 +45,7 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "RtcRtpSender",
     "HtmlVideoElement",
     "HtmlMediaElement",
+    "PictureInPictureWindow",
     "Clipboard",
     "Storage",
     "Response",

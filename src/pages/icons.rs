@@ -63,6 +63,18 @@ pub fn icon_log_out() -> impl IntoView {
     }
 }
 
+/// Retângulo grande com um menor no canto — "picture-in-picture": abre esse
+/// vídeo numa janela flutuante do sistema operacional, sempre por cima,
+/// separada da aba do navegador.
+pub fn icon_pip() -> impl IntoView {
+    view! {
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="4" width="20" height="16" rx="2"></rect>
+            <rect x="12" y="12" width="8" height="6" rx="1" fill="currentColor" stroke="none"></rect>
+        </svg>
+    }
+}
+
 pub fn icon_maximize() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

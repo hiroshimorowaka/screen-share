@@ -5,3 +5,12 @@
 # "<name>.wasm" but doesn't set this compile-time env var, so without this,
 # HydrationScripts asks the browser to fetch a file that doesn't exist.
 LEPTOS_OUTPUT_NAME = "screen_share"
+
+[target.wasm32-unknown-unknown]
+# web-sys gates the Picture-in-Picture API (HTMLVideoElement's
+# requestPictureInPicture, Document's pictureInPictureElement/
+# exitPictureInPicture) behind this cfg because it's still a "living
+# standard" that hasn't fully stabilized across browsers — see
+# https://wasm-bindgen.github.io/wasm-bindgen/web-sys/unstable-apis.html.
+# Scoped to the wasm target only so the native ssr build is unaffected.
+rustflags = ["--cfg=web_sys_unstable_apis"]

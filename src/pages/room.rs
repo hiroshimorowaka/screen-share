@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_monitor, icon_screen_off, icon_video, icon_video_off};
+use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_monitor, icon_pip, icon_screen_off, icon_video, icon_video_off};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -401,6 +401,11 @@ fn member_cards(
                 let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
                 toggle_fullscreen(is_self(), &peer_id);
             };
+            let pip_click = move |ev: leptos::ev::MouseEvent| {
+                ev.stop_propagation();
+                let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
+                toggle_picture_in_picture(is_self(), &peer_id);
+            };
             // Clicar em qualquer lugar do banner (fora dos botões, que
             // interrompem a propagação) alterna foco: se já tem vídeo
             // visível — o próprio preview ou a transmissão de alguém que já
@@ -505,6 +510,15 @@ fn member_cards(
                                 on:click=fullscreen_click
                             >
                                 {icon_maximize}
+                            </button>
+                            <button
+                                class="icon-btn icon-btn--neutral"
+                                class:hidden=move || !showing_video()
+                                title="Picture-in-picture"
+                                aria-label="Picture-in-picture"
+                                on:click=pip_click
+                            >
+                                {icon_pip}
                             </button>
                             <button
                                 class="icon-btn icon-btn--danger"
@@ -625,6 +639,46 @@ fn toggle_fullscreen(is_self: bool, peer_id: &str) {
     if let Some(card) = card {
         let _ = card.request_fullscreen();
     }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn toggle_picture_in_picture(_is_self: bool, _peer_id: &str) {}
+
+/// Abre esse vídeo específico numa janela de picture-in-picture do sistema
+/// operacional — flutuante, sempre por cima, independente da aba do
+/// navegador estar em foco. Usa o mesmo esquema de `id` por vídeo que
+/// `toggle_fullscreen` já usa (`video-self-{peer_id}` pro próprio preview,
+/// `video-{peer_id}` pra quem se está assistindo), já que é a forma
+/// estabelecida de achar o elemento certo entre os `MAX_MEMBERS` slots
+/// fixos da grade sem depender de um `NodeRef` (que não sobrevive a mais
+/// de um elemento — ver o bug corrigido no preview próprio).
+///
+/// Só um vídeo pode estar em PiP por vez (limitação do navegador, não
+/// nossa) — "alterna" pelo mesmo motivo do fullscreen: clicar de novo
+/// fecha em vez de tentar abrir outro PiP por cima.
+#[cfg(feature = "hydrate")]
+fn toggle_picture_in_picture(is_self: bool, peer_id: &str) {
+    use leptos::task::spawn_local;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+
+    if document.picture_in_picture_element().is_some() {
+        let promise = document.exit_picture_in_picture();
+        spawn_local(async move {
+            let _ = JsFuture::from(promise).await;
+        });
+        return;
+    }
+
+    let id = if is_self { format!("video-self-{peer_id}") } else { format!("video-{peer_id}") };
+    let Some(video) = document.get_element_by_id(&id) else { return };
+    let video: web_sys::HtmlVideoElement = video.unchecked_into();
+    let promise = video.request_picture_in_picture();
+    spawn_local(async move {
+        let _ = JsFuture::from(promise).await;
+    });
 }
 
 #[cfg(feature = "hydrate")]
