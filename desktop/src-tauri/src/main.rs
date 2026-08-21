@@ -3,6 +3,12 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Manager, WindowEvent};
 
 fn main() {
+    // WebKitGTK's DMA-BUF video renderer fails to initialize on several
+    // Linux driver/compositor combinations and falls back to rendering
+    // solid black instead of erroring — this forces the older, reliable
+    // rendering path. See tauri-apps/tauri#9394.
+    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
+
     tauri::Builder::default()
         .setup(|app| {
             let show = MenuItemBuilder::with_id("show", "Abrir").build(app)?;
