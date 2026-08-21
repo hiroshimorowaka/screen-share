@@ -1,15 +1,18 @@
+/* Paleta inspirada no tema escuro do Discord — mesmos tons de cinza-azulado
+   e o "blurple" característico, pra quem já usa Discord se sentir em casa
+   aqui (pedido explícito do usuário: paleta E usabilidade parecidas). */
 :root {
-  --bg: #17130f;
-  --bg-glow: #ff8f3f;
-  --surface: #221c17;
-  --surface-2: #2b241d;
-  --border: rgba(255, 240, 224, 0.09);
-  --text: #f3ece2;
-  --text-dim: #a99a8a;
-  --accent: #ff8f3f;
-  --accent-strong: #ffab68;
-  --accent-ink: #1a1008;
-  --error: #e5595b;
+  --bg: #313338;
+  --bg-glow: #5865f2;
+  --surface: #2b2d31;
+  --surface-2: #1e1f22;
+  --border: rgba(255, 255, 255, 0.06);
+  --text: #f2f3f5;
+  --text-dim: #949ba4;
+  --accent: #5865f2;
+  --accent-strong: #7983f5;
+  --accent-ink: #ffffff;
+  --error: #da373c;
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
     Arial, sans-serif;
@@ -475,6 +478,68 @@ h1 {
   background: #111;
 }
 
+/* Contagem de espectadores (ícone de olho + número), visível pra quem
+   compartilha e pra quem assiste igual — não é uma ação, então fica
+   sempre visível quando a pessoa está transmitindo, sem depender de
+   hover. Passar o mouse revela quem são, num tooltip próprio. */
+.watcher-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.watcher-badge .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.watcher-badge__tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.watcher-badge:hover .watcher-badge__tooltip {
+  opacity: 1;
+}
+
+.grid--focused .card:not(.card--focus) .watcher-badge {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.65rem;
+  top: 0.25rem;
+  right: 0.25rem;
+}
+
+.grid--focused .card:not(.card--focus) .watcher-badge .icon {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
 /* Estilo Discord: ao invés de um botão discreto entre outros no rodapé, o
    convite pra assistir domina o banner inteiro enquanto a pessoa não está
    sendo assistida — some assim que alguém clica (ou assim que o
@@ -568,27 +633,82 @@ h1 {
   background: rgba(0, 0, 0, 0.55);
 }
 
+/* Botões redondos só com ícone — usados nas ações "perigosas"/rápidas de
+   um card (parar de assistir, tela cheia) e no cabeçalho (sair da sala),
+   no estilo dos controles de chamada do Discord. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
+}
+
+.icon-btn .icon {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.icon-btn--danger {
+  background: var(--error);
+  color: #fff;
+}
+
+.icon-btn--danger:hover {
+  background: color-mix(in srgb, var(--error) 85%, white 15%);
+}
+
+.icon-btn--neutral {
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+}
+
+.icon-btn--neutral:hover {
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--accent-strong);
+}
+
+.room-page .stage-header .icon-btn {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
 /* Aproximação puramente CSS de "foco + tirinha", sem duplicar nenhum
    elemento (o <video> de cada card é único, precisa continuar sendo o
    mesmo nó DOM pro ontrack/srcObject continuarem funcionando). A grade em
-   foco tem duas linhas explícitas: uma tirinha baixa (linha 1, onde os
-   cards não focados se auto-posicionam) e uma linha que consome todo o
-   espaço vertical que sobrar (linha 2, `minmax(0, 1fr)`), reservada só
-   pro card em foco via `grid-row: 2` — diferente de um `grid-row: span N`
-   em rem fixo, isso faz o vídeo em foco realmente preencher a tela,
-   qualquer que seja a altura da janela. Se sobrarem mais membros do que
-   cabem numa única tirinha, os excedentes caem numa 3ª linha (mesma
-   altura da tirinha) abaixo do vídeo em foco — caso raro, com salas bem
-   cheias numa janela estreita. */
+   foco tem duas linhas explícitas: uma linha que consome todo o espaço
+   vertical que sobrar (linha 1, `minmax(0, 1fr)`), reservada só pro card
+   em foco via `grid-row: 1`, e uma tirinha baixa embaixo dela (linha 2,
+   onde os cards não focados se auto-posicionam) — igual ao Discord, a
+   lista de participantes fica abaixo da transmissão em foco, não acima.
+   `grid-row: 1` (posição totalmente explícita, diferente de um
+   `grid-row: span N` em rem fixo) faz o vídeo em foco realmente preencher
+   a tela, qualquer que seja a altura da janela, e garante que ele é
+   posicionado ANTES dos cards da tirinha não importa a ordem desses no
+   DOM. Se sobrarem mais membros do que cabem numa única tirinha, os
+   excedentes caem numa 3ª linha (mesma altura da tirinha) — também
+   abaixo do vídeo em foco, então a tirinha só cresce pra baixo.  */
 .grid--focused {
   grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
-  grid-template-rows: 5.5rem minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) 5.5rem;
   grid-auto-rows: 5.5rem;
 }
 
 .card--focus {
   grid-column: 1 / -1;
-  grid-row: 2;
+  grid-row: 1;
 }
 
 .grid--focused .card:not(.card--focus) .card__avatar {

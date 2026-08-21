@@ -1,6 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -51,9 +52,14 @@ pub fn RoomPage() -> impl IntoView {
     let code = move || params.read().get("code").unwrap_or_default();
     let initial_code = params.read_untracked().get("code").unwrap_or_default();
 
-    let profile = initial_profile();
-    let (nick, set_nick) = signal(profile.nick);
-    let (color, set_color) = signal(profile.color);
+    // Ver o comentário equivalente em `home.rs`: nick/cor sempre começam no
+    // valor que o SSR também usaria, e o valor real do localStorage é
+    // aplicado depois do mount — ler o perfil real já na criação do sinal
+    // faz o binding `class:color-swatch--selected` hidratar errado e parar
+    // de reagir a cliques nesse swatch específico.
+    let (nick, set_nick) = signal(String::new());
+    let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
+    load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
     let (authenticated, set_authenticated) = signal(false);
@@ -66,6 +72,7 @@ pub fn RoomPage() -> impl IntoView {
     let connection_errors = RwSignal::new(std::collections::HashSet::<String>::new());
     let watching = RwSignal::new(std::collections::HashSet::<String>::new());
     let expanded = RwSignal::new(None::<String>);
+    let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let own_preview_hidden = RwSignal::new(false);
     let can_share = share_supported();
 
@@ -80,6 +87,8 @@ pub fn RoomPage() -> impl IntoView {
         set_members,
         set_my_peer_id,
         watching,
+        expanded,
+        watchers_by_sharer,
         connection_errors,
     );
 
@@ -92,6 +101,8 @@ pub fn RoomPage() -> impl IntoView {
         set_members,
         set_my_peer_id,
         watching,
+        expanded,
+        watchers_by_sharer,
         connection_errors,
     );
 
@@ -201,27 +212,29 @@ pub fn RoomPage() -> impl IntoView {
                 <span class="status-text status-text--error" class:hidden=move || can_share>
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
-                <button class="btn--ghost" on:click=leave_room>"Sair da sala"</button>
+                <button class="icon-btn icon-btn--danger" title="Sair da sala" aria-label="Sair da sala" on:click=leave_room>
+                    {icon_log_out}
+                </button>
             </div>
             <div class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, own_preview_hidden, local_video_ref, connection_errors)}
+                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, local_video_ref, connection_errors)}
             </div>
         </div>
     }
 }
 
-fn initial_profile() -> crate::profile::Profile {
-    initial_profile_impl()
-}
-
 #[cfg(not(feature = "hydrate"))]
-fn initial_profile_impl() -> crate::profile::Profile {
-    crate::profile::Profile::default()
-}
+fn load_profile_after_mount(_set_nick: WriteSignal<String>, _set_color: WriteSignal<String>) {}
 
 #[cfg(feature = "hydrate")]
-fn initial_profile_impl() -> crate::profile::Profile {
-    crate::client::storage::load_profile()
+fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSignal<String>) {
+    use leptos::task::spawn_local;
+
+    spawn_local(async move {
+        let profile = crate::client::storage::load_profile();
+        set_nick.set(profile.nick);
+        set_color.set(profile.color);
+    });
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -283,6 +296,7 @@ fn member_cards(
     is_sharing: ReadSignal<bool>,
     watching: RwSignal<std::collections::HashSet<String>>,
     expanded: RwSignal<Option<String>>,
+    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     own_preview_hidden: RwSignal<bool>,
     local_video_ref: NodeRef<leptos::html::Video>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
@@ -302,6 +316,16 @@ fn member_cards(
             let can_watch = move || {
                 member_at().map(|m| m.sharing).unwrap_or(false) && !is_self() && !is_watching_this()
             };
+            // `RoomMember.sharing` nunca fica `true` no PRÓPRIO card: o
+            // servidor manda `PeerStartedSharing` só pros outros membros
+            // (a pessoa já sabe localmente que está compartilhando, via
+            // `is_sharing`). Pra decidir se mostra o selo de espectadores
+            // no card de alguém, essa checagem tem que valer tanto pra
+            // "outro membro cujo `sharing` é true" quanto pra "eu mesmo,
+            // enquanto `is_sharing` estiver ligado".
+            let member_is_sharing = move || {
+                member_at().map(|m| m.sharing).unwrap_or(false) || (is_self() && is_sharing.get())
+            };
             let is_expanded = move || {
                 member_at().map(|m| expanded.get().as_deref() == Some(m.peer_id.as_str())).unwrap_or(false)
             };
@@ -309,12 +333,33 @@ fn member_cards(
             // Com a Task 10, o vídeo do próprio card só aparece se não estiver
             // escondido — troca a definição de `showing_video` da Task 9.
             let showing_video = move || own_preview_visible() || (!is_self() && is_watching_this());
+            let watcher_ids = move || {
+                member_at().and_then(|m| watchers_by_sharer.get().get(&m.peer_id).cloned()).unwrap_or_default()
+            };
+            let watcher_names = move || {
+                let ids = watcher_ids();
+                let all_members = members.get();
+                ids.iter()
+                    .map(|id| {
+                        all_members
+                            .iter()
+                            .find(|m| &m.peer_id == id)
+                            .map(|m| m.nick.clone())
+                            .unwrap_or_else(|| "alguém".to_string())
+                    })
+                    .collect::<Vec<_>>()
+            };
 
             let watch = watch_click_handler(conn.clone(), members, watching, i);
-            let stop_watch = stop_watching_click_handler(conn.clone(), members, watching, i);
+            let stop_watch = stop_watching_click_handler(conn.clone(), members, watching, expanded, i);
             let toggle_preview_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
                 own_preview_hidden.update(|hidden| *hidden = !*hidden);
+            };
+            let fullscreen_click = move |ev: leptos::ev::MouseEvent| {
+                ev.stop_propagation();
+                let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
+                request_fullscreen(is_self(), &peer_id, local_video_ref);
             };
             // Clicar em qualquer lugar do banner (fora dos botões, que
             // interrompem a propagação) alterna foco: se já tem vídeo
@@ -346,6 +391,16 @@ fn member_cards(
                     }
                     on:click=toggle_focus_click
                 >
+                    <div
+                        class="watcher-badge"
+                        class:hidden=move || !member_is_sharing()
+                    >
+                        {icon_eye}
+                        <span>{move || watcher_ids().len()}</span>
+                        <div class="watcher-badge__tooltip" class:hidden=move || watcher_names().is_empty()>
+                            {move || watcher_names().join(", ")}
+                        </div>
+                    </div>
                     <div
                         class="card__avatar"
                         class:hidden=showing_video
@@ -394,17 +449,28 @@ fn member_cards(
                         <span class="card__nick">{move || member_at().map(|m| m.nick).unwrap_or_default()}</span>
                         <div class="card__actions">
                             <button
-                                class="btn--ghost"
+                                class="icon-btn icon-btn--neutral"
+                                class:hidden=move || !showing_video()
+                                title="Tela cheia"
+                                aria-label="Tela cheia"
+                                on:click=fullscreen_click
+                            >
+                                {icon_maximize}
+                            </button>
+                            <button class="btn--ghost" class:hidden=move || !(is_self() && is_sharing.get()) on:click=toggle_preview_click>
+                                {move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }}
+                            </button>
+                            <button
+                                class="icon-btn icon-btn--danger"
                                 class:hidden=move || !is_watching_this()
+                                title="Parar de assistir"
+                                aria-label="Parar de assistir"
                                 on:click=move |ev: leptos::ev::MouseEvent| {
                                     ev.stop_propagation();
                                     stop_watch(ev);
                                 }
                             >
-                                "Parar de assistir"
-                            </button>
-                            <button class="btn--ghost" class:hidden=move || !(is_self() && is_sharing.get()) on:click=toggle_preview_click>
-                                {move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }}
+                                {icon_eye_off}
                             </button>
                         </div>
                     </div>
@@ -447,6 +513,7 @@ fn stop_watching_click_handler(
     _conn: RoomConnection,
     _members: ReadSignal<Vec<RoomMember>>,
     _watching: RwSignal<std::collections::HashSet<String>>,
+    _expanded: RwSignal<Option<String>>,
     _slot: usize,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
@@ -457,6 +524,7 @@ fn stop_watching_click_handler(
     conn: RoomConnection,
     members: ReadSignal<Vec<RoomMember>>,
     watching: RwSignal<std::collections::HashSet<String>>,
+    expanded: RwSignal<Option<String>>,
     slot: usize,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use crate::signaling::protocol::ClientMessage;
@@ -464,12 +532,45 @@ fn stop_watching_click_handler(
     move |_| {
         let Some(member) = members.get_untracked().get(slot).cloned() else { return };
         watching.update(|w| { w.remove(&member.peer_id); });
+        // Se essa transmissão estava expandida, volta pra grade normal —
+        // sem isso, o card em foco continuava vazio (sem vídeo) até a
+        // pessoa clicar nele de novo pra encolher manualmente.
+        expanded.update(|current| {
+            if current.as_deref() == Some(member.peer_id.as_str()) {
+                *current = None;
+            }
+        });
         if let Some(pc) = conn.incoming.borrow_mut().remove(&member.peer_id) {
             pc.close();
         }
         if let Some(ws) = conn.ws.borrow().as_ref() {
             ws.send(&ClientMessage::StopWatching { sharer_id: member.peer_id });
         }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn request_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<leptos::html::Video>) {}
+
+/// Coloca o `<video>` da pessoa (o próprio preview ou o vídeo de quem
+/// estamos assistindo) em tela cheia nativa do navegador — não a `.card`
+/// inteira, pra reaproveitar os controles e o comportamento padrão do
+/// `<video>` em fullscreen (duplo clique, Esc pra sair, etc.) em vez de
+/// reimplementar isso.
+#[cfg(feature = "hydrate")]
+fn request_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<leptos::html::Video>) {
+    use wasm_bindgen::JsCast;
+
+    let video: Option<web_sys::HtmlVideoElement> = if is_self {
+        local_video_ref.get_untracked().map(|v| v.into())
+    } else {
+        web_sys::window()
+            .and_then(|w| w.document())
+            .and_then(|d| d.get_element_by_id(&format!("video-{peer_id}")))
+            .and_then(|el| el.dyn_into::<web_sys::HtmlVideoElement>().ok())
+    };
+    if let Some(video) = video {
+        let _ = video.request_fullscreen();
     }
 }
 
@@ -480,11 +581,13 @@ fn apply_joined_snapshot(
     peer_id: String,
     joined_members: Vec<crate::signaling::protocol::MemberInfo>,
     active_sharers: Vec<String>,
+    watcher_info: Vec<crate::signaling::protocol::WatcherInfo>,
     set_my_peer_id: WriteSignal<Option<String>>,
     set_members: WriteSignal<Vec<RoomMember>>,
     set_room_name: WriteSignal<Option<String>>,
     set_authenticated: WriteSignal<bool>,
     set_status: WriteSignal<String>,
+    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
 ) {
     use std::collections::HashSet;
 
@@ -496,6 +599,7 @@ fn apply_joined_snapshot(
         .into_iter()
         .map(|m| RoomMember { sharing: sharer_set.contains(&m.peer_id), peer_id: m.peer_id, nick: m.nick, color: m.color })
         .collect();
+    watchers_by_sharer.set(watcher_info.into_iter().map(|w| (w.sharer_id, w.watchers)).collect());
     save_recent_room(RecentRoom { code: room_code, name: room_name.clone() });
     set_my_peer_id.set(Some(peer_id));
     set_members.set(members);
@@ -513,6 +617,8 @@ fn build_message_handler(
     set_my_peer_id: WriteSignal<Option<String>>,
     conn: RoomConnection,
     watching: RwSignal<std::collections::HashSet<String>>,
+    expanded: RwSignal<Option<String>>,
+    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> impl Fn(crate::signaling::protocol::ServerMessage) + 'static {
     use leptos::task::spawn_local;
@@ -523,18 +629,20 @@ fn build_message_handler(
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
     move |msg: ServerMessage| match msg {
-        ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers } => {
+        ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers, watcher_info } => {
             apply_joined_snapshot(
                 room,
                 room_name,
                 peer_id,
                 joined_members,
                 active_sharers,
+                watcher_info,
                 set_my_peer_id,
                 set_members,
                 set_room_name,
                 set_authenticated,
                 set_status,
+                watchers_by_sharer,
             );
         }
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
@@ -547,6 +655,11 @@ fn build_message_handler(
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
             conn.outgoing.borrow_mut().remove(&peer_id).map(|pc| pc.close());
             conn.incoming.borrow_mut().remove(&peer_id).map(|pc| pc.close());
+            expanded.update(|current| {
+                if current.as_deref() == Some(peer_id.as_str()) {
+                    *current = None;
+                }
+            });
         }
         ServerMessage::PeerStartedSharing { peer_id } => {
             set_members.update(|members| {
@@ -562,9 +675,21 @@ fn build_message_handler(
                 }
             });
             watching.update(|w| { w.remove(&peer_id); });
+            expanded.update(|current| {
+                if current.as_deref() == Some(peer_id.as_str()) {
+                    *current = None;
+                }
+            });
+            // Ninguém assiste quem parou de compartilhar — evita mostrar
+            // uma contagem velha se essa pessoa voltar a compartilhar
+            // antes do primeiro `WatchersChanged` novo chegar.
+            watchers_by_sharer.update(|w| { w.remove(&peer_id); });
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+        }
+        ServerMessage::WatchersChanged { sharer_id, watchers } => {
+            watchers_by_sharer.update(|w| { w.insert(sharer_id, watchers); });
         }
         ServerMessage::Offer { from, sdp } => {
             let conn = conn.clone();
@@ -711,6 +836,8 @@ fn adopt_pending_session(
     _set_members: WriteSignal<Vec<RoomMember>>,
     _set_my_peer_id: WriteSignal<Option<String>>,
     _watching: RwSignal<std::collections::HashSet<String>>,
+    _expanded: RwSignal<Option<String>>,
+    _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) {
 }
@@ -725,29 +852,36 @@ fn adopt_pending_session(
     set_members: WriteSignal<Vec<RoomMember>>,
     set_my_peer_id: WriteSignal<Option<String>>,
     watching: RwSignal<std::collections::HashSet<String>>,
+    expanded: RwSignal<Option<String>>,
+    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) {
     use crate::client::session;
 
     let Some(mut session) = session::take(&room_code) else { return };
 
-    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, connection_errors);
+    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors);
     session.ws.set_on_message(on_message);
     session.ws.on_close(move || {
         set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
     });
 
+    // Uma sessão pendente vem sempre da home criando uma sala do zero —
+    // nunca tem espectador nenhum ainda, então não precisa de
+    // `watcher_info` vindo de lugar nenhum.
     apply_joined_snapshot(
         session.room,
         session.room_name,
         session.peer_id,
         session.members,
         session.active_sharers,
+        Vec::new(),
         set_my_peer_id,
         set_members,
         set_room_name,
         set_authenticated,
         set_status,
+        watchers_by_sharer,
     );
 
     *conn.ws.borrow_mut() = Some(session.ws);
@@ -763,6 +897,8 @@ fn setup_room_connection(
     _set_members: WriteSignal<Vec<RoomMember>>,
     _set_my_peer_id: WriteSignal<Option<String>>,
     _watching: RwSignal<std::collections::HashSet<String>>,
+    _expanded: RwSignal<Option<String>>,
+    _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     move |_nick: String, _color: String, _password: String| {}
@@ -778,6 +914,8 @@ fn setup_room_connection(
     set_members: WriteSignal<Vec<RoomMember>>,
     set_my_peer_id: WriteSignal<Option<String>>,
     watching: RwSignal<std::collections::HashSet<String>>,
+    expanded: RwSignal<Option<String>>,
+    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
@@ -790,7 +928,7 @@ fn setup_room_connection(
         let room_code = room_code.clone();
         set_status.set("Conectando...".to_string());
 
-        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, connection_errors);
+        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors);
 
         match WsClient::connect("/ws", on_message) {
             Ok(ws) => {
