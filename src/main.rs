@@ -8,6 +8,7 @@ async fn main() {
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use screen_share::app::*;
     use screen_share::signaling::registry::Registry;
+    use screen_share::signaling::rooms_status::room_status_handler;
     use screen_share::signaling::ws::ws_handler;
 
     let conf = get_configuration(None).unwrap();
@@ -18,6 +19,7 @@ async fn main() {
     let signaling_state = Registry::new();
     let signaling_router = Router::new()
         .route("/ws", get(ws_handler))
+        .route("/api/rooms/{code}", get(room_status_handler))
         .with_state(signaling_state);
 
     let app = Router::new()

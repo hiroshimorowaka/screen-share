@@ -12,13 +12,14 @@ pub fn status_meta(status: &str) -> (&'static str, &'static str) {
         "Compartilhamento encerrado." | "O compartilhamento foi encerrado." => {
             ("idle", "ENCERRADO")
         }
-        s if s.starts_with("Sessão não encontrada") => ("error", "NÃO ENCONTRADA"),
+        s if s.starts_with("Sala não encontrada") => ("error", "NÃO ENCONTRADA"),
         s if s.starts_with("Não foi possível")
             || s.starts_with("Seu navegador")
             || s.starts_with("Conexão perdida") =>
         {
             ("error", "ERRO")
         }
+        s if s.starts_with("Você entrou nessa sala em outra") => ("error", "DESCONECTADO"),
         _ => ("idle", "STATUS"),
     }
 }

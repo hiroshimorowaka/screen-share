@@ -1,0 +1,161 @@
+use crate::profile::{Profile, RecentRoom};
+
+const NICK_KEY: &str = "screen_share_nick";
+const PROFILE_KEY: &str = "screen_share_profile";
+const RECENT_ROOMS_KEY: &str = "screen_share_recent_rooms";
+const LAST_ROOM_NAME_KEY: &str = "screen_share_last_room_name";
+const DEVICE_ID_KEY: &str = "screen_share_device_id";
+const MAX_RECENT_ROOMS: usize = 10;
+
+#[cfg(not(feature = "hydrate"))]
+pub fn load_profile() -> Profile {
+    Profile::default()
+}
+
+#[cfg(feature = "hydrate")]
+pub fn load_profile() -> Profile {
+    let Some(window) = web_sys::window() else { return Profile::default() };
+    let Ok(Some(storage)) = window.local_storage() else { return Profile::default() };
+    let Ok(Some(json)) = storage.get_item(PROFILE_KEY) else { return Profile::default() };
+    serde_json::from_str(&json).unwrap_or_default()
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn save_profile(_profile: &Profile) {}
+
+#[cfg(feature = "hydrate")]
+pub fn save_profile(profile: &Profile) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(json) = serde_json::to_string(profile) {
+                let _ = storage.set_item(PROFILE_KEY, &json);
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn load_recent_rooms() -> Vec<RecentRoom> {
+    Vec::new()
+}
+
+#[cfg(feature = "hydrate")]
+pub fn load_recent_rooms() -> Vec<RecentRoom> {
+    let Some(window) = web_sys::window() else { return Vec::new() };
+    let Ok(Some(storage)) = window.local_storage() else { return Vec::new() };
+    let Ok(Some(json)) = storage.get_item(RECENT_ROOMS_KEY) else { return Vec::new() };
+    serde_json::from_str(&json).unwrap_or_default()
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn save_recent_room(_room: RecentRoom) {}
+
+#[cfg(feature = "hydrate")]
+pub fn save_recent_room(room: RecentRoom) {
+    let mut rooms = load_recent_rooms();
+    rooms.retain(|r| r.code != room.code);
+    rooms.insert(0, room);
+    rooms.truncate(MAX_RECENT_ROOMS);
+    save_recent_rooms_list(&rooms);
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn remove_recent_room(_code: &str) {}
+
+#[cfg(feature = "hydrate")]
+pub fn remove_recent_room(code: &str) {
+    let mut rooms = load_recent_rooms();
+    rooms.retain(|r| r.code != code);
+    save_recent_rooms_list(&rooms);
+}
+
+#[cfg(feature = "hydrate")]
+fn save_recent_rooms_list(rooms: &[RecentRoom]) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            if let Ok(json) = serde_json::to_string(rooms) {
+                let _ = storage.set_item(RECENT_ROOMS_KEY, &json);
+            }
+        }
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn load_nick() -> Option<String> {
+    None
+}
+
+#[cfg(feature = "hydrate")]
+pub fn load_nick() -> Option<String> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    storage.get_item(NICK_KEY).ok()?
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn save_nick(_nick: &str) {}
+
+#[cfg(feature = "hydrate")]
+pub fn save_nick(nick: &str) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.set_item(NICK_KEY, nick);
+        }
+    }
+}
+
+/// Nome usado na última sala criada — carregado de volta no formulário de
+/// "Criar sala" pra facilitar recriar a mesma sala depois que ela some
+/// (último membro saiu, ou o processo do servidor reiniciou).
+#[cfg(not(feature = "hydrate"))]
+pub fn load_last_room_name() -> Option<String> {
+    None
+}
+
+#[cfg(feature = "hydrate")]
+pub fn load_last_room_name() -> Option<String> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    storage.get_item(LAST_ROOM_NAME_KEY).ok()?
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn save_last_room_name(_room_name: &str) {}
+
+#[cfg(feature = "hydrate")]
+pub fn save_last_room_name(room_name: &str) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.set_item(LAST_ROOM_NAME_KEY, room_name);
+        }
+    }
+}
+
+/// Identifica esse navegador/dispositivo de forma estável entre sessões —
+/// gerado uma vez e reaproveitado depois, nunca trocado. Usado pelo
+/// servidor pra detectar "essa mesma pessoa já está nessa sala em outra
+/// aba/janela" e desconectar a entrada antiga automaticamente, em vez de
+/// deixar a mesma pessoa contar como dois membros. Diferente do nick/cor,
+/// não aparece em lugar nenhum da tela, então não tem risco de mismatch de
+/// hidratação — pode ser lido de forma síncrona, sem o padrão de sinal com
+/// valor padrão + carga assíncrona pós-mount usado nos outros dados de
+/// perfil.
+#[cfg(not(feature = "hydrate"))]
+pub fn ensure_device_id() -> String {
+    String::new()
+}
+
+#[cfg(feature = "hydrate")]
+pub fn ensure_device_id() -> String {
+    let Some(window) = web_sys::window() else { return String::new() };
+    let Ok(Some(storage)) = window.local_storage() else { return String::new() };
+
+    if let Ok(Some(existing)) = storage.get_item(DEVICE_ID_KEY) {
+        return existing;
+    }
+
+    let Ok(crypto) = window.crypto() else { return String::new() };
+    let id = crypto.random_uuid();
+    let _ = storage.set_item(DEVICE_ID_KEY, &id);
+    id
+}

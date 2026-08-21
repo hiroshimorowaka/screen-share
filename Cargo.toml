@@ -45,8 +45,13 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "RtcRtpSender",
     "HtmlVideoElement",
     "HtmlMediaElement",
+    "PictureInPictureWindow",
     "Clipboard",
+    "Storage",
+    "Response",
+    "Crypto",
 ] }
+argon2 = { version = "0.5.3", optional = true, features = ["std"] }
 
 [features]
 hydrate = [
@@ -64,10 +69,12 @@ ssr = [
     "dep:uuid",
     "dep:rand",
     "dep:futures-util",
+    "dep:argon2",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
 ]
+argon2 = ["dep:argon2"]
 
 # Defines a size-optimized profile for the WASM bundle in release mode
 [profile.wasm-release]
@@ -79,6 +86,7 @@ panic = "abort"
 
 [dev-dependencies]
 tokio-tungstenite = "0.30.0"
+reqwest = { version = "0.12", features = ["json"] }
 
 [package.metadata.leptos]
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
