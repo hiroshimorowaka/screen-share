@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{icon_eye, icon_log_out, icon_maximize, icon_screen_off};
+use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_screen_off};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -74,6 +74,7 @@ pub fn RoomPage() -> impl IntoView {
     let expanded = RwSignal::new(None::<String>);
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let own_preview_hidden = RwSignal::new(false);
+    let hide_idle = RwSignal::new(false);
     let can_share = share_supported();
 
     let conn = RoomConnection::new();
@@ -212,12 +213,21 @@ pub fn RoomPage() -> impl IntoView {
                 <span class="status-text status-text--error" class:hidden=move || can_share>
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
+                <button
+                    class="icon-btn icon-btn--neutral"
+                    class:icon-btn--active=hide_idle
+                    title=move || if hide_idle.get() { "Mostrar todo mundo" } else { "Ocultar quem não está transmitindo" }
+                    aria-label="Ocultar quem não está transmitindo"
+                    on:click=move |_| hide_idle.update(|v| *v = !*v)
+                >
+                    {icon_eye_off}
+                </button>
                 <button class="icon-btn icon-btn--danger" title="Sair da sala" aria-label="Sair da sala" on:click=leave_room>
                     {icon_log_out}
                 </button>
             </div>
             <div class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, local_video_ref, connection_errors)}
+                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, local_video_ref, connection_errors)}
             </div>
         </div>
     }
@@ -298,6 +308,7 @@ fn member_cards(
     expanded: RwSignal<Option<String>>,
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     own_preview_hidden: RwSignal<bool>,
+    hide_idle: RwSignal<bool>,
     local_video_ref: NodeRef<leptos::html::Video>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> Vec<impl IntoView> {
@@ -359,7 +370,7 @@ fn member_cards(
             let fullscreen_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
                 let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
-                request_fullscreen(is_self(), &peer_id, local_video_ref);
+                toggle_fullscreen(is_self(), &peer_id, local_video_ref);
             };
             // Clicar em qualquer lugar do banner (fora dos botões, que
             // interrompem a propagação) alterna foco: se já tem vídeo
@@ -382,7 +393,7 @@ fn member_cards(
             view! {
                 <div
                     class="card"
-                    class:hidden=move || member_at().is_none()
+                    class:hidden=move || member_at().is_none() || (hide_idle.get() && !member_is_sharing())
                     class:card--focus=is_expanded
                     class:card--clickable=showing_video
                     style=move || {
@@ -550,9 +561,9 @@ fn stop_watching_click_handler(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn request_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<leptos::html::Video>) {}
+fn toggle_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<leptos::html::Video>) {}
 
-/// Coloca o `.card` inteiro em tela cheia — não só o `<video>`. Quando o
+/// Alterna o `.card` inteiro em tela cheia — não só o `<video>`. Quando o
 /// próprio `<video>` é o elemento em fullscreen, o Chrome injeta os
 /// controles nativos de mídia por cima dele (barra de play/pause, seek),
 /// como se fosse um player comum — errado aqui, já que uma transmissão de
@@ -560,9 +571,20 @@ fn request_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<
 /// (uma div comum) em fullscreen em vez do vídeo, esses controles nunca
 /// aparecem, e como bônus o selo de espectadores e o rodapé com o nick —
 /// que são irmãos do `<video>` dentro do card — continuam visíveis.
+///
+/// "Alterna" porque, se já tiver algum elemento em fullscreen quando o
+/// botão é clicado, sai da tela cheia em vez de tentar entrar de novo —
+/// sem isso, a única forma de sair era apertar Esc.
 #[cfg(feature = "hydrate")]
-fn request_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<leptos::html::Video>) {
+fn toggle_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<leptos::html::Video>) {
     use wasm_bindgen::JsCast;
+
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+
+    if document.fullscreen_element().is_some() {
+        let _ = document.exit_fullscreen();
+        return;
+    }
 
     let video: Option<web_sys::Element> = if is_self {
         local_video_ref.get_untracked().map(|v| {
@@ -570,9 +592,7 @@ fn request_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<lep
             video.unchecked_into()
         })
     } else {
-        web_sys::window()
-            .and_then(|w| w.document())
-            .and_then(|d| d.get_element_by_id(&format!("video-{peer_id}")))
+        document.get_element_by_id(&format!("video-{peer_id}"))
     };
     let card = video.and_then(|v| v.closest(".card").ok().flatten());
     if let Some(card) = card {

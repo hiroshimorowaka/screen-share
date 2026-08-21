@@ -691,9 +691,35 @@ h1 {
   color: var(--accent-strong);
 }
 
+/* Estado "ligado" de um icon-btn que funciona como alternância (ex: o
+   botão de ocultar quem não está transmitindo, no cabeçalho) — precisa
+   ficar visivelmente diferente do estado normal mesmo sem hover. */
+.icon-btn--active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.icon-btn--active:hover {
+  background: var(--accent-strong);
+  color: var(--accent-ink);
+}
+
 .room-page .stage-header .icon-btn {
   width: 2.25rem;
   height: 2.25rem;
+}
+
+/* Parar de assistir e tela cheia são as ações mais usadas de um card —
+   um pouco maiores que os outros icon-btn (ex: sair da sala) pra serem
+   mais fáceis de acertar o clique. */
+.card__actions .icon-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.card__actions .icon-btn .icon {
+  width: 1.3rem;
+  height: 1.3rem;
 }
 
 /* Aproximação puramente CSS de "foco + tirinha", sem duplicar nenhum
