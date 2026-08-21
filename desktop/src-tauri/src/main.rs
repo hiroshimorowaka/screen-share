@@ -9,6 +9,12 @@ fn main() {
     // rendering path. See tauri-apps/tauri#9394.
     std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
 
+    // Belt-and-suspenders alongside the DMA-BUF workaround above: forces
+    // WebKitGTK's plain (non-GPU-accelerated) compositor, which several
+    // reports found necessary to get WebRTC video actually rendering
+    // (rather than blank/black) on Linux.
+    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+
     tauri::Builder::default()
         .setup(|app| {
             let show = MenuItemBuilder::with_id("show", "Abrir").build(app)?;
