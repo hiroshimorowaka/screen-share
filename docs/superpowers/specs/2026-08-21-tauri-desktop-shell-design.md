@@ -22,7 +22,7 @@ filtrado) mesmo antes de qualquer trabalho de áudio nativo começar.
 ## Objetivo
 
 Um app desktop nativo, para Linux, que abre o front-end web já existente
-(Leptos, servido em produção pelo Fly.io em `hiroshi-screen-share.fly.dev`)
+(Leptos, servido em produção pelo Fly.io em `screen-share-h0rb5w.fly.dev`)
 dentro de uma janela nativa, com
 um ícone de bandeja que permite manter o app rodando em segundo plano sem
 uma janela ocupando espaço na tela — sem duplicar nenhum código de UI e
@@ -51,7 +51,7 @@ evita mexer numa estrutura de build já delicada e documentada como frágil
   `tauri.conf.json`, `src/main.rs`, `icons/`.
 - `main.rs` é responsável por três coisas:
   1. Criar a janela principal apontando para
-     `https://hiroshi-screen-share.fly.dev/` (URL de produção já
+     `https://screen-share-h0rb5w.fly.dev/` (URL de produção já
      hospedada — nenhum asset web é empacotado dentro do app).
   2. Registrar um ícone de bandeja do sistema com um menu de duas opções:
      "Abrir" e "Sair".
