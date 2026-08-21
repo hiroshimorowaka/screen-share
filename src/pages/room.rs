@@ -420,8 +420,8 @@ fn member_cards(
                     class:card--focus=is_expanded
                     class:card--clickable=showing_video
                     style=move || {
-                        let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
-                        format!("border-color: {border}; background-color: {bg};")
+                        let (border, _bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                        format!("border-color: {border}; --member-accent: {border};")
                     }
                     on:click=toggle_focus_click
                 >
@@ -439,8 +439,8 @@ fn member_cards(
                         class="card__avatar"
                         class:hidden=showing_video
                         style=move || {
-                            let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
-                            format!("background-color: {bg}; border-color: {border};")
+                            let (border, _bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                            format!("background-color: color-mix(in srgb, {border} 22%, var(--surface-2)); border-color: {border};")
                         }
                     >
                         <span class="card__avatar-letter">
