@@ -73,6 +73,23 @@ a {
   animation: rise 0.4s ease-out;
 }
 
+/* Home: os cards de "criar sala" e "entrar em uma sala" lado a lado quando
+   há espaço, empilhados abaixo disso — cada `.panel` continua limitado a
+   30rem, então em telas largas os dois cabem lado a lado dentro do
+   `max-width` do container. */
+.home-layout {
+  width: 100%;
+  max-width: 64rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+}
+
+.home-layout .panel {
+  flex: 1 1 26rem;
+}
+
 /* Página de quem assiste (modo antigo, "tela cheia") e a sala (grade de
    membros): as duas ocupam a janela inteira (height: 100vh) sozinhas — o
    padding padrão do body (pensado pra centralizar o <div class="panel">
@@ -279,6 +296,15 @@ h1 {
   color: var(--accent-strong);
 }
 
+.btn--block {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  margin-top: 1rem;
+  text-decoration: none;
+}
+
 /* --- invite link card --- */
 
 .invite {
@@ -319,6 +345,42 @@ h1 {
 
 .invite__link:hover {
   border-color: var(--accent-strong);
+}
+
+/* Botão "Convidar" no cabeçalho da sala — copia o link de convite pra área
+   de transferência. */
+.invite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0.6rem;
+  padding: 0.4rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.invite-btn:hover {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
+.invite-btn .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.invite-btn--copied {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
 }
 
 /* --- viewer stage --- */
