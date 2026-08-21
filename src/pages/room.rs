@@ -103,6 +103,7 @@ pub fn RoomPage() -> impl IntoView {
         watchers_by_sharer,
         connection_errors,
         set_room_exists,
+        my_peer_id,
     );
 
     adopt_pending_session(
@@ -118,6 +119,7 @@ pub fn RoomPage() -> impl IntoView {
         watchers_by_sharer,
         connection_errors,
         set_room_exists,
+        my_peer_id,
     );
 
     start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name);
@@ -136,7 +138,7 @@ pub fn RoomPage() -> impl IntoView {
         }
     };
 
-    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id);
+    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id, expanded);
     let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
     let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
@@ -753,6 +755,7 @@ fn build_message_handler(
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
     set_room_exists: WriteSignal<Option<bool>>,
+    my_peer_id: ReadSignal<Option<String>>,
 ) -> impl Fn(crate::signaling::protocol::ServerMessage) + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -936,13 +939,24 @@ fn build_message_handler(
                 }
 
                 let target_id = from.clone();
+                // Ao contrário do ramo `Offer` (onde o par remoto da conexão
+                // É o dono da transmissão), aqui o par remoto é quem está
+                // assistindo — o dono da transmissão sou eu. `stream_owner`
+                // precisa ser o meu próprio `peer_id`, não `target_id`, ou o
+                // outro lado (que também pode ter uma conexão `incoming`
+                // comigo, se estivermos assistindo um ao outro) guarda esse
+                // candidato no mapa errado (`outgoing` em vez de `incoming`)
+                // e ele nunca chega na `RtcPeerConnection` certa — a conexão
+                // fica sem ICE suficiente pra completar e a imagem trava
+                // preta do lado de quem assiste.
+                let stream_owner_id = my_peer_id.get_untracked().unwrap_or_else(|| target_id.clone());
                 let conn_for_ice = conn.clone();
                 let onicecandidate = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(move |event: RtcPeerConnectionIceEvent| {
                     if let Some(candidate) = event.candidate() {
                         if let Some(ws) = conn_for_ice.ws.borrow().as_ref() {
                             ws.send(&ClientMessage::IceCandidate {
                                 to: target_id.clone(),
-                                stream_owner: target_id.clone(),
+                                stream_owner: stream_owner_id.clone(),
                                 candidate: candidate.candidate(),
                                 sdp_mid: candidate.sdp_mid(),
                                 sdp_m_line_index: candidate.sdp_m_line_index(),
@@ -994,6 +1008,7 @@ fn adopt_pending_session(
     _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
     _set_room_exists: WriteSignal<Option<bool>>,
+    _my_peer_id: ReadSignal<Option<String>>,
 ) {
 }
 
@@ -1011,12 +1026,13 @@ fn adopt_pending_session(
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
     set_room_exists: WriteSignal<Option<bool>>,
+    my_peer_id: ReadSignal<Option<String>>,
 ) {
     use crate::client::session;
 
     let Some(mut session) = session::take(&room_code) else { return };
 
-    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists);
+    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists, my_peer_id);
     session.ws.set_on_message(on_message);
     session.ws.on_close({
         let conn = conn.clone();
@@ -1062,6 +1078,7 @@ fn setup_room_connection(
     _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
     _set_room_exists: WriteSignal<Option<bool>>,
+    _my_peer_id: ReadSignal<Option<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     move |_nick: String, _color: String, _password: String| {}
 }
@@ -1080,6 +1097,7 @@ fn setup_room_connection(
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
     set_room_exists: WriteSignal<Option<bool>>,
+    my_peer_id: ReadSignal<Option<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
     use crate::client::storage::{ensure_device_id, save_profile};
@@ -1092,7 +1110,7 @@ fn setup_room_connection(
         let room_code = room_code.clone();
         set_status.set("Conectando...".to_string());
 
-        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists);
+        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists, my_peer_id);
 
         match WsClient::connect("/ws", on_message) {
             Ok(ws) => {
@@ -1148,6 +1166,7 @@ fn share_toggle_handler(
     _own_preview_hidden: RwSignal<bool>,
     _set_status: WriteSignal<String>,
     _my_peer_id: ReadSignal<Option<String>>,
+    _expanded: RwSignal<Option<String>>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
@@ -1160,6 +1179,7 @@ fn share_toggle_handler(
     own_preview_hidden: RwSignal<bool>,
     set_status: WriteSignal<String>,
     my_peer_id: ReadSignal<Option<String>>,
+    expanded: RwSignal<Option<String>>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -1170,12 +1190,12 @@ fn share_toggle_handler(
 
     move |_| {
         if is_sharing.get_untracked() {
-            stop_sharing(&conn, set_is_sharing, own_preview_hidden);
+            stop_sharing(&conn, set_is_sharing, own_preview_hidden, expanded, my_peer_id);
             return;
         }
 
         let conn = conn.clone();
-        let my_peer_id = my_peer_id.get_untracked();
+        let my_peer_id_value = my_peer_id.get_untracked();
         set_status.set("Selecione a tela para compartilhar...".to_string());
 
         spawn_local(async move {
@@ -1193,7 +1213,7 @@ fn share_toggle_handler(
             // ganharia o stream, quase nunca o slot certo). Em vez disso,
             // busca pelo `id` dinâmico do slot que hoje é o nosso, igual já
             // é feito pro vídeo de quem estamos assistindo.
-            if let Some(peer_id) = my_peer_id.as_deref() {
+            if let Some(peer_id) = my_peer_id_value.as_deref() {
                 if let Some(document) = web_sys::window().and_then(|w| w.document()) {
                     if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
                         let video: web_sys::HtmlVideoElement = video.unchecked_into();
@@ -1211,7 +1231,7 @@ fn share_toggle_handler(
             if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
                 let conn_for_end = conn.clone();
                 let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                    stop_sharing(&conn_for_end, set_is_sharing, own_preview_hidden);
+                    stop_sharing(&conn_for_end, set_is_sharing, own_preview_hidden, expanded, my_peer_id);
                 });
                 track.set_onended(Some(onended.as_ref().unchecked_ref()));
                 onended.forget();
@@ -1225,7 +1245,13 @@ fn share_toggle_handler(
 }
 
 #[cfg(feature = "hydrate")]
-fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>, own_preview_hidden: RwSignal<bool>) {
+fn stop_sharing(
+    conn: &RoomConnection,
+    set_is_sharing: WriteSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
+    expanded: RwSignal<Option<String>>,
+    my_peer_id: ReadSignal<Option<String>>,
+) {
     use wasm_bindgen::JsCast;
 
     if let Some(stream) = conn.local_stream.borrow_mut().take() {
@@ -1246,6 +1272,19 @@ fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>, own_pr
     // banner ficava escondido pra sempre depois de parar de compartilhar,
     // já que nada mais reseta esse sinal.
     own_preview_hidden.set(false);
+    // Se o próprio preview estava em foco quando a transmissão parou, a
+    // grade fica presa em `grid--focused` com um card vazio: o servidor só
+    // manda `PeerStoppedSharing` pros OUTROS membros (comentário em
+    // `member_cards`), então o handler que normalmente encolhe o foco nesse
+    // caso nunca roda pra quem parou de compartilhar a própria tela — e sem
+    // vídeo visível, o clique no card também para de encolher (só reage
+    // quando `showing_video()` é verdadeiro). Encolher aqui, no mesmo lugar
+    // que já decide que a transmissão acabou, é o que evita ficar preso.
+    expanded.update(|current| {
+        if *current == my_peer_id.get_untracked() {
+            *current = None;
+        }
+    });
 }
 
 #[cfg(not(feature = "hydrate"))]
