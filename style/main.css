@@ -122,6 +122,18 @@ body:has(.room-page) {
   letter-spacing: 0.02em;
 }
 
+/* Quantidade de membros da sala (ex: "3/10"), ao lado do nome no
+   cabeçalho — um pill discreto, no mesmo espírito do resto do header. */
+.room-member-count {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0.15rem 0.55rem;
+}
+
 .eyebrow {
   font-size: 0.72rem;
   font-weight: 700;

@@ -202,6 +202,7 @@ pub fn RoomPage() -> impl IntoView {
             <div class="stage-header">
                 <span class=lamp_class></span>
                 <span class="status-row__meta">{move || room_name.get().unwrap_or_default()}</span>
+                <span class="room-member-count">{move || format!("{}/{}", members.get().len(), MAX_MEMBERS)}</span>
                 <span class="status-row__spacer"></span>
                 <button
                     class=move || if is_sharing.get() { "btn btn--danger" } else { "btn btn--primary" }
@@ -393,7 +394,14 @@ fn member_cards(
             view! {
                 <div
                     class="card"
-                    class:hidden=move || member_at().is_none() || (hide_idle.get() && !member_is_sharing())
+                    class:hidden=move || {
+                        member_at().is_none()
+                            // O filtro de "ocultar quem não está transmitindo" só vale
+                            // na grade principal — a tirinha embaixo do vídeo em foco
+                            // (quando `expanded` tem alguém) continua mostrando todo
+                            // mundo, filtrado ou não.
+                            || (hide_idle.get() && expanded.get().is_none() && !member_is_sharing())
+                    }
                     class:card--focus=is_expanded
                     class:card--clickable=showing_video
                     style=move || {
