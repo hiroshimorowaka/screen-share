@@ -24,7 +24,10 @@ pub fn HomePage() -> impl IntoView {
     let (nick, set_nick) = signal(String::new());
     let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
+    // Mesmo motivo do nick/cor acima: começa vazio (igual ao SSR) e o valor
+    // salvo do último nome de sala usado é carregado depois do mount.
     let (room_name, set_room_name) = signal(String::new());
+    load_last_room_name_after_mount(set_room_name);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
     let (submitting, set_submitting) = signal(false);
@@ -155,6 +158,20 @@ fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSigna
 }
 
 #[cfg(not(feature = "hydrate"))]
+fn load_last_room_name_after_mount(_set_room_name: WriteSignal<String>) {}
+
+#[cfg(feature = "hydrate")]
+fn load_last_room_name_after_mount(set_room_name: WriteSignal<String>) {
+    use leptos::task::spawn_local;
+
+    spawn_local(async move {
+        if let Some(name) = crate::client::storage::load_last_room_name() {
+            set_room_name.set(name);
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
 fn load_recent_rooms_after_mount(_set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {}
 
 #[cfg(feature = "hydrate")]
@@ -228,7 +245,7 @@ fn create_room_handler(
 
     use crate::client::session::{self, PendingSession};
     use crate::client::socket::WsClient;
-    use crate::client::storage::{save_profile, save_recent_room};
+    use crate::client::storage::{save_last_room_name, save_profile, save_recent_room};
     use crate::profile::{Profile, RecentRoom};
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
@@ -258,6 +275,7 @@ fn create_room_handler(
                 if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers, .. } = msg {
                     save_profile(&Profile { nick: nick_value.clone(), color: color_value.clone() });
                     save_recent_room(RecentRoom { code: room.clone(), name: room_name.clone() });
+                    save_last_room_name(&room_name);
                     if let Some(ws) = ws_slot.borrow_mut().take() {
                         session::stash(PendingSession {
                             room: room.clone(),

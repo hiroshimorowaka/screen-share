@@ -3,6 +3,7 @@ use crate::profile::{Profile, RecentRoom};
 const NICK_KEY: &str = "screen_share_nick";
 const PROFILE_KEY: &str = "screen_share_profile";
 const RECENT_ROOMS_KEY: &str = "screen_share_recent_rooms";
+const LAST_ROOM_NAME_KEY: &str = "screen_share_last_room_name";
 const MAX_RECENT_ROOMS: usize = 10;
 
 #[cfg(not(feature = "hydrate"))]
@@ -98,6 +99,33 @@ pub fn save_nick(nick: &str) {
     if let Some(window) = web_sys::window() {
         if let Ok(Some(storage)) = window.local_storage() {
             let _ = storage.set_item(NICK_KEY, nick);
+        }
+    }
+}
+
+/// Nome usado na última sala criada — carregado de volta no formulário de
+/// "Criar sala" pra facilitar recriar a mesma sala depois que ela some
+/// (último membro saiu, ou o processo do servidor reiniciou).
+#[cfg(not(feature = "hydrate"))]
+pub fn load_last_room_name() -> Option<String> {
+    None
+}
+
+#[cfg(feature = "hydrate")]
+pub fn load_last_room_name() -> Option<String> {
+    let window = web_sys::window()?;
+    let storage = window.local_storage().ok()??;
+    storage.get_item(LAST_ROOM_NAME_KEY).ok()?
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub fn save_last_room_name(_room_name: &str) {}
+
+#[cfg(feature = "hydrate")]
+pub fn save_last_room_name(room_name: &str) {
+    if let Some(window) = web_sys::window() {
+        if let Ok(Some(storage)) = window.local_storage() {
+            let _ = storage.set_item(LAST_ROOM_NAME_KEY, room_name);
         }
     }
 }
