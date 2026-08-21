@@ -8,41 +8,21 @@ use crate::signaling::protocol::MAX_MEMBERS;
 
 #[component]
 pub fn HomePage() -> impl IntoView {
-    // Assim como `recent_rooms` (ver comentário abaixo), nick/cor SEMPRE
-    // começam no valor que o servidor também usaria (string vazia / cor
-    // padrão) — nunca lidos do localStorage aqui. Diferente da lista de
-    // salas recentes, aqui o problema não é um crash de hidratação: é que
-    // `class:color-swatch--selected=move || color.get() == id` (um
-    // binding de classe booleana, não uma lista) hidrata "silenciosamente
-    // errado" quando o valor no servidor (cor padrão) diverge do valor
-    // real do cliente — a troca de classe do nó que tinha o valor
-    // divergente na hidratação simplesmente para de reagir a mudanças
-    // depois (sem erro no console, só clique sem efeito nesse swatch
-    // específico). Carregar o valor real depois do mount, via sinal que
-    // já nasceu batendo com o SSR, evita o mismatch e mantém tudo
-    // reativo.
+    // Sinais começam no valor que o SSR usaria (vazio/padrão); o valor real
+    // do localStorage só é aplicado depois do mount, ou a hidratação do
+    // Leptos quebra (bindings de classe reagem errado, e o <For> de
+    // `recent_rooms` diverge em tamanho do que o servidor renderizou).
     let (nick, set_nick) = signal(String::new());
     let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
-    // Mesmo motivo do nick/cor acima: começa vazio (igual ao SSR) e o valor
-    // salvo do último nome de sala usado é carregado depois do mount.
     let (room_name, set_room_name) = signal(String::new());
     load_last_room_name_after_mount(set_room_name);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
     let (submitting, set_submitting) = signal(false);
-    // O signal SEMPRE começa vazio, igual ao HTML gerado no servidor (que não
-    // tem acesso a localStorage) — se ele começasse com o valor real do
-    // cliente, a lista de itens do <For> divergiria em tamanho da lista que
-    // o servidor renderizou, e a hidratação do Leptos quebra tentando casar
-    // nós de DOM que não existem (RuntimeError: unreachable /
-    // failed_to_cast_element). O valor real é carregado depois, de forma
-    // assíncrona, só depois que a hidratação já terminou.
     let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::profile::RecentRoom>::new());
-    // Contagem de membros por sala — ao contrário de `recent_rooms` (que vem
-    // do localStorage), isso é sempre buscado do servidor: é um dado que
-    // muda a cada entrada/saída de alguém, não faz sentido persistir junto
-    // do resto do perfil da sala salvo no navegador.
+    // Contagem de membros por sala: diferente de `recent_rooms`, sempre vem
+    // do servidor — muda a cada entrada/saída, não persiste no navegador.
     let (member_counts, set_member_counts) = signal(HashMap::<String, usize>::new());
 
     load_recent_rooms_after_mount(set_recent_rooms);
@@ -172,17 +152,13 @@ pub fn HomePage() -> impl IntoView {
     }
 }
 
-/// Extrai o código da sala de um texto colado pelo usuário — pode ser só o
-/// código (ex: "AB3D9F2K") ou o link completo do convite (ex:
-/// "https://site.com/r/AB3D9F2K?x=1"). Normaliza pra maiúsculas: os códigos
-/// que `generate_room_code` (`signaling::registry`) gera são sempre
-/// maiúsculos, e sem essa normalização colar o código em minúsculas nunca
-/// bateria com a sala real.
+/// Aceita tanto o código bruto quanto o link completo do convite.
+/// Normaliza pra maiúsculas — `generate_room_code` só gera códigos
+/// maiúsculos, e sem isso colar em minúsculas nunca bateria com a sala real.
 ///
-/// Só é chamada pela variante `hydrate` de `join_room_handler` — o `cfg`
-/// evita o aviso de código morto que apareceria num build `ssr`-apenas
-/// (que nunca monta a variante que a usa), sem gatear a própria lógica por
-/// trás de `web-sys` (ela continua plain Rust, testável sem navegador).
+/// `cfg(any(test, feature = "hydrate"))`, não só `hydrate`: evita o aviso de
+/// código morto num build `ssr`-only, mas mantém a função plain Rust
+/// (sem `web-sys`) e testável sem navegador.
 #[cfg(any(test, feature = "hydrate"))]
 fn extract_room_code(input: &str) -> Option<String> {
     let trimmed = input.trim();
@@ -310,11 +286,8 @@ fn join_room_handler(_join_input: ReadSignal<String>, _set_join_status: WriteSig
     move |ev: leptos::ev::SubmitEvent| ev.prevent_default()
 }
 
-/// Não abre nenhuma conexão nem valida senha aqui — só resolve o código da
-/// sala e navega pra `/r/{code}`, onde o portão de entrada já existente
-/// (nick, cor, senha) assume. Mesma divisão de responsabilidade que o resto
-/// do app: a home só inicia coisas, a página da sala é onde a sala
-/// realmente acontece.
+/// Só resolve o código e navega pra `/r/{code}` — nick, cor e senha ficam
+/// pro portão de entrada da própria página da sala.
 #[cfg(feature = "hydrate")]
 fn join_room_handler(join_input: ReadSignal<String>, set_join_status: WriteSignal<String>) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
     use leptos_router::hooks::use_navigate;

@@ -9,10 +9,8 @@ pub struct MemberInfo {
     pub color: String,
 }
 
-/// Quem está assistindo a transmissão de um membro específico, no momento
-/// em que alguém entra numa sala já em andamento — dá pra mostrar a
-/// contagem/lista de espectadores de cada compartilhamento ativo sem
-/// esperar o primeiro `WatchersChanged` chegar.
+/// Quem já assiste cada sharer ativo, mandado no snapshot de entrada — evita
+/// esperar o primeiro `WatchersChanged` pra mostrar a contagem certa.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WatcherInfo {
     pub sharer_id: String,
@@ -55,17 +53,15 @@ pub enum ServerMessage {
     RoomFull,
     PeerJoined { peer_id: String, nick: String, color: String },
     PeerLeft { peer_id: String },
-    /// Mandado só pra quem foi desconectado porque o mesmo dispositivo
-    /// entrou de novo nessa sala (outra aba/janela) — nunca broadcast pro
-    /// resto da sala, que já recebe o `PeerLeft` normal dessa saída.
+    /// Só pra quem foi desconectado por reentrada do mesmo device — nunca
+    /// broadcast; o resto da sala já recebe o `PeerLeft` normal.
     Kicked,
     PeerStartedSharing { peer_id: String },
     PeerStoppedSharing { peer_id: String },
     WatchRequested { from: String },
     WatchStopped { from: String },
-    /// Manda pra sala inteira (quem compartilha e quem assiste), não só
-    /// pro dono da transmissão — é o que permite mostrar "N assistindo"
-    /// no card de qualquer um, pro ponto de vista de qualquer membro.
+    /// Broadcast pra sala inteira, não só pro sharer — qualquer card mostra
+    /// "N assistindo" do ponto de vista de qualquer membro.
     WatchersChanged { sharer_id: String, watchers: Vec<String> },
     Offer { from: String, sdp: String },
     Answer { from: String, sdp: String },
@@ -78,10 +74,8 @@ pub enum ServerMessage {
     },
 }
 
-/// Resposta do endpoint `GET /api/rooms/:code` (fora do WebSocket) — permite
-/// checar se uma sala existe (e ver seu nome) sem abrir conexão nem digitar
-/// senha. Quando `exists` é `false`, os outros dois campos são omitidos do
-/// JSON (não seriam relevantes).
+/// Resposta de `GET /api/rooms/:code`. `name`/`member_count` são omitidos
+/// do JSON quando `exists` é `false`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoomStatus {
     pub exists: bool,

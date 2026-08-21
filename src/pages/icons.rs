@@ -1,13 +1,9 @@
 use leptos::prelude::*;
 
-/// Ícones inline (traço simples, sem preenchimento — no estilo do
-/// [Feather Icons](https://feathericons.com), MIT), usados nos botões de
-/// ação da sala. Como funções puras (não componentes reativos), cada
-/// chamada só monta a marcação; a cor vem de `currentColor`, herdando do
-/// botão que a envolve.
-/// Olho riscado — usado pro botão de "ocultar quem não está transmitindo"
-/// no cabeçalho da sala (não confundir com `icon_screen_off`, que é sobre
-/// parar de assistir UM compartilhamento específico).
+// Ícones inline no estilo do Feather Icons (https://feathericons.com), MIT.
+
+/// Não confundir com `icon_screen_off`, que é sobre parar de assistir UM
+/// compartilhamento específico.
 pub fn icon_eye_off() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -19,8 +15,6 @@ pub fn icon_eye_off() -> impl IntoView {
     }
 }
 
-/// Monitor liso — "compartilhar minha tela" (a cor do botão que o envolve
-/// já indica se está ativo ou não, igual ao resto dos toggles da barra).
 pub fn icon_monitor() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -31,7 +25,6 @@ pub fn icon_monitor() -> impl IntoView {
     }
 }
 
-/// Monitor com um X na tela — "parar de assistir esse compartilhamento".
 pub fn icon_screen_off() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -63,9 +56,6 @@ pub fn icon_log_out() -> impl IntoView {
     }
 }
 
-/// Retângulo grande com um menor no canto — "picture-in-picture": abre esse
-/// vídeo numa janela flutuante do sistema operacional, sempre por cima,
-/// separada da aba do navegador.
 pub fn icon_pip() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -97,7 +87,6 @@ pub fn icon_minimize() -> impl IntoView {
     }
 }
 
-/// Câmera — "mostrar meu preview" (estado atual: escondido).
 pub fn icon_video() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -107,7 +96,6 @@ pub fn icon_video() -> impl IntoView {
     }
 }
 
-/// Câmera riscada — "esconder meu preview" (estado atual: visível).
 pub fn icon_video_off() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -118,7 +106,6 @@ pub fn icon_video_off() -> impl IntoView {
     }
 }
 
-/// Elos de corrente — "convidar" (copiar o link da sala).
 pub fn icon_link() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -128,8 +115,6 @@ pub fn icon_link() -> impl IntoView {
     }
 }
 
-/// Marca de verificação — confirma que o link foi copiado, no lugar do
-/// ícone de convite por alguns segundos.
 pub fn icon_check() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

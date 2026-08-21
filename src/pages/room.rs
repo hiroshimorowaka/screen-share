@@ -23,12 +23,9 @@ struct RoomConnection {
     outgoing: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
     incoming: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
     local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
-    // Marcado antes de fechar o WebSocket de propósito (ex: fomos
-    // desconectados porque o mesmo dispositivo entrou em outra aba) — o
-    // handler de `on_close` confere essa flag pra não sobrescrever a
-    // mensagem de status específica com o genérico "conexão perdida,
-    // recarregue a página", já que o evento de close do navegador dispara
-    // de forma assíncrona logo depois, sempre depois da nossa mensagem.
+    // Marcado antes de um close intencional; `on_close` (assíncrono, roda
+    // depois) confere essa flag pra não sobrescrever a mensagem de status
+    // já definida com o erro genérico de conexão perdida.
     expected_close: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
@@ -62,11 +59,8 @@ pub fn RoomPage() -> impl IntoView {
     let code = move || params.read().get("code").unwrap_or_default();
     let initial_code = params.read_untracked().get("code").unwrap_or_default();
 
-    // Ver o comentário equivalente em `home.rs`: nick/cor sempre começam no
-    // valor que o SSR também usaria, e o valor real do localStorage é
-    // aplicado depois do mount — ler o perfil real já na criação do sinal
-    // faz o binding `class:color-swatch--selected` hidratar errado e parar
-    // de reagir a cliques nesse swatch específico.
+    // Começa com o valor padrão do SSR; o real (localStorage) só chega
+    // depois do mount, ou a hidratação do color-swatch selecionado quebra.
     let (nick, set_nick) = signal(String::new());
     let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
@@ -164,17 +158,9 @@ pub fn RoomPage() -> impl IntoView {
             <p class="status-text status-text--error">"Sala não encontrada ou já foi encerrada."</p>
             <a class="btn btn--ghost btn--block" href="/">"Voltar à página principal"</a>
         </div>
-        // As seções abaixo ficam sempre montadas e alternam por CSS
-        // (class:hidden), não por montagem/desmontagem condicional
-        // (`<Show>`): o Leptos 0.8 exige que qualquer closure de filho
-        // dinâmico (o que `<Show>` usa para seus filhos e para `fallback`)
-        // seja Send + Sync, mesmo rodando single-threaded no navegador — e o
-        // formulário de entrada captura um `Rc<RefCell<WsClient>>` (via
-        // `manual_join` → `join_room`), que não é. Mantendo o formulário
-        // como filho estático (avaliado uma vez) e só alternando a classe
-        // evita esse requisito, no mesmo espírito do padrão "estado por
-        // classificação, não por montagem" que o resto do app já usa (ver
-        // `CLAUDE.md`, seção "Status-driven UI").
+        // class:hidden em vez de `<Show>`: o Leptos 0.8 exige Send + Sync
+        // nos filhos de `<Show>`, e o formulário captura um
+        // `Rc<RefCell<WsClient>>`, que não é.
         <div class="panel" class:hidden=move || authenticated.get() || room_exists.get() != Some(true)>
             <h1>"Entrar na sala"</h1>
             <p class="status-row__meta">
@@ -239,12 +225,6 @@ pub fn RoomPage() -> impl IntoView {
             <div class="grid" class:grid--focused=move || expanded.get().is_some()>
                 {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, connection_errors)}
             </div>
-            // Barra flutuante estilo Discord: some sozinha depois de um
-            // tempo sem o mouse se mexer (`setup_auto_hide_controls`), e
-            // volta a aparecer no primeiro movimento. Passar o mouse por
-            // cima dela (`pause_hide_controls`/`resume_hide_controls`)
-            // segura ela visível — sem isso, ela podia sumir bem na hora
-            // de mirar um clique.
             <div
                 class="room-controls"
                 class:room-controls--hidden=move || !controls_visible.get()
@@ -330,8 +310,8 @@ fn start_room_check(
 
     spawn_local(async move {
         let result = check_room(&room_code).await;
-        // Se a sessão pendente da home já autenticou enquanto essa checagem
-        // estava em voo, ignora o resultado — já sabemos que a sala existe.
+        // Sessão pendente já pode ter autenticado enquanto essa checagem
+        // estava em voo — ignora nesse caso.
         if authenticated.get_untracked() {
             return;
         }
@@ -346,20 +326,10 @@ fn start_room_check(
     });
 }
 
-/// Constrói `MAX_MEMBERS` cards estáticos, uma vez só — não uma `<For>`
-/// reativa. Cada card vai ganhar botões (assistir, parar de assistir,
-/// expandir) que capturam `RoomConnection` (Task 9), e o Leptos 0.8 exige
-/// `Send + Sync` de qualquer closure de filho dinâmico usada por `<For>`
-/// (mesma restrição documentada no topo do arquivo pra `<Show>`). Construir
-/// os cards uma única vez, fora de qualquer closure reativa, e deixar toda a
-/// reatividade nos atributos internos (`class:hidden`, `{move || ...}`)
-/// evita esse requisito — o mesmo padrão já usado pro portão de autenticação
-/// e pelo botão de compartilhar do v2.
-///
-/// Cada slot `i` mostra o membro atualmente na posição `i` de `members`
-/// (não um id fixo) — se alguém sai, os slots depois dele deslizam pra cima.
-/// É uma simplificação aceita: a sala não promete posição estável por
-/// membro, só mostrar quem está presente agora.
+/// `MAX_MEMBERS` cards estáticos e fixos, não uma `<For>` reativa — os
+/// botões capturam `RoomConnection` (`Rc<RefCell<...>>`, não Send + Sync,
+/// exigido pelos filhos de `<For>` no Leptos 0.8). O slot `i` mostra quem
+/// estiver na posição `i` de `members`, não um membro fixo.
 fn member_cards(
     conn: RoomConnection,
     members: ReadSignal<Vec<RoomMember>>,
@@ -387,13 +357,8 @@ fn member_cards(
             let can_watch = move || {
                 member_at().map(|m| m.sharing).unwrap_or(false) && !is_self() && !is_watching_this()
             };
-            // `RoomMember.sharing` nunca fica `true` no PRÓPRIO card: o
-            // servidor manda `PeerStartedSharing` só pros outros membros
-            // (a pessoa já sabe localmente que está compartilhando, via
-            // `is_sharing`). Pra decidir se mostra o selo de espectadores
-            // no card de alguém, essa checagem tem que valer tanto pra
-            // "outro membro cujo `sharing` é true" quanto pra "eu mesmo,
-            // enquanto `is_sharing` estiver ligado".
+            // `RoomMember.sharing` nunca é `true` no próprio card — o
+            // servidor só manda `PeerStartedSharing` pros outros.
             let member_is_sharing = move || {
                 member_at().map(|m| m.sharing).unwrap_or(false) || (is_self() && is_sharing.get())
             };
@@ -401,8 +366,6 @@ fn member_cards(
                 member_at().map(|m| expanded.get().as_deref() == Some(m.peer_id.as_str())).unwrap_or(false)
             };
             let own_preview_visible = move || is_self() && is_sharing.get() && !own_preview_hidden.get();
-            // Com a Task 10, o vídeo do próprio card só aparece se não estiver
-            // escondido — troca a definição de `showing_video` da Task 9.
             let showing_video = move || own_preview_visible() || (!is_self() && is_watching_this());
             let watcher_ids = move || {
                 member_at().and_then(|m| watchers_by_sharer.get().get(&m.peer_id).cloned()).unwrap_or_default()
@@ -433,12 +396,6 @@ fn member_cards(
                 let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
                 toggle_picture_in_picture(is_self(), &peer_id);
             };
-            // Clicar em qualquer lugar do banner (fora dos botões, que
-            // interrompem a propagação) alterna foco: se já tem vídeo
-            // visível — o próprio preview ou a transmissão de alguém que já
-            // estamos assistindo —, expande; clicar de novo no card em foco
-            // encolhe; clicar num card pequeno da tirinha que já mostra
-            // vídeo troca o foco pra ele direto, sem precisar encolher antes.
             let toggle_focus_click = move |_: leptos::ev::MouseEvent| {
                 if !showing_video() {
                     return;
@@ -455,10 +412,6 @@ fn member_cards(
                 <div
                     class="card"
                     class:hidden=move || {
-                        // O filtro de "ocultar quem não está transmitindo" e o de
-                        // "esconder meu preview" só valem na grade principal — a
-                        // tirinha embaixo do vídeo em foco (quando `expanded` tem
-                        // alguém) continua mostrando todo mundo, filtrado ou não.
                         let filtered_out_of_main_grid = expanded.get().is_none()
                             && ((hide_idle.get() && !member_is_sharing())
                                 || (is_self() && own_preview_hidden.get()));
@@ -619,9 +572,6 @@ fn stop_watching_click_handler(
     move |_| {
         let Some(member) = members.get_untracked().get(slot).cloned() else { return };
         watching.update(|w| { w.remove(&member.peer_id); });
-        // Se essa transmissão estava expandida, volta pra grade normal —
-        // sem isso, o card em foco continuava vazio (sem vídeo) até a
-        // pessoa clicar nele de novo pra encolher manualmente.
         expanded.update(|current| {
             if current.as_deref() == Some(member.peer_id.as_str()) {
                 *current = None;
@@ -639,18 +589,9 @@ fn stop_watching_click_handler(
 #[cfg(not(feature = "hydrate"))]
 fn toggle_fullscreen(_is_self: bool, _peer_id: &str) {}
 
-/// Alterna o `.card` inteiro em tela cheia — não só o `<video>`. Quando o
-/// próprio `<video>` é o elemento em fullscreen, o Chrome injeta os
-/// controles nativos de mídia por cima dele (barra de play/pause, seek),
-/// como se fosse um player comum — errado aqui, já que uma transmissão de
-/// tela ao vivo não é algo que faça sentido "pausar". Colocando o `.card`
-/// (uma div comum) em fullscreen em vez do vídeo, esses controles nunca
-/// aparecem, e como bônus o selo de espectadores e o rodapé com o nick —
-/// que são irmãos do `<video>` dentro do card — continuam visíveis.
-///
-/// "Alterna" porque, se já tiver algum elemento em fullscreen quando o
-/// botão é clicado, sai da tela cheia em vez de tentar entrar de novo —
-/// sem isso, a única forma de sair era apertar Esc.
+/// Coloca o `.card` (não o `<video>`) em fullscreen: se fosse o vídeo, o
+/// Chrome injeta controles nativos de play/pause/seek por cima, sem sentido
+/// numa transmissão ao vivo.
 #[cfg(feature = "hydrate")]
 fn toggle_fullscreen(is_self: bool, peer_id: &str) {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
@@ -671,18 +612,8 @@ fn toggle_fullscreen(is_self: bool, peer_id: &str) {
 #[cfg(not(feature = "hydrate"))]
 fn toggle_picture_in_picture(_is_self: bool, _peer_id: &str) {}
 
-/// Abre esse vídeo específico numa janela de picture-in-picture do sistema
-/// operacional — flutuante, sempre por cima, independente da aba do
-/// navegador estar em foco. Usa o mesmo esquema de `id` por vídeo que
-/// `toggle_fullscreen` já usa (`video-self-{peer_id}` pro próprio preview,
-/// `video-{peer_id}` pra quem se está assistindo), já que é a forma
-/// estabelecida de achar o elemento certo entre os `MAX_MEMBERS` slots
-/// fixos da grade sem depender de um `NodeRef` (que não sobrevive a mais
-/// de um elemento — ver o bug corrigido no preview próprio).
-///
-/// Só um vídeo pode estar em PiP por vez (limitação do navegador, não
-/// nossa) — "alterna" pelo mesmo motivo do fullscreen: clicar de novo
-/// fecha em vez de tentar abrir outro PiP por cima.
+/// Mesmo esquema de `id` que `toggle_fullscreen` usa pra achar o vídeo certo
+/// entre os slots fixos. Só um PiP por vez é limitação do navegador.
 #[cfg(feature = "hydrate")]
 fn toggle_picture_in_picture(is_self: bool, peer_id: &str) {
     use leptos::task::spawn_local;
@@ -785,18 +716,11 @@ fn build_message_handler(
         ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
         ServerMessage::RoomFull => set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string()),
         ServerMessage::Kicked => {
-            // Mesmo dispositivo entrou nessa sala em outra aba/janela — essa
-            // conexão foi substituída pela nova. Encerra o WebSocket e volta
-            // pro portão de entrada (em vez de deixar a sala "conectada" na
-            // tela com um WS morto por baixo) — o texto de status só é
-            // renderizado no portão, então isso também é o que faz a pessoa
-            // ver por que foi desconectada, e permite reentrar direto dessa
-            // mesma aba se quiser. `room_exists` precisa ser forçado aqui:
-            // pra quem criou a sala (entrou via sessão adotada da home, sem
-            // nunca passar pelo `start_room_check`), esse sinal nunca foi
-            // preenchido, e sem isso o portão ficaria preso em "Verificando
-            // sala..." pra sempre — mas sabemos com certeza que a sala
-            // existe, já que acabamos de receber uma mensagem dela.
+            // Mesmo dispositivo entrou nessa sala em outra aba — essa
+            // conexão foi substituída. `room_exists` precisa ser forçado:
+            // quem criou a sala nunca passou por `start_room_check`, então
+            // esse sinal nunca foi preenchido e o portão ficaria preso em
+            // "Verificando sala..." pra sempre.
             conn.expected_close.set(true);
             if let Some(ws) = conn.ws.borrow().as_ref() {
                 ws.close();
@@ -837,9 +761,6 @@ fn build_message_handler(
                     *current = None;
                 }
             });
-            // Ninguém assiste quem parou de compartilhar — evita mostrar
-            // uma contagem velha se essa pessoa voltar a compartilhar
-            // antes do primeiro `WatchersChanged` novo chegar.
             watchers_by_sharer.update(|w| { w.remove(&peer_id); });
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
@@ -939,16 +860,11 @@ fn build_message_handler(
                 }
 
                 let target_id = from.clone();
-                // Ao contrário do ramo `Offer` (onde o par remoto da conexão
-                // É o dono da transmissão), aqui o par remoto é quem está
-                // assistindo — o dono da transmissão sou eu. `stream_owner`
-                // precisa ser o meu próprio `peer_id`, não `target_id`, ou o
-                // outro lado (que também pode ter uma conexão `incoming`
-                // comigo, se estivermos assistindo um ao outro) guarda esse
-                // candidato no mapa errado (`outgoing` em vez de `incoming`)
-                // e ele nunca chega na `RtcPeerConnection` certa — a conexão
-                // fica sem ICE suficiente pra completar e a imagem trava
-                // preta do lado de quem assiste.
+                // Diferente do ramo `Offer`: aqui o par remoto é quem
+                // assiste, não o dono da transmissão. `stream_owner` tem que
+                // ser meu próprio peer_id, não `target_id`, ou o outro lado
+                // guarda o candidato no mapa errado (`outgoing` em vez de
+                // `incoming`) e a conexão nunca fecha o ICE.
                 let stream_owner_id = my_peer_id.get_untracked().unwrap_or_else(|| target_id.clone());
                 let conn_for_ice = conn.clone();
                 let onicecandidate = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(move |event: RtcPeerConnectionIceEvent| {
@@ -1043,9 +959,8 @@ fn adopt_pending_session(
         }
     });
 
-    // Uma sessão pendente vem sempre da home criando uma sala do zero —
-    // nunca tem espectador nenhum ainda, então não precisa de
-    // `watcher_info` vindo de lugar nenhum.
+    // Sessão pendente vem sempre da home criando uma sala nova — nunca tem
+    // espectador ainda.
     apply_joined_snapshot(
         session.room,
         session.room_name,
@@ -1207,12 +1122,6 @@ fn share_toggle_handler(
                 }
             };
 
-            // O `<video>` do próprio preview é um dos `MAX_MEMBERS` slots
-            // fixos da grade (ver `member_cards`) — não dá pra usar um
-            // `NodeRef` compartilhado entre eles (só um dos 10 elementos
-            // ganharia o stream, quase nunca o slot certo). Em vez disso,
-            // busca pelo `id` dinâmico do slot que hoje é o nosso, igual já
-            // é feito pro vídeo de quem estamos assistindo.
             if let Some(peer_id) = my_peer_id_value.as_deref() {
                 if let Some(document) = web_sys::window().and_then(|w| w.document()) {
                     if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
@@ -1225,9 +1134,8 @@ fn share_toggle_handler(
             *conn.local_stream.borrow_mut() = Some(stream.clone());
             set_is_sharing.set(true);
 
-            // O botão nativo "Stop sharing" da barra de captura do navegador
-            // também precisa disparar a mesma limpeza — sem isso, quem
-            // estava assistindo fica com a última imagem congelada.
+            // O botão nativo "Stop sharing" do navegador dispara `onended`
+            // direto na track, sem passar pelo nosso `toggle_share`.
             if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
                 let conn_for_end = conn.clone();
                 let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
@@ -1267,19 +1175,10 @@ fn stop_sharing(
         ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
     }
     set_is_sharing.set(false);
-    // O botão de "esconder meu preview" só existe enquanto a pessoa está
-    // transmitindo (some da barra quando não está); sem isso, o próprio
-    // banner ficava escondido pra sempre depois de parar de compartilhar,
-    // já que nada mais reseta esse sinal.
     own_preview_hidden.set(false);
-    // Se o próprio preview estava em foco quando a transmissão parou, a
-    // grade fica presa em `grid--focused` com um card vazio: o servidor só
-    // manda `PeerStoppedSharing` pros OUTROS membros (comentário em
-    // `member_cards`), então o handler que normalmente encolhe o foco nesse
-    // caso nunca roda pra quem parou de compartilhar a própria tela — e sem
-    // vídeo visível, o clique no card também para de encolher (só reage
-    // quando `showing_video()` é verdadeiro). Encolher aqui, no mesmo lugar
-    // que já decide que a transmissão acabou, é o que evita ficar preso.
+    // O servidor só manda `PeerStoppedSharing` pros outros membros, então
+    // ninguém encolhe o foco por nós — sem isso a grade travava em
+    // `grid--focused` com um card vazio.
     expanded.update(|current| {
         if *current == my_peer_id.get_untracked() {
             *current = None;
@@ -1292,11 +1191,8 @@ fn invite_click_handler(_room_code: String, _invite_copied: RwSignal<bool>) -> i
     move |_| {}
 }
 
-/// Copia `{origem}/r/{código}` — o mesmo link que `Descoberta de salas`
-/// guarda em "salas recentes" — pra área de transferência. `invite_copied`
-/// liga por 2s (mesmo mecanismo de `setTimeout` que `setup_auto_hide_controls`
-/// já usa) só pra trocar o ícone/texto do botão e confirmar visualmente que
-/// funcionou; a API de Clipboard não tem como avisar visualmente sozinha.
+/// `invite_copied` liga por 2s só pra confirmar visualmente a cópia — a
+/// Clipboard API não avisa sozinha.
 #[cfg(feature = "hydrate")]
 fn invite_click_handler(room_code: String, invite_copied: RwSignal<bool>) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
@@ -1331,11 +1227,6 @@ fn leave_or_stop_watching_handler(
     move |_| {}
 }
 
-/// Um botão só, com dois comportamentos — igual ao pedido do usuário: se
-/// ninguém está em foco, sai da sala de vez (fecha o WebSocket e navega pra
-/// `/`). Se alguém está em foco (inclusive o próprio preview expandido),
-/// só sai daquele foco — encolhe, e se for o compartilhamento de outra
-/// pessoa, também para de assistir ela — sem sair da sala.
 #[cfg(feature = "hydrate")]
 fn leave_or_stop_watching_handler(
     conn: RoomConnection,
@@ -1359,7 +1250,6 @@ fn leave_or_stop_watching_handler(
 
         expanded.set(None);
         if my_peer_id.get_untracked().as_deref() == Some(focused_peer_id.as_str()) {
-            // Era o próprio preview em foco — só encolher já resolve.
             return;
         }
 
@@ -1382,11 +1272,6 @@ fn setup_auto_hide_controls(
     (|| {}, || {})
 }
 
-/// Mostra a barra flutuante de controles ao primeiro movimento do mouse na
-/// sala, e agenda ela sumir de novo depois de alguns segundos parada —
-/// igual à barra de chamada do Discord. Retorna um par de funções
-/// (`pausar`, `retomar`) pra plugar no próprio hover da barra: sem isso,
-/// ela podia sumir bem na hora de mirar um clique num dos ícones.
 #[cfg(feature = "hydrate")]
 fn setup_auto_hide_controls(
     controls_visible: RwSignal<bool>,
@@ -1442,8 +1327,6 @@ fn setup_auto_hide_controls(
     let _ = window.add_event_listener_with_callback("mousemove", on_move.as_ref().unchecked_ref());
     on_move.forget();
 
-    // Começa visível e já entra na contagem, em vez de exigir que a pessoa
-    // mexa o mouse uma vez antes da barra aparecer pela primeira vez.
     show_and_schedule_hide();
 
     (cancel_pending, schedule_hide)

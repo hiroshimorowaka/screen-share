@@ -103,13 +103,9 @@ impl Registry {
             return Err(JoinError::WrongPassword);
         }
 
-        // Esse mesmo navegador/dispositivo já tem uma entrada aberta nessa
-        // sala (outra aba, outra janela) — desconecta ela antes de aceitar
-        // essa nova, senão a mesma pessoa contaria como dois membros
-        // (e poderia assistir a própria transmissão, entre outras
-        // esquisitices). Isso acontece antes da checagem de lotação de
-        // propósito: entrar de novo do mesmo dispositivo troca de lugar,
-        // não soma mais um membro.
+        // Mesmo device_id já tem entrada aberta nessa sala (outra aba) —
+        // desconecta antes de checar lotação, senão entrar de novo do mesmo
+        // dispositivo contaria como um membro a mais em vez de trocar de lugar.
         if let Some(previous_peer_id) =
             room.members.iter().find(|(_, m)| m.device_id == device_id).map(|(id, _)| id.clone())
         {
@@ -173,9 +169,6 @@ impl Registry {
         let mut rooms = self.rooms.lock().unwrap();
         if let Some(room) = rooms.get_mut(room_code) {
             room.sharers.remove(peer_id);
-            // Ninguém assiste quem não está mais transmitindo — limpa aqui
-            // pra essa pessoa não "herdar" espectadores antigos se
-            // recomeçar a compartilhar depois.
             room.watchers.remove(peer_id);
             for (id, member) in room.members.iter() {
                 if id != peer_id {
@@ -185,11 +178,6 @@ impl Registry {
         }
     }
 
-    /// Registra que `viewer_id` passou a assistir `sharer_id`: avisa quem
-    /// está transmitindo (pra abrir a conexão WebRTC) e manda a contagem
-    /// atualizada pra sala inteira, não só pro dono da transmissão — é
-    /// isso que deixa qualquer card mostrar "N assistindo" pro ponto de
-    /// vista de qualquer membro, não só de quem está compartilhando.
     pub fn add_watcher(&self, room_code: &str, sharer_id: &str, viewer_id: &str) {
         let mut rooms = self.rooms.lock().unwrap();
         let Some(room) = rooms.get_mut(room_code) else { return };
@@ -201,9 +189,6 @@ impl Registry {
         broadcast_watchers_changed(room, sharer_id);
     }
 
-    /// Contraparte de `add_watcher`: tira `viewer_id` da lista de quem
-    /// assiste `sharer_id`, avisa quem transmite (pra fechar a conexão) e
-    /// rebroadcasta a contagem nova.
     pub fn remove_watcher(&self, room_code: &str, sharer_id: &str, viewer_id: &str) {
         let mut rooms = self.rooms.lock().unwrap();
         let Some(room) = rooms.get_mut(room_code) else { return };
@@ -243,13 +228,6 @@ impl Registry {
     }
 }
 
-/// Tira um membro da sala, limpa o que dependia dele (se estava
-/// transmitindo, quem ele estava assistindo) e avisa quem sobrou — o
-/// miolo compartilhado entre "essa pessoa saiu de verdade" (`leave_room`)
-/// e "essa pessoa foi substituída porque o mesmo dispositivo entrou de
-/// novo" (`join_room`). Quem chama decide o que fazer depois (remover a
-/// sala se ficou vazia, avisar o removido que foi desconectado, etc.) —
-/// essa função só cuida da consistência da sala em si.
 fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
     let removed = room.members.remove(peer_id)?;
     let was_sharing = room.sharers.remove(peer_id);
@@ -273,8 +251,6 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
     Some(removed)
 }
 
-/// Manda a lista atual de quem assiste `sharer_id` pra sala inteira —
-/// tanto quem transmite quanto os espectadores enxergam a mesma contagem.
 fn broadcast_watchers_changed(room: &Room, sharer_id: &str) {
     let watchers: Vec<String> = room.watchers.get(sharer_id).map(|w| w.iter().cloned().collect()).unwrap_or_default();
     for member in room.members.values() {
@@ -382,17 +358,13 @@ mod tests {
         registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drena o PeerJoined da Bia
 
-        // Mesmo dispositivo ("device-ana"), outra aba, nick diferente.
         let (host_tx_2, mut host_rx_2) = unbounded_channel();
         let snapshot = registry
             .join_room(&room_code, "AnaCelular".to_string(), "coral".to_string(), "senha123", "device-ana".to_string(), host_tx_2)
             .unwrap();
 
-        // A conexão antiga da Ana foi avisada e desconectada.
         assert_eq!(host_rx.recv().await.unwrap(), ServerMessage::Kicked);
 
-        // A Bia (que sobrou) vê a Ana antiga sair e a nova entrar — a sala
-        // não ganhou um membro a mais, só trocou de identidade.
         assert_eq!(viewer_rx.recv().await.unwrap(), ServerMessage::PeerLeft { peer_id: creator_snapshot.peer_id.clone() });
         assert_eq!(
             viewer_rx.recv().await.unwrap(),
@@ -403,7 +375,6 @@ mod tests {
         assert!(snapshot.members.iter().any(|m| m.peer_id == snapshot.peer_id && m.nick == "AnaCelular"));
         assert!(!snapshot.members.iter().any(|m| m.peer_id == creator_snapshot.peer_id));
 
-        // A conexão antiga não deveria ter recebido nada além do Kicked.
         assert!(host_rx_2.try_recv().is_err());
     }
 
@@ -456,7 +427,6 @@ mod tests {
         let notification = viewer_rx.recv().await.unwrap();
         assert_eq!(notification, ServerMessage::PeerLeft { peer_id: creator_snapshot.peer_id });
 
-        // A sala continua existindo — entrar de novo com a senha certa funciona.
         let (another_tx, _another_rx) = unbounded_channel();
         assert!(registry.join_room(&room_code, "Caio".to_string(), "sky".to_string(), "senha123", "device-another".to_string(), another_tx).is_ok());
     }

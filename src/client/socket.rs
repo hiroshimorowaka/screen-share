@@ -30,11 +30,6 @@ impl WsClient {
         Ok(Self { socket, _on_message: on_message_cb })
     }
 
-    /// Substitui o handler de mensagens de uma conexão já aberta. Usado
-    /// quando a `RoomPage` assume uma conexão que a `HomePage` deixou
-    /// autenticada (ver `client::session`) — a conexão continua sendo a
-    /// mesma (mesmo `peer_id` no servidor), só o código que reage às
-    /// mensagens seguintes muda.
     pub fn set_on_message(&mut self, on_message: impl Fn(ServerMessage) + 'static) {
         let on_message_cb = Closure::<dyn FnMut(MessageEvent)>::new(move |event: MessageEvent| {
             if let Some(text) = event.data().as_string() {

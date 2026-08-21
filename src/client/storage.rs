@@ -104,9 +104,6 @@ pub fn save_nick(nick: &str) {
     }
 }
 
-/// Nome usado na última sala criada — carregado de volta no formulário de
-/// "Criar sala" pra facilitar recriar a mesma sala depois que ela some
-/// (último membro saiu, ou o processo do servidor reiniciou).
 #[cfg(not(feature = "hydrate"))]
 pub fn load_last_room_name() -> Option<String> {
     None
@@ -131,15 +128,9 @@ pub fn save_last_room_name(room_name: &str) {
     }
 }
 
-/// Identifica esse navegador/dispositivo de forma estável entre sessões —
-/// gerado uma vez e reaproveitado depois, nunca trocado. Usado pelo
-/// servidor pra detectar "essa mesma pessoa já está nessa sala em outra
-/// aba/janela" e desconectar a entrada antiga automaticamente, em vez de
-/// deixar a mesma pessoa contar como dois membros. Diferente do nick/cor,
-/// não aparece em lugar nenhum da tela, então não tem risco de mismatch de
-/// hidratação — pode ser lido de forma síncrona, sem o padrão de sinal com
-/// valor padrão + carga assíncrona pós-mount usado nos outros dados de
-/// perfil.
+/// Diferente do nick/cor, `device_id` não aparece na tela — pode ser lido
+/// direto, sem o padrão de carga assíncrona pós-mount, sem risco de
+/// hidratação divergente.
 #[cfg(not(feature = "hydrate"))]
 pub fn ensure_device_id() -> String {
     String::new()
