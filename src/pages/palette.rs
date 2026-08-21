@@ -1,6 +1,4 @@
-/// Paleta fixa de cores de identificação de membro. Cada entrada é
-/// (id enviado no protocolo, cor da borda/avatar, cor de fundo do card — a
-/// mesma cor escurecida e com menos opacidade sobre o tema escuro do site).
+/// (id do protocolo, cor da borda/avatar, cor de fundo do card).
 const PALETTE: &[(&str, &str, &str)] = &[
     ("coral", "#ff6b6b", "#3a1f1f"),
     ("amber", "#ffb347", "#3a2a14"),

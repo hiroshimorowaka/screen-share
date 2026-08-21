@@ -165,8 +165,6 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
 
     send_json(&mut viewer_ws, &ClientMessage::WatchShare { sharer_id: sharer_id.clone() }).await;
     assert_eq!(recv_json(&mut sharer_ws).await, ServerMessage::WatchRequested { from: viewer_id.clone() });
-    // A contagem nova vai pra sala inteira — quem compartilha e quem assiste
-    // enxergam o mesmo "1 assistindo".
     assert_eq!(
         recv_json(&mut sharer_ws).await,
         ServerMessage::WatchersChanged { sharer_id: sharer_id.clone(), watchers: vec![viewer_id.clone()] }
@@ -218,7 +216,6 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     recv_json(&mut viewer_ws).await; // drena o Joined da própria Bia
     recv_json(&mut creator_ws).await; // drena o PeerJoined da Bia
 
-    // Mesmo dispositivo da Ana ("device-ana"), outra aba, nick diferente.
     let (mut second_ana_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     send_json(&mut second_ana_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
@@ -229,10 +226,8 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     })
     .await;
 
-    // A aba antiga da Ana é avisada e desconectada.
     assert_eq!(recv_json(&mut creator_ws).await, ServerMessage::Kicked);
 
-    // A Bia vê a Ana antiga sair e a nova entrar.
     assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::PeerLeft { peer_id: old_peer_id });
     let new_peer_id = match recv_json(&mut viewer_ws).await {
         ServerMessage::PeerJoined { peer_id, nick, color } => {
