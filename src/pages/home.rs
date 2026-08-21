@@ -50,7 +50,12 @@ pub fn HomePage() -> impl IntoView {
 
     let create_room = create_room_handler(nick, color, room_name, password, set_status, set_submitting);
 
+    let (join_input, set_join_input) = signal(String::new());
+    let (join_status, set_join_status) = signal(String::new());
+    let join_room = join_room_handler(join_input, set_join_status);
+
     view! {
+        <div class="home-layout">
         <div class="panel">
             <h1>"Criar sala"</h1>
             <p class="subtext">"Escolha um nick, uma cor, um nome e uma senha. Compartilhe o link e a senha com quem você quiser na sala."</p>
@@ -140,6 +145,89 @@ pub fn HomePage() -> impl IntoView {
                 </For>
             </div>
         </div>
+
+        <div class="panel">
+            <h1>"Entrar em uma sala"</h1>
+            <p class="subtext">"Cole o código da sala ou o link completo do convite — você poderá informar o nick e a senha na página da sala."</p>
+
+            <form on:submit=join_room>
+                <label class="field">
+                    <span class="field__label">"Código ou link da sala"</span>
+                    <input
+                        class="field__input"
+                        type="text"
+                        required
+                        prop:value=join_input
+                        on:input:target=move |ev| set_join_input.set(ev.target().value())
+                    />
+                </label>
+                <button class="btn btn--primary" type="submit">"Entrar na sala"</button>
+            </form>
+
+            <p class="status-text status-text--error" class:hidden=move || join_status.get().is_empty()>
+                {join_status}
+            </p>
+        </div>
+        </div>
+    }
+}
+
+/// Extrai o código da sala de um texto colado pelo usuário — pode ser só o
+/// código (ex: "AB3D9F2K") ou o link completo do convite (ex:
+/// "https://site.com/r/AB3D9F2K?x=1"). Normaliza pra maiúsculas: os códigos
+/// que `generate_room_code` (`signaling::registry`) gera são sempre
+/// maiúsculos, e sem essa normalização colar o código em minúsculas nunca
+/// bateria com a sala real.
+///
+/// Só é chamada pela variante `hydrate` de `join_room_handler` — o `cfg`
+/// evita o aviso de código morto que apareceria num build `ssr`-apenas
+/// (que nunca monta a variante que a usa), sem gatear a própria lógica por
+/// trás de `web-sys` (ela continua plain Rust, testável sem navegador).
+#[cfg(any(test, feature = "hydrate"))]
+fn extract_room_code(input: &str) -> Option<String> {
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let after_marker = match trimmed.find("/r/") {
+        Some(idx) => &trimmed[idx + "/r/".len()..],
+        None => trimmed,
+    };
+    let code = after_marker.split(['/', '?', '#']).next().unwrap_or("").trim();
+    if code.is_empty() {
+        None
+    } else {
+        Some(code.to_ascii_uppercase())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_room_code_accepts_a_bare_code() {
+        assert_eq!(extract_room_code("ab3d9f2k"), Some("AB3D9F2K".to_string()));
+    }
+
+    #[test]
+    fn extract_room_code_accepts_a_full_link() {
+        assert_eq!(extract_room_code("https://example.com/r/AB3D9F2K"), Some("AB3D9F2K".to_string()));
+    }
+
+    #[test]
+    fn extract_room_code_strips_trailing_slash_and_query_string() {
+        assert_eq!(extract_room_code("https://example.com/r/AB3D9F2K/?x=1"), Some("AB3D9F2K".to_string()));
+    }
+
+    #[test]
+    fn extract_room_code_trims_surrounding_whitespace() {
+        assert_eq!(extract_room_code("  AB3D9F2K  "), Some("AB3D9F2K".to_string()));
+    }
+
+    #[test]
+    fn extract_room_code_rejects_blank_input() {
+        assert_eq!(extract_room_code("   "), None);
     }
 }
 
@@ -214,6 +302,33 @@ fn prune_recent_rooms(
                 }
             }
         });
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn join_room_handler(_join_input: ReadSignal<String>, _set_join_status: WriteSignal<String>) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
+    move |ev: leptos::ev::SubmitEvent| ev.prevent_default()
+}
+
+/// Não abre nenhuma conexão nem valida senha aqui — só resolve o código da
+/// sala e navega pra `/r/{code}`, onde o portão de entrada já existente
+/// (nick, cor, senha) assume. Mesma divisão de responsabilidade que o resto
+/// do app: a home só inicia coisas, a página da sala é onde a sala
+/// realmente acontece.
+#[cfg(feature = "hydrate")]
+fn join_room_handler(join_input: ReadSignal<String>, set_join_status: WriteSignal<String>) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
+    use leptos_router::hooks::use_navigate;
+
+    move |ev: leptos::ev::SubmitEvent| {
+        ev.prevent_default();
+
+        let Some(code) = extract_room_code(&join_input.get_untracked()) else {
+            set_join_status.set("Informe o código da sala ou o link completo do convite.".to_string());
+            return;
+        };
+
+        let navigate = use_navigate();
+        navigate(&format!("/r/{code}"), Default::default());
     }
 }
 

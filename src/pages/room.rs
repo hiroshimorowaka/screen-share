@@ -1,7 +1,9 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_monitor, icon_pip, icon_screen_off, icon_video, icon_video_off};
+use crate::pages::icons::{
+    icon_check, icon_eye, icon_eye_off, icon_link, icon_log_out, icon_maximize, icon_monitor, icon_pip, icon_screen_off, icon_video, icon_video_off,
+};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -83,6 +85,7 @@ pub fn RoomPage() -> impl IntoView {
     let own_preview_hidden = RwSignal::new(false);
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
+    let invite_copied = RwSignal::new(false);
     let can_share = share_supported();
 
     let conn = RoomConnection::new();
@@ -117,7 +120,7 @@ pub fn RoomPage() -> impl IntoView {
         set_room_exists,
     );
 
-    start_room_check(initial_code, authenticated, set_room_exists, set_room_name);
+    start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name);
 
     let manual_join = {
         let join_room = join_room.clone();
@@ -134,6 +137,7 @@ pub fn RoomPage() -> impl IntoView {
     };
 
     let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id);
+    let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
     let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
 
@@ -156,6 +160,7 @@ pub fn RoomPage() -> impl IntoView {
         >
             <h1>"Sala não encontrada"</h1>
             <p class="status-text status-text--error">"Sala não encontrada ou já foi encerrada."</p>
+            <a class="btn btn--ghost btn--block" href="/">"Voltar à página principal"</a>
         </div>
         // As seções abaixo ficam sempre montadas e alternam por CSS
         // (class:hidden), não por montagem/desmontagem condicional
@@ -215,6 +220,16 @@ pub fn RoomPage() -> impl IntoView {
                 <span class="status-row__meta">{move || room_name.get().unwrap_or_default()}</span>
                 <span class="room-member-count">{move || format!("{}/{}", members.get().len(), MAX_MEMBERS)}</span>
                 <span class="status-row__spacer"></span>
+                <button
+                    class="invite-btn"
+                    class:invite-btn--copied=invite_copied
+                    title="Copiar link de convite da sala"
+                    aria-label="Copiar link de convite da sala"
+                    on:click=invite_click
+                >
+                    {move || if invite_copied.get() { icon_check().into_any() } else { icon_link().into_any() }}
+                    <span>{move || if invite_copied.get() { "Link copiado!" } else { "Convidar" }}</span>
+                </button>
                 <span class="status-text status-text--error" class:hidden=move || can_share>
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
@@ -1231,6 +1246,40 @@ fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>, own_pr
     // banner ficava escondido pra sempre depois de parar de compartilhar,
     // já que nada mais reseta esse sinal.
     own_preview_hidden.set(false);
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn invite_click_handler(_room_code: String, _invite_copied: RwSignal<bool>) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    move |_| {}
+}
+
+/// Copia `{origem}/r/{código}` — o mesmo link que `Descoberta de salas`
+/// guarda em "salas recentes" — pra área de transferência. `invite_copied`
+/// liga por 2s (mesmo mecanismo de `setTimeout` que `setup_auto_hide_controls`
+/// já usa) só pra trocar o ícone/texto do botão e confirmar visualmente que
+/// funcionou; a API de Clipboard não tem como avisar visualmente sozinha.
+#[cfg(feature = "hydrate")]
+fn invite_click_handler(room_code: String, invite_copied: RwSignal<bool>) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    use leptos::task::spawn_local;
+    use wasm_bindgen::JsCast;
+    use wasm_bindgen_futures::JsFuture;
+
+    move |_| {
+        let Some(window) = web_sys::window() else { return };
+        let origin = window.location().origin().unwrap_or_default();
+        let link = format!("{origin}/r/{room_code}");
+        let promise = window.navigator().clipboard().write_text(&link);
+
+        spawn_local(async move {
+            if JsFuture::from(promise).await.is_err() {
+                return;
+            }
+            invite_copied.set(true);
+            let Some(window) = web_sys::window() else { return };
+            let reset = wasm_bindgen::prelude::Closure::once_into_js(move || invite_copied.set(false));
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(reset.as_ref().unchecked_ref(), 2000);
+        });
+    }
 }
 
 #[cfg(not(feature = "hydrate"))]
