@@ -65,7 +65,7 @@ pub fn RoomPage() -> impl IntoView {
     // depois do mount, ou a hidratação do color-swatch selecionado quebra.
     let (nick, set_nick) = signal(String::new());
     let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
-    load_profile_after_mount(set_nick, set_color);
+    crate::ui::profile::load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
     let (authenticated, set_authenticated) = signal(false);
@@ -255,20 +255,6 @@ pub fn RoomPage() -> impl IntoView {
             </div>
         </div>
     }
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn load_profile_after_mount(_set_nick: WriteSignal<String>, _set_color: WriteSignal<String>) {}
-
-#[cfg(feature = "hydrate")]
-fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSignal<String>) {
-    use leptos::task::spawn_local;
-
-    spawn_local(async move {
-        let profile = crate::ui::client::storage::load_profile();
-        set_nick.set(profile.nick);
-        set_color.set(profile.color);
-    });
 }
 
 #[cfg(not(feature = "hydrate"))]

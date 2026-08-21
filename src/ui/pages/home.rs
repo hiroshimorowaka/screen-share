@@ -14,7 +14,7 @@ pub fn HomePage() -> impl IntoView {
     // `recent_rooms` diverge em tamanho do que o servidor renderizou).
     let (nick, set_nick) = signal(String::new());
     let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
-    load_profile_after_mount(set_nick, set_color);
+    crate::ui::profile::load_profile_after_mount(set_nick, set_color);
     let (room_name, set_room_name) = signal(String::new());
     load_last_room_name_after_mount(set_room_name);
     let (password, set_password) = signal(String::new());
@@ -185,20 +185,6 @@ mod tests {
     fn extract_room_code_rejects_blank_input() {
         assert_eq!(extract_room_code("   "), None);
     }
-}
-
-#[cfg(not(feature = "hydrate"))]
-fn load_profile_after_mount(_set_nick: WriteSignal<String>, _set_color: WriteSignal<String>) {}
-
-#[cfg(feature = "hydrate")]
-fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSignal<String>) {
-    use leptos::task::spawn_local;
-
-    spawn_local(async move {
-        let profile = crate::ui::client::storage::load_profile();
-        set_nick.set(profile.nick);
-        set_color.set(profile.color);
-    });
 }
 
 #[cfg(not(feature = "hydrate"))]
