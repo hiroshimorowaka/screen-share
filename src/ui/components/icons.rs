@@ -1,9 +1,9 @@
 use leptos::prelude::*;
 
-// Ícones inline no estilo do Feather Icons (https://feathericons.com), MIT.
+// Inline icons in the Feather Icons style (https://feathericons.com), MIT.
 
-/// Não confundir com `icon_screen_off`, que é sobre parar de assistir UM
-/// compartilhamento específico.
+/// Not to be confused with `icon_screen_off`, which is about stopping the
+/// watching of ONE specific share.
 pub fn icon_eye_off() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

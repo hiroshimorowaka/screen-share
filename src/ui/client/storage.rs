@@ -128,9 +128,9 @@ pub fn save_last_room_name(room_name: &str) {
     }
 }
 
-/// Diferente do nick/cor, `device_id` não aparece na tela — pode ser lido
-/// direto, sem o padrão de carga assíncrona pós-mount, sem risco de
-/// hidratação divergente.
+/// Unlike nick/color, `device_id` never appears on screen — it can be read
+/// directly, without the async post-mount load pattern, with no risk of a
+/// hydration mismatch.
 #[cfg(not(feature = "hydrate"))]
 pub fn ensure_device_id() -> String {
     String::new()

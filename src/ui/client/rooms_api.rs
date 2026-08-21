@@ -4,8 +4,8 @@ use web_sys::Response;
 
 use crate::signaling::protocol::RoomStatus;
 
-/// `None` significa falha de rede/parsing (inconclusivo) — só um
-/// `RoomStatus { exists: false, .. }` de verdade significa "sala não existe".
+/// `None` means a network/parsing failure (inconclusive) — only an actual
+/// `RoomStatus { exists: false, .. }` means "the room doesn't exist".
 pub async fn check_room(code: &str) -> Option<RoomStatus> {
     let window = web_sys::window()?;
     let promise = window.fetch_with_str(&format!("/api/rooms/{code}"));
