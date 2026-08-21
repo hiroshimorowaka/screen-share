@@ -32,8 +32,8 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
         let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) else { continue };
 
         match client_msg {
-            ClientMessage::CreateRoom { nick, password, room_name, color } => {
-                let (code, snapshot) = registry.create_room(nick, color, room_name, &password, tx.clone());
+            ClientMessage::CreateRoom { nick, password, room_name, color, device_id } => {
+                let (code, snapshot) = registry.create_room(nick, color, room_name, &password, device_id, tx.clone());
                 let _ = tx.send(ServerMessage::Joined {
                     peer_id: snapshot.peer_id.clone(),
                     room: code.clone(),
@@ -45,8 +45,8 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
                 room_code = Some(code);
                 peer_id = Some(snapshot.peer_id);
             }
-            ClientMessage::JoinRoom { room, nick, password, color } => {
-                match registry.join_room(&room, nick, color, &password, tx.clone()) {
+            ClientMessage::JoinRoom { room, nick, password, color, device_id } => {
+                match registry.join_room(&room, nick, color, &password, device_id, tx.clone()) {
                     Ok(snapshot) => {
                         let _ = tx.send(ServerMessage::Joined {
                             peer_id: snapshot.peer_id.clone(),

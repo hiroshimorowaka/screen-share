@@ -4,6 +4,7 @@ const NICK_KEY: &str = "screen_share_nick";
 const PROFILE_KEY: &str = "screen_share_profile";
 const RECENT_ROOMS_KEY: &str = "screen_share_recent_rooms";
 const LAST_ROOM_NAME_KEY: &str = "screen_share_last_room_name";
+const DEVICE_ID_KEY: &str = "screen_share_device_id";
 const MAX_RECENT_ROOMS: usize = 10;
 
 #[cfg(not(feature = "hydrate"))]
@@ -128,4 +129,33 @@ pub fn save_last_room_name(room_name: &str) {
             let _ = storage.set_item(LAST_ROOM_NAME_KEY, room_name);
         }
     }
+}
+
+/// Identifica esse navegador/dispositivo de forma estável entre sessões —
+/// gerado uma vez e reaproveitado depois, nunca trocado. Usado pelo
+/// servidor pra detectar "essa mesma pessoa já está nessa sala em outra
+/// aba/janela" e desconectar a entrada antiga automaticamente, em vez de
+/// deixar a mesma pessoa contar como dois membros. Diferente do nick/cor,
+/// não aparece em lugar nenhum da tela, então não tem risco de mismatch de
+/// hidratação — pode ser lido de forma síncrona, sem o padrão de sinal com
+/// valor padrão + carga assíncrona pós-mount usado nos outros dados de
+/// perfil.
+#[cfg(not(feature = "hydrate"))]
+pub fn ensure_device_id() -> String {
+    String::new()
+}
+
+#[cfg(feature = "hydrate")]
+pub fn ensure_device_id() -> String {
+    let Some(window) = web_sys::window() else { return String::new() };
+    let Ok(Some(storage)) = window.local_storage() else { return String::new() };
+
+    if let Ok(Some(existing)) = storage.get_item(DEVICE_ID_KEY) {
+        return existing;
+    }
+
+    let Ok(crypto) = window.crypto() else { return String::new() };
+    let id = crypto.random_uuid();
+    let _ = storage.set_item(DEVICE_ID_KEY, &id);
+    id
 }

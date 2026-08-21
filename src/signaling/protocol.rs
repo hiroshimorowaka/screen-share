@@ -22,8 +22,8 @@ pub struct WatcherInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    CreateRoom { nick: String, password: String, room_name: String, color: String },
-    JoinRoom { room: String, nick: String, password: String, color: String },
+    CreateRoom { nick: String, password: String, room_name: String, color: String, device_id: String },
+    JoinRoom { room: String, nick: String, password: String, color: String, device_id: String },
     StartShare,
     StopShare,
     WatchShare { sharer_id: String },
@@ -55,6 +55,10 @@ pub enum ServerMessage {
     RoomFull,
     PeerJoined { peer_id: String, nick: String, color: String },
     PeerLeft { peer_id: String },
+    /// Mandado só pra quem foi desconectado porque o mesmo dispositivo
+    /// entrou de novo nessa sala (outra aba/janela) — nunca broadcast pro
+    /// resto da sala, que já recebe o `PeerLeft` normal dessa saída.
+    Kicked,
     PeerStartedSharing { peer_id: String },
     PeerStoppedSharing { peer_id: String },
     WatchRequested { from: String },
@@ -98,11 +102,12 @@ mod tests {
             password: "abacate".to_string(),
             room_name: "Sala dos lindos".to_string(),
             color: "coral".to_string(),
+            device_id: "device-1".to_string(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(
             json,
-            r#"{"type":"create_room","nick":"Ana","password":"abacate","room_name":"Sala dos lindos","color":"coral"}"#
+            r#"{"type":"create_room","nick":"Ana","password":"abacate","room_name":"Sala dos lindos","color":"coral","device_id":"device-1"}"#
         );
 
         let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
@@ -116,6 +121,7 @@ mod tests {
             nick: "Bia".to_string(),
             password: "abacate".to_string(),
             color: "sky".to_string(),
+            device_id: "device-2".to_string(),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
@@ -152,6 +158,16 @@ mod tests {
             json,
             r#"{"type":"watchers_changed","sharer_id":"peer-1","watchers":["peer-2","peer-3"]}"#
         );
+
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn kicked_message_round_trips_through_json() {
+        let msg = ServerMessage::Kicked;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"kicked"}"#);
 
         let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);

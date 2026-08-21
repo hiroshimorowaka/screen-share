@@ -245,7 +245,7 @@ fn create_room_handler(
 
     use crate::client::session::{self, PendingSession};
     use crate::client::socket::WsClient;
-    use crate::client::storage::{save_last_room_name, save_profile, save_recent_room};
+    use crate::client::storage::{ensure_device_id, save_last_room_name, save_profile, save_recent_room};
     use crate::profile::{Profile, RecentRoom};
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
@@ -306,6 +306,7 @@ fn create_room_handler(
                                 password: password_for_open.clone(),
                                 room_name: room_name_for_open.clone(),
                                 color: color_for_open.clone(),
+                                device_id: ensure_device_id(),
                             });
                         }
                     }

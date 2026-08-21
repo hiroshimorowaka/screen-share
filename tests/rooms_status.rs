@@ -35,6 +35,7 @@ async fn room_status_reports_existing_room_with_name_and_member_count() {
         password: "senha123".to_string(),
         room_name: "Sala dos lindos".to_string(),
         color: "coral".to_string(),
+        device_id: "device-ana".to_string(),
     };
     ws.send(Message::Text(serde_json::to_string(&create).unwrap().into())).await.unwrap();
 

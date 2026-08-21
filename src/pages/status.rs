@@ -19,6 +19,7 @@ pub fn status_meta(status: &str) -> (&'static str, &'static str) {
         {
             ("error", "ERRO")
         }
+        s if s.starts_with("Você entrou nessa sala em outra") => ("error", "DESCONECTADO"),
         _ => ("idle", "STATUS"),
     }
 }

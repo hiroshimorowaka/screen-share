@@ -45,6 +45,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
         password: "senha123".to_string(),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
+        device_id: "device-ana".to_string(),
     })
     .await;
 
@@ -62,6 +63,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
         nick: "Bia".to_string(),
         password: "senha-errada".to_string(),
         color: "sky".to_string(),
+        device_id: "device-bia".to_string(),
     })
     .await;
     assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::AuthFailed);
@@ -71,6 +73,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
         nick: "Bia".to_string(),
         password: "senha123".to_string(),
         color: "sky".to_string(),
+        device_id: "device-bia".to_string(),
     })
     .await;
     let viewer_id = match recv_json(&mut viewer_ws).await {
@@ -97,6 +100,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
         password: "senha123".to_string(),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
+        device_id: "device-ana".to_string(),
     })
     .await;
     let (room, sharer_id) = match recv_json(&mut sharer_ws).await {
@@ -110,6 +114,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
         nick: "Bia".to_string(),
         password: "senha123".to_string(),
         color: "sky".to_string(),
+        device_id: "device-bia".to_string(),
     })
     .await;
     let viewer_id = match recv_json(&mut viewer_ws).await {
@@ -135,6 +140,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
         password: "senha123".to_string(),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
+        device_id: "device-ana".to_string(),
     })
     .await;
     let (room, sharer_id) = match recv_json(&mut sharer_ws).await {
@@ -148,6 +154,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
         nick: "Bia".to_string(),
         password: "senha123".to_string(),
         color: "sky".to_string(),
+        device_id: "device-bia".to_string(),
     })
     .await;
     let viewer_id = match recv_json(&mut viewer_ws).await {
@@ -182,9 +189,73 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
 }
 
 #[tokio::test]
+async fn joining_from_the_same_device_kicks_the_previous_connection() {
+    let url = spawn_test_server().await;
+
+    let (mut creator_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut creator_ws, &ClientMessage::CreateRoom {
+        nick: "Ana".to_string(),
+        password: "senha123".to_string(),
+        room_name: "Sala da Ana".to_string(),
+        color: "coral".to_string(),
+        device_id: "device-ana".to_string(),
+    })
+    .await;
+    let (room, old_peer_id) = match recv_json(&mut creator_ws).await {
+        ServerMessage::Joined { room, peer_id, .. } => (room, peer_id),
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    let (mut viewer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut viewer_ws, &ClientMessage::JoinRoom {
+        room: room.clone(),
+        nick: "Bia".to_string(),
+        password: "senha123".to_string(),
+        color: "sky".to_string(),
+        device_id: "device-bia".to_string(),
+    })
+    .await;
+    recv_json(&mut viewer_ws).await; // drena o Joined da própria Bia
+    recv_json(&mut creator_ws).await; // drena o PeerJoined da Bia
+
+    // Mesmo dispositivo da Ana ("device-ana"), outra aba, nick diferente.
+    let (mut second_ana_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(&mut second_ana_ws, &ClientMessage::JoinRoom {
+        room: room.clone(),
+        nick: "AnaCelular".to_string(),
+        password: "senha123".to_string(),
+        color: "coral".to_string(),
+        device_id: "device-ana".to_string(),
+    })
+    .await;
+
+    // A aba antiga da Ana é avisada e desconectada.
+    assert_eq!(recv_json(&mut creator_ws).await, ServerMessage::Kicked);
+
+    // A Bia vê a Ana antiga sair e a nova entrar.
+    assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::PeerLeft { peer_id: old_peer_id });
+    let new_peer_id = match recv_json(&mut viewer_ws).await {
+        ServerMessage::PeerJoined { peer_id, nick, color } => {
+            assert_eq!(nick, "AnaCelular");
+            assert_eq!(color, "coral");
+            peer_id
+        }
+        other => panic!("esperava PeerJoined, recebeu {other:?}"),
+    };
+
+    match recv_json(&mut second_ana_ws).await {
+        ServerMessage::Joined { peer_id, members, .. } => {
+            assert_eq!(peer_id, new_peer_id);
+            assert_eq!(members.len(), 2);
+        }
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn room_not_found_for_unknown_code() {
     let url = spawn_test_server().await;
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    send_json(&mut ws, &ClientMessage::JoinRoom { room: "NOPE0000".to_string(), nick: "Bia".to_string(), password: "x".to_string(), color: "sky".to_string() }).await;
+    send_json(&mut ws, &ClientMessage::JoinRoom { room: "NOPE0000".to_string(), nick: "Bia".to_string(), password: "x".to_string(), color: "sky".to_string(), device_id: "device-bia".to_string() }).await;
     assert_eq!(recv_json(&mut ws).await, ServerMessage::RoomNotFound);
 }

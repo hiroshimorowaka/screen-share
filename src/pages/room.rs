@@ -21,6 +21,13 @@ struct RoomConnection {
     outgoing: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
     incoming: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
     local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
+    // Marcado antes de fechar o WebSocket de propósito (ex: fomos
+    // desconectados porque o mesmo dispositivo entrou em outra aba) — o
+    // handler de `on_close` confere essa flag pra não sobrescrever a
+    // mensagem de status específica com o genérico "conexão perdida,
+    // recarregue a página", já que o evento de close do navegador dispara
+    // de forma assíncrona logo depois, sempre depois da nossa mensagem.
+    expected_close: std::rc::Rc<std::cell::Cell<bool>>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -31,6 +38,7 @@ impl RoomConnection {
             outgoing: Default::default(),
             incoming: Default::default(),
             local_stream: Default::default(),
+            expected_close: Default::default(),
         }
     }
 }
@@ -91,6 +99,7 @@ pub fn RoomPage() -> impl IntoView {
         expanded,
         watchers_by_sharer,
         connection_errors,
+        set_room_exists,
     );
 
     adopt_pending_session(
@@ -105,6 +114,7 @@ pub fn RoomPage() -> impl IntoView {
         expanded,
         watchers_by_sharer,
         connection_errors,
+        set_room_exists,
     );
 
     start_room_check(initial_code, authenticated, set_room_exists, set_room_name);
@@ -727,6 +737,7 @@ fn build_message_handler(
     expanded: RwSignal<Option<String>>,
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
+    set_room_exists: WriteSignal<Option<bool>>,
 ) -> impl Fn(crate::signaling::protocol::ServerMessage) + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -755,6 +766,27 @@ fn build_message_handler(
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
         ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
         ServerMessage::RoomFull => set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string()),
+        ServerMessage::Kicked => {
+            // Mesmo dispositivo entrou nessa sala em outra aba/janela — essa
+            // conexão foi substituída pela nova. Encerra o WebSocket e volta
+            // pro portão de entrada (em vez de deixar a sala "conectada" na
+            // tela com um WS morto por baixo) — o texto de status só é
+            // renderizado no portão, então isso também é o que faz a pessoa
+            // ver por que foi desconectada, e permite reentrar direto dessa
+            // mesma aba se quiser. `room_exists` precisa ser forçado aqui:
+            // pra quem criou a sala (entrou via sessão adotada da home, sem
+            // nunca passar pelo `start_room_check`), esse sinal nunca foi
+            // preenchido, e sem isso o portão ficaria preso em "Verificando
+            // sala..." pra sempre — mas sabemos com certeza que a sala
+            // existe, já que acabamos de receber uma mensagem dela.
+            conn.expected_close.set(true);
+            if let Some(ws) = conn.ws.borrow().as_ref() {
+                ws.close();
+            }
+            set_authenticated.set(false);
+            set_room_exists.set(Some(true));
+            set_status.set("Você entrou nessa sala em outra aba ou janela — esta conexão foi encerrada.".to_string());
+        }
         ServerMessage::PeerJoined { peer_id, nick, color } => {
             set_members.update(|members| members.push(RoomMember { peer_id, nick, color, sharing: false }));
         }
@@ -946,6 +978,7 @@ fn adopt_pending_session(
     _expanded: RwSignal<Option<String>>,
     _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
+    _set_room_exists: WriteSignal<Option<bool>>,
 ) {
 }
 
@@ -962,15 +995,21 @@ fn adopt_pending_session(
     expanded: RwSignal<Option<String>>,
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
+    set_room_exists: WriteSignal<Option<bool>>,
 ) {
     use crate::client::session;
 
     let Some(mut session) = session::take(&room_code) else { return };
 
-    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors);
+    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists);
     session.ws.set_on_message(on_message);
-    session.ws.on_close(move || {
-        set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+    session.ws.on_close({
+        let conn = conn.clone();
+        move || {
+            if !conn.expected_close.get() {
+                set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+            }
+        }
     });
 
     // Uma sessão pendente vem sempre da home criando uma sala do zero —
@@ -1007,6 +1046,7 @@ fn setup_room_connection(
     _expanded: RwSignal<Option<String>>,
     _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     _connection_errors: RwSignal<std::collections::HashSet<String>>,
+    _set_room_exists: WriteSignal<Option<bool>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     move |_nick: String, _color: String, _password: String| {}
 }
@@ -1024,18 +1064,20 @@ fn setup_room_connection(
     expanded: RwSignal<Option<String>>,
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
+    set_room_exists: WriteSignal<Option<bool>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::client::socket::WsClient;
-    use crate::client::storage::save_profile;
+    use crate::client::storage::{ensure_device_id, save_profile};
     use crate::profile::Profile;
     use crate::signaling::protocol::ClientMessage;
 
     move |nick: String, color: String, password: String| {
         let conn = conn.clone();
+        conn.expected_close.set(false);
         let room_code = room_code.clone();
         set_status.set("Conectando...".to_string());
 
-        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors);
+        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists);
 
         match WsClient::connect("/ws", on_message) {
             Ok(ws) => {
@@ -1047,12 +1089,23 @@ fn setup_room_connection(
                     let password = password.clone();
                     move || {
                         if let Some(ws) = conn.ws.borrow().as_ref() {
-                            ws.send(&ClientMessage::JoinRoom { room: room_code.clone(), nick: nick.clone(), password: password.clone(), color: color.clone() });
+                            ws.send(&ClientMessage::JoinRoom {
+                                room: room_code.clone(),
+                                nick: nick.clone(),
+                                password: password.clone(),
+                                color: color.clone(),
+                                device_id: ensure_device_id(),
+                            });
                         }
                     }
                 });
-                ws.on_close(move || {
-                    set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+                ws.on_close({
+                    let conn = conn.clone();
+                    move || {
+                        if !conn.expected_close.get() {
+                            set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+                        }
+                    }
                 });
                 *conn.ws.borrow_mut() = Some(ws);
                 save_profile(&Profile { nick, color });
