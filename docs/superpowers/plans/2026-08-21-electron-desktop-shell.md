@@ -74,8 +74,8 @@ git rm -r desktop/src-tauri
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "Node",
+    "module": "Node16",
+    "moduleResolution": "Node16",
     "outDir": "dist",
     "rootDir": "src",
     "strict": true,
@@ -85,6 +85,10 @@ git rm -r desktop/src-tauri
   "include": ["src"]
 }
 ```
+
+(TypeScript 7's compiler removed the legacy `moduleResolution: "Node"` —
+`module`/`moduleResolution` must both be `"Node16"` together for a
+CommonJS Node/Electron project like this one.)
 
 - [ ] **Step 5: Write `desktop/.gitignore`**
 
