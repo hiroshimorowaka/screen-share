@@ -124,7 +124,7 @@ pub fn RoomPage() -> impl IntoView {
         }
     };
 
-    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, set_status, local_video_ref);
+    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, local_video_ref);
     let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
 
@@ -1033,6 +1033,7 @@ fn share_toggle_handler(
     _conn: RoomConnection,
     _is_sharing: ReadSignal<bool>,
     _set_is_sharing: WriteSignal<bool>,
+    _own_preview_hidden: RwSignal<bool>,
     _set_status: WriteSignal<String>,
     _local_video_ref: NodeRef<leptos::html::Video>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
@@ -1044,6 +1045,7 @@ fn share_toggle_handler(
     conn: RoomConnection,
     is_sharing: ReadSignal<bool>,
     set_is_sharing: WriteSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
     set_status: WriteSignal<String>,
     local_video_ref: NodeRef<leptos::html::Video>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
@@ -1056,7 +1058,7 @@ fn share_toggle_handler(
 
     move |_| {
         if is_sharing.get_untracked() {
-            stop_sharing(&conn, set_is_sharing);
+            stop_sharing(&conn, set_is_sharing, own_preview_hidden);
             return;
         }
 
@@ -1085,7 +1087,7 @@ fn share_toggle_handler(
             if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
                 let conn_for_end = conn.clone();
                 let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                    stop_sharing(&conn_for_end, set_is_sharing);
+                    stop_sharing(&conn_for_end, set_is_sharing, own_preview_hidden);
                 });
                 track.set_onended(Some(onended.as_ref().unchecked_ref()));
                 onended.forget();
@@ -1099,7 +1101,7 @@ fn share_toggle_handler(
 }
 
 #[cfg(feature = "hydrate")]
-fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>) {
+fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>, own_preview_hidden: RwSignal<bool>) {
     use wasm_bindgen::JsCast;
 
     if let Some(stream) = conn.local_stream.borrow_mut().take() {
@@ -1115,6 +1117,11 @@ fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>) {
         ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
     }
     set_is_sharing.set(false);
+    // O botão de "esconder meu preview" só existe enquanto a pessoa está
+    // transmitindo (some da barra quando não está); sem isso, o próprio
+    // banner ficava escondido pra sempre depois de parar de compartilhar,
+    // já que nada mais reseta esse sinal.
+    own_preview_hidden.set(false);
 }
 
 #[cfg(not(feature = "hydrate"))]
