@@ -1,21 +1,12 @@
 # Compartilhamento de tela P2P
 
-Salas persistentes, com nome e protegidas por senha, pra compartilhar a tela
-entre um grupo pequeno (até 10 pessoas), direto do navegador (Windows e
-Linux) — sem instalar nada, sem contas, sem áudio/chat. Cada pessoa escolhe
-um nick e uma cor ao entrar (vira um avatar redondo com a inicial do nick
-sobre a cor escolhida). Qualquer pessoa na sala pode compartilhar a tela a
-qualquer momento, mas compartilhar e assistir são coisas separadas, estilo
-Discord: ligar o compartilhamento só acende um botão "Assistir
-compartilhamento" no card de quem compartilhou — cada pessoa decide,
-individualmente, quem quer assistir e quando parar, sem afetar quem mais
-está assistindo a mesma pessoa. A sala não morre até o último membro sair.
-O navegador lembra localmente (`localStorage`, nunca no servidor) das salas
-que você criou ou entrou — código e nome, nunca a senha — e mostra isso como
-"salas recentes" na home; abrir um link de sala já avisa na hora se ela não
-existe mais, antes de pedir nick e senha. O vídeo trafega P2P via WebRTC; o
-servidor só faz a sinalização inicial (autenticação da sala e troca de
-offer/answer/ICE).
+Salas persistentes e protegidas por senha para compartilhar tela com um
+grupo pequeno (até 10 pessoas), direto do navegador (Windows e Linux) — sem
+instalar nada, sem contas, sem áudio. Qualquer pessoa na sala pode
+compartilhar a própria tela a qualquer momento; assistir é uma escolha
+individual de cada um, sem afetar quem mais está assistindo. O vídeo
+trafega direto entre os navegadores via WebRTC — o servidor só cuida da
+sinalização.
 
 ## Rodando localmente
 
@@ -74,8 +65,7 @@ são validados manualmente (checklist abaixo).
    sala não morre com uma pessoa saindo, nem sendo quem a criou).
 8. Feche a aba da Ana também — reabra `/r/<mesmo código>` numa aba nova e
    tente entrar — confirme que aparece "Sala não encontrada ou já foi
-   encerrada." imediatamente, antes de qualquer formulário de nick/senha (a
-   checagem acontece via `GET /api/rooms/:code`, antes do portão).
+   encerrada." imediatamente, antes de qualquer formulário de nick/senha.
 9. Abra um link com um código inexistente (ex. `/r/ZZZZZZZZ`) — confirme a
    mesma mensagem do passo 8.
 10. Volte pra `/` — confirme que a sala do passo 1 não aparece mais em
@@ -90,13 +80,8 @@ nova aberta numa aba enquanto confere a outra.
 
 ## Deploy no Fly.io
 
-O projeto já vem pronto pra isso: `Dockerfile` (build multi-stage: compila com
-`cargo-leptos --release`, imagem final só com o binário + assets) e
-`fly.toml` já configurado (porta fixa 8080, região `gru` — São Paulo,
-`shared-cpu-1x` / 256MB, e as máquinas ficam paradas quando ninguém está
-usando — `auto_stop_machines`/`min_machines_running = 0` — pra não consumir
-saldo à toa). Testado localmente com `docker build` + `docker run` antes de
-configurar.
+O projeto já vem pronto pra isso: `Dockerfile` e `fly.toml` configurados
+(porta 8080, região `gru` — São Paulo).
 
 1. Instale o `flyctl` (se ainda não tiver):
    ```bash
@@ -116,34 +101,19 @@ configurar.
    já com HTTPS. É esse link que você manda pros seus amigos.
 
 Pra rodar de novo depois de qualquer mudança no código, é só `fly deploy`
-outra vez.
-
-**Build incremental:** o `Dockerfile` usa cache mounts do BuildKit pro
-registro do Cargo e pro `target/` de build. Só o primeiro deploy compila as
-~250 dependências do zero (uns 5-7 min); deploys seguintes, quando só o
-código do app muda, reaproveitam esse cache e ficam na casa de segundos —
-testado localmente (rebuild após mudar uma linha em `src/` caiu de 7min pra
-~18s). O cache persiste no builder do Fly entre execuções de `fly deploy`,
-não só localmente.
+outra vez. Deploys depois do primeiro são bem mais rápidos, graças ao cache
+de build do Fly.
 
 ## Deploy (geral)
 
 Este projeto compila para um único binário Rust. Em produção:
 
 - Sirva atrás de HTTPS (obrigatório para `getDisplayMedia` e WebSocket seguro
-  fora de `localhost`) — por exemplo, um reverse proxy como Caddy com TLS
-  automático, ou uma plataforma que já termina TLS (Fly.io, Render).
-- Não é necessário banco de dados nem armazenamento persistente — todo o
-  estado de salas (incluindo o hash da senha de cada uma) vive em memória e
-  é descartado quando o processo reinicia, junto com o resto do estado.
-- Sem TURN configurado (só STUN público). Se algum amigo estiver numa rede
-  muito restritiva (CGNAT, firewall corporativo) e não conseguir conectar,
-  isso é uma limitação conhecida da v1 — um servidor TURN (`coturn`) resolveria,
-  mas fica fora de escopo por agora.
-- O `.cargo/config.toml` fixa `LEPTOS_OUTPUT_NAME=screen_share` — necessário
-  para o `cargo-leptos` 0.3.7 e o `leptos` 0.8 concordarem no nome do arquivo
-  `.wasm` gerado (sem isso, o navegador tenta buscar um arquivo que não existe
-  e a página nunca hidrata). Mantenha esse arquivo se atualizar dependências.
+  fora de `localhost`).
+- Não precisa de banco de dados — o estado das salas vive em memória e é
+  descartado quando o processo reinicia.
+- Sem TURN configurado (só STUN público). Redes muito restritivas (CGNAT,
+  firewall corporativo) podem não conseguir conectar.
 
 **Não** rode o binário compilado diretamente (`./target/debug/screen_share`)
 para testar localmente — nesse modo a página falha ao hidratar. Use sempre
