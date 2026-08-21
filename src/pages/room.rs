@@ -1168,6 +1168,19 @@ fn stop_sharing(
             track.stop();
         }
     }
+    // O <video> de preview continua com `srcObject` apontando pra essa stream
+    // mesmo depois das tracks paradas — em vários Chromium isso basta pro
+    // indicador nativo de compartilhamento (bolinha vermelha na aba + barra
+    // "parar de compartilhar") continuar visível. Limpar o `srcObject`
+    // remove a última referência e libera o indicador de verdade.
+    if let Some(peer_id) = my_peer_id.get_untracked() {
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
+                let video: web_sys::HtmlVideoElement = video.unchecked_into();
+                video.set_src_object(None);
+            }
+        }
+    }
     for (_, pc) in conn.outgoing.borrow_mut().drain() {
         pc.close();
     }
