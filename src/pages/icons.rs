@@ -19,6 +19,18 @@ pub fn icon_eye_off() -> impl IntoView {
     }
 }
 
+/// Monitor liso — "compartilhar minha tela" (a cor do botão que o envolve
+/// já indica se está ativo ou não, igual ao resto dos toggles da barra).
+pub fn icon_monitor() -> impl IntoView {
+    view! {
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+        </svg>
+    }
+}
+
 /// Monitor com um X na tela — "parar de assistir esse compartilhamento".
 pub fn icon_screen_off() -> impl IntoView {
     view! {

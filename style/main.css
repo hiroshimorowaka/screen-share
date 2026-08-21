@@ -413,12 +413,6 @@ h1 {
   flex-wrap: wrap;
 }
 
-.room-page .stage-header .btn {
-  width: auto;
-  padding: 0.5rem 1rem;
-  font-size: 0.85rem;
-}
-
 .grid {
   flex: 1 1 auto;
   min-height: 0;
@@ -703,9 +697,10 @@ h1 {
   color: var(--accent-strong);
 }
 
-/* Estado "ligado" de um icon-btn que funciona como alternância (ex: o
-   botão de ocultar quem não está transmitindo, no cabeçalho) — precisa
-   ficar visivelmente diferente do estado normal mesmo sem hover. */
+/* Estado "ligado" de um icon-btn que funciona como alternância (ex: os
+   botões de ocultar quem não transmite e esconder meu preview, na barra
+   flutuante) — precisa ficar visivelmente diferente do estado normal
+   mesmo sem hover. */
 .icon-btn--active {
   background: var(--accent);
   color: var(--accent-ink);
@@ -716,9 +711,43 @@ h1 {
   color: var(--accent-ink);
 }
 
-.room-page .stage-header .icon-btn {
-  width: 2.25rem;
-  height: 2.25rem;
+/* Barra flutuante estilo Discord, com os controles da sala (compartilhar,
+   ocultar quem não transmite, esconder meu preview, sair) — some sozinha
+   depois de um tempo sem o mouse se mexer e volta ao primeiro movimento
+   (ver `setup_auto_hide_controls` em room.rs). Usa opacity/pointer-events
+   em vez de `class:hidden` (que é display:none instantâneo) pra poder
+   ter uma transição suave, igual ao fade da barra de chamada do Discord. */
+.room-controls {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.room-controls--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.room-controls .icon-btn {
+  width: 3rem;
+  height: 3rem;
+}
+
+.room-controls .icon-btn .icon {
+  width: 1.4rem;
+  height: 1.4rem;
 }
 
 /* Parar de assistir e tela cheia são as ações mais usadas de um card —

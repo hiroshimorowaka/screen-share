@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_screen_off, icon_video, icon_video_off};
+use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_monitor, icon_screen_off, icon_video, icon_video_off};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -75,6 +75,7 @@ pub fn RoomPage() -> impl IntoView {
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let own_preview_hidden = RwSignal::new(false);
     let hide_idle = RwSignal::new(false);
+    let controls_visible = RwSignal::new(true);
     let can_share = share_supported();
 
     let conn = RoomConnection::new();
@@ -124,7 +125,8 @@ pub fn RoomPage() -> impl IntoView {
     };
 
     let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, set_status, local_video_ref);
-    let leave_room = leave_room_handler(conn.clone());
+    let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
+    let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -204,16 +206,36 @@ pub fn RoomPage() -> impl IntoView {
                 <span class="status-row__meta">{move || room_name.get().unwrap_or_default()}</span>
                 <span class="room-member-count">{move || format!("{}/{}", members.get().len(), MAX_MEMBERS)}</span>
                 <span class="status-row__spacer"></span>
-                <button
-                    class=move || if is_sharing.get() { "btn btn--danger" } else { "btn btn--primary" }
-                    class:hidden=move || !can_share
-                    on:click=toggle_share.clone()
-                >
-                    {move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }}
-                </button>
                 <span class="status-text status-text--error" class:hidden=move || can_share>
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
+            </div>
+            <div class="grid" class:grid--focused=move || expanded.get().is_some()>
+                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, local_video_ref, connection_errors)}
+            </div>
+            // Barra flutuante estilo Discord: some sozinha depois de um
+            // tempo sem o mouse se mexer (`setup_auto_hide_controls`), e
+            // volta a aparecer no primeiro movimento. Passar o mouse por
+            // cima dela (`pause_hide_controls`/`resume_hide_controls`)
+            // segura ela visível — sem isso, ela podia sumir bem na hora
+            // de mirar um clique.
+            <div
+                class="room-controls"
+                class:room-controls--hidden=move || !controls_visible.get()
+                on:mouseenter=move |_| pause_hide_controls()
+                on:mouseleave=move |_| resume_hide_controls()
+            >
+                <button
+                    class="icon-btn"
+                    class:icon-btn--danger=is_sharing
+                    class:icon-btn--neutral=move || !is_sharing.get()
+                    class:hidden=move || !can_share
+                    title=move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }
+                    aria-label="Compartilhar ou parar de compartilhar minha tela"
+                    on:click=toggle_share.clone()
+                >
+                    {icon_monitor}
+                </button>
                 <button
                     class="icon-btn icon-btn--neutral"
                     class:icon-btn--active=hide_idle
@@ -223,12 +245,24 @@ pub fn RoomPage() -> impl IntoView {
                 >
                     {icon_eye_off}
                 </button>
-                <button class="icon-btn icon-btn--danger" title="Sair da sala" aria-label="Sair da sala" on:click=leave_room>
+                <button
+                    class="icon-btn icon-btn--neutral"
+                    class:icon-btn--active=own_preview_hidden
+                    class:hidden=move || !is_sharing.get()
+                    title=move || if own_preview_hidden.get() { "Mostrar meu preview" } else { "Esconder meu preview" }
+                    aria-label="Esconder meu preview"
+                    on:click=move |_| own_preview_hidden.update(|v| *v = !*v)
+                >
+                    {move || if own_preview_hidden.get() { icon_video().into_any() } else { icon_video_off().into_any() }}
+                </button>
+                <button
+                    class="icon-btn icon-btn--danger"
+                    title=move || if expanded.get().is_some() { "Parar de assistir" } else { "Sair da sala" }
+                    aria-label="Sair da sala"
+                    on:click=leave_or_stop_watching
+                >
                     {icon_log_out}
                 </button>
-            </div>
-            <div class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, local_video_ref, connection_errors)}
             </div>
         </div>
     }
@@ -364,10 +398,6 @@ fn member_cards(
 
             let watch = watch_click_handler(conn.clone(), members, watching, i);
             let stop_watch = stop_watching_click_handler(conn.clone(), members, watching, expanded, i);
-            let toggle_preview_click = move |ev: leptos::ev::MouseEvent| {
-                ev.stop_propagation();
-                own_preview_hidden.update(|hidden| *hidden = !*hidden);
-            };
             let fullscreen_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
                 let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
@@ -395,12 +425,14 @@ fn member_cards(
                 <div
                     class="card"
                     class:hidden=move || {
-                        member_at().is_none()
-                            // O filtro de "ocultar quem não está transmitindo" só vale
-                            // na grade principal — a tirinha embaixo do vídeo em foco
-                            // (quando `expanded` tem alguém) continua mostrando todo
-                            // mundo, filtrado ou não.
-                            || (hide_idle.get() && expanded.get().is_none() && !member_is_sharing())
+                        // O filtro de "ocultar quem não está transmitindo" e o de
+                        // "esconder meu preview" só valem na grade principal — a
+                        // tirinha embaixo do vídeo em foco (quando `expanded` tem
+                        // alguém) continua mostrando todo mundo, filtrado ou não.
+                        let filtered_out_of_main_grid = expanded.get().is_none()
+                            && ((hide_idle.get() && !member_is_sharing())
+                                || (is_self() && own_preview_hidden.get()));
+                        member_at().is_none() || filtered_out_of_main_grid
                     }
                     class:card--focus=is_expanded
                     class:card--clickable=showing_video
@@ -475,15 +507,6 @@ fn member_cards(
                                 on:click=fullscreen_click
                             >
                                 {icon_maximize}
-                            </button>
-                            <button
-                                class="icon-btn icon-btn--neutral"
-                                class:hidden=move || !(is_self() && is_sharing.get())
-                                title=move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }
-                                aria-label="Esconder ou mostrar seu preview"
-                                on:click=toggle_preview_click
-                            >
-                                {move || if own_preview_hidden.get() { icon_video().into_any() } else { icon_video_off().into_any() }}
                             </button>
                             <button
                                 class="icon-btn icon-btn--danger"
@@ -1095,19 +1118,129 @@ fn stop_sharing(conn: &RoomConnection, set_is_sharing: WriteSignal<bool>) {
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn leave_room_handler(_conn: RoomConnection) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+fn leave_or_stop_watching_handler(
+    _conn: RoomConnection,
+    _watching: RwSignal<std::collections::HashSet<String>>,
+    _expanded: RwSignal<Option<String>>,
+    _my_peer_id: ReadSignal<Option<String>>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
 
+/// Um botão só, com dois comportamentos — igual ao pedido do usuário: se
+/// ninguém está em foco, sai da sala de vez (fecha o WebSocket e navega pra
+/// `/`). Se alguém está em foco (inclusive o próprio preview expandido),
+/// só sai daquele foco — encolhe, e se for o compartilhamento de outra
+/// pessoa, também para de assistir ela — sem sair da sala.
 #[cfg(feature = "hydrate")]
-fn leave_room_handler(conn: RoomConnection) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+fn leave_or_stop_watching_handler(
+    conn: RoomConnection,
+    watching: RwSignal<std::collections::HashSet<String>>,
+    expanded: RwSignal<Option<String>>,
+    my_peer_id: ReadSignal<Option<String>>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos_router::hooks::use_navigate;
 
+    use crate::signaling::protocol::ClientMessage;
+
     move |_| {
-        if let Some(ws) = conn.ws.borrow().as_ref() {
-            ws.close();
+        let Some(focused_peer_id) = expanded.get_untracked() else {
+            if let Some(ws) = conn.ws.borrow().as_ref() {
+                ws.close();
+            }
+            let navigate = use_navigate();
+            navigate("/", Default::default());
+            return;
+        };
+
+        expanded.set(None);
+        if my_peer_id.get_untracked().as_deref() == Some(focused_peer_id.as_str()) {
+            // Era o próprio preview em foco — só encolher já resolve.
+            return;
         }
-        let navigate = use_navigate();
-        navigate("/", Default::default());
+
+        watching.update(|w| {
+            w.remove(&focused_peer_id);
+        });
+        if let Some(pc) = conn.incoming.borrow_mut().remove(&focused_peer_id) {
+            pc.close();
+        }
+        if let Some(ws) = conn.ws.borrow().as_ref() {
+            ws.send(&ClientMessage::StopWatching { sharer_id: focused_peer_id });
+        }
     }
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn setup_auto_hide_controls(
+    _controls_visible: RwSignal<bool>,
+) -> (impl Fn() + Clone + 'static, impl Fn() + Clone + 'static) {
+    (|| {}, || {})
+}
+
+/// Mostra a barra flutuante de controles ao primeiro movimento do mouse na
+/// sala, e agenda ela sumir de novo depois de alguns segundos parada —
+/// igual à barra de chamada do Discord. Retorna um par de funções
+/// (`pausar`, `retomar`) pra plugar no próprio hover da barra: sem isso,
+/// ela podia sumir bem na hora de mirar um clique num dos ícones.
+#[cfg(feature = "hydrate")]
+fn setup_auto_hide_controls(
+    controls_visible: RwSignal<bool>,
+) -> (impl Fn() + Clone + 'static, impl Fn() + Clone + 'static) {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use wasm_bindgen::prelude::Closure;
+    use wasm_bindgen::JsCast;
+
+    const HIDE_AFTER_MS: i32 = 3000;
+
+    let window = web_sys::window().expect("função hydrate roda dentro de um navegador");
+    let timeout_id: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
+
+    let cancel_pending = {
+        let window = window.clone();
+        let timeout_id = timeout_id.clone();
+        move || {
+            if let Some(id) = timeout_id.take() {
+                window.clear_timeout_with_handle(id);
+            }
+        }
+    };
+
+    let schedule_hide = {
+        let window = window.clone();
+        let timeout_id = timeout_id.clone();
+        let cancel_pending = cancel_pending.clone();
+        move || {
+            cancel_pending();
+            let hide = Closure::once_into_js(move || controls_visible.set(false));
+            if let Ok(id) = window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(hide.as_ref().unchecked_ref(), HIDE_AFTER_MS)
+            {
+                timeout_id.set(Some(id));
+            }
+        }
+    };
+
+    let show_and_schedule_hide = {
+        let schedule_hide = schedule_hide.clone();
+        move || {
+            controls_visible.set(true);
+            schedule_hide();
+        }
+    };
+
+    let on_move = {
+        let show_and_schedule_hide = show_and_schedule_hide.clone();
+        Closure::<dyn FnMut()>::new(move || show_and_schedule_hide())
+    };
+    let _ = window.add_event_listener_with_callback("mousemove", on_move.as_ref().unchecked_ref());
+    on_move.forget();
+
+    // Começa visível e já entra na contagem, em vez de exigir que a pessoa
+    // mexa o mouse uma vez antes da barra aparecer pela primeira vez.
+    show_and_schedule_hide();
+
+    (cancel_pending, schedule_hide)
 }
