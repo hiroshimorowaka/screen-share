@@ -68,7 +68,6 @@ pub fn RoomPage() -> impl IntoView {
     let (members, set_members) = signal(Vec::<RoomMember>::new());
     let (my_peer_id, set_my_peer_id) = signal(None::<String>);
     let (is_sharing, set_is_sharing) = signal(false);
-    let local_video_ref = NodeRef::<leptos::html::Video>::new();
     let connection_errors = RwSignal::new(std::collections::HashSet::<String>::new());
     let watching = RwSignal::new(std::collections::HashSet::<String>::new());
     let expanded = RwSignal::new(None::<String>);
@@ -124,7 +123,7 @@ pub fn RoomPage() -> impl IntoView {
         }
     };
 
-    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, local_video_ref);
+    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id);
     let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
 
@@ -211,7 +210,7 @@ pub fn RoomPage() -> impl IntoView {
                 </span>
             </div>
             <div class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, local_video_ref, connection_errors)}
+                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, connection_errors)}
             </div>
             // Barra flutuante estilo Discord: some sozinha depois de um
             // tempo sem o mouse se mexer (`setup_auto_hide_controls`), e
@@ -344,7 +343,6 @@ fn member_cards(
     watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     own_preview_hidden: RwSignal<bool>,
     hide_idle: RwSignal<bool>,
-    local_video_ref: NodeRef<leptos::html::Video>,
     connection_errors: RwSignal<std::collections::HashSet<String>>,
 ) -> Vec<impl IntoView> {
     (0..MAX_MEMBERS)
@@ -401,7 +399,7 @@ fn member_cards(
             let fullscreen_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
                 let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
-                toggle_fullscreen(is_self(), &peer_id, local_video_ref);
+                toggle_fullscreen(is_self(), &peer_id);
             };
             // Clicar em qualquer lugar do banner (fora dos botões, que
             // interrompem a propagação) alterna foco: se já tem vídeo
@@ -465,7 +463,7 @@ fn member_cards(
                         </span>
                     </div>
                     <video
-                        node_ref=local_video_ref
+                        id=move || member_at().map(|m| format!("video-self-{}", m.peer_id)).unwrap_or_default()
                         class:hidden=move || !(is_self() && showing_video())
                         autoplay=true
                         playsinline=true
@@ -598,7 +596,7 @@ fn stop_watching_click_handler(
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn toggle_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<leptos::html::Video>) {}
+fn toggle_fullscreen(_is_self: bool, _peer_id: &str) {}
 
 /// Alterna o `.card` inteiro em tela cheia — não só o `<video>`. Quando o
 /// próprio `<video>` é o elemento em fullscreen, o Chrome injeta os
@@ -613,9 +611,7 @@ fn toggle_fullscreen(_is_self: bool, _peer_id: &str, _local_video_ref: NodeRef<l
 /// botão é clicado, sai da tela cheia em vez de tentar entrar de novo —
 /// sem isso, a única forma de sair era apertar Esc.
 #[cfg(feature = "hydrate")]
-fn toggle_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<leptos::html::Video>) {
-    use wasm_bindgen::JsCast;
-
+fn toggle_fullscreen(is_self: bool, peer_id: &str) {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
 
     if document.fullscreen_element().is_some() {
@@ -623,14 +619,8 @@ fn toggle_fullscreen(is_self: bool, peer_id: &str, local_video_ref: NodeRef<lept
         return;
     }
 
-    let video: Option<web_sys::Element> = if is_self {
-        local_video_ref.get_untracked().map(|v| {
-            let video: web_sys::HtmlVideoElement = v.into();
-            video.unchecked_into()
-        })
-    } else {
-        document.get_element_by_id(&format!("video-{peer_id}"))
-    };
+    let id = if is_self { format!("video-self-{peer_id}") } else { format!("video-{peer_id}") };
+    let video = document.get_element_by_id(&id);
     let card = video.and_then(|v| v.closest(".card").ok().flatten());
     if let Some(card) = card {
         let _ = card.request_fullscreen();
@@ -1035,7 +1025,7 @@ fn share_toggle_handler(
     _set_is_sharing: WriteSignal<bool>,
     _own_preview_hidden: RwSignal<bool>,
     _set_status: WriteSignal<String>,
-    _local_video_ref: NodeRef<leptos::html::Video>,
+    _my_peer_id: ReadSignal<Option<String>>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
@@ -1047,7 +1037,7 @@ fn share_toggle_handler(
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
     set_status: WriteSignal<String>,
-    local_video_ref: NodeRef<leptos::html::Video>,
+    my_peer_id: ReadSignal<Option<String>>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -1063,6 +1053,7 @@ fn share_toggle_handler(
         }
 
         let conn = conn.clone();
+        let my_peer_id = my_peer_id.get_untracked();
         set_status.set("Selecione a tela para compartilhar...".to_string());
 
         spawn_local(async move {
@@ -1074,9 +1065,20 @@ fn share_toggle_handler(
                 }
             };
 
-            if let Some(video) = local_video_ref.get_untracked() {
-                video.set_src_object(Some(&stream));
-                let _ = video.play();
+            // O `<video>` do próprio preview é um dos `MAX_MEMBERS` slots
+            // fixos da grade (ver `member_cards`) — não dá pra usar um
+            // `NodeRef` compartilhado entre eles (só um dos 10 elementos
+            // ganharia o stream, quase nunca o slot certo). Em vez disso,
+            // busca pelo `id` dinâmico do slot que hoje é o nosso, igual já
+            // é feito pro vídeo de quem estamos assistindo.
+            if let Some(peer_id) = my_peer_id.as_deref() {
+                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                    if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
+                        let video: web_sys::HtmlVideoElement = video.unchecked_into();
+                        video.set_src_object(Some(&stream));
+                        let _ = video.play();
+                    }
+                }
             }
             *conn.local_stream.borrow_mut() = Some(stream.clone());
             set_is_sharing.set(true);
