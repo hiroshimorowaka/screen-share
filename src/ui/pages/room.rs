@@ -1,11 +1,13 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::ui::pages::icons::{
+use crate::ui::components::color_picker::ColorPicker;
+use crate::ui::components::icons::{
     icon_check, icon_eye, icon_eye_off, icon_link, icon_log_out, icon_maximize, icon_monitor, icon_pip, icon_screen_off, icon_video, icon_video_off,
 };
-use crate::ui::pages::palette::{color_hex, palette_ids};
-use crate::ui::pages::status::status_meta;
+use crate::ui::components::palette::color_hex;
+use crate::ui::components::status::status_meta;
+use crate::ui::components::status_message::StatusMessage;
 use crate::signaling::protocol::MAX_MEMBERS;
 
 #[derive(Clone, PartialEq)]
@@ -62,7 +64,7 @@ pub fn RoomPage() -> impl IntoView {
     // Começa com o valor padrão do SSR; o real (localStorage) só chega
     // depois do mount, ou a hidratação do color-swatch selecionado quebra.
     let (nick, set_nick) = signal(String::new());
-    let (color, set_color) = signal(crate::ui::pages::palette::DEFAULT_COLOR.to_string());
+    let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
@@ -173,25 +175,7 @@ pub fn RoomPage() -> impl IntoView {
                     <input class="field__input" type="text" required prop:value=nick
                         on:input:target=move |ev| set_nick.set(ev.target().value())/>
                 </label>
-                <div class="field">
-                    <span class="field__label">"Sua cor"</span>
-                    <div class="color-picker">
-                        {palette_ids()
-                            .map(|id| {
-                                let (border, _) = color_hex(id);
-                                view! {
-                                    <button
-                                        type="button"
-                                        class="color-swatch"
-                                        class:color-swatch--selected=move || color.get() == id
-                                        style=format!("background-color: {border}")
-                                        on:click=move |_| set_color.set(id.to_string())
-                                    ></button>
-                                }
-                            })
-                            .collect::<Vec<_>>()}
-                    </div>
-                </div>
+                <ColorPicker selected=color on_select=set_color/>
                 <label class="field">
                     <span class="field__label">"Senha da sala"</span>
                     <input class="field__input" type="password" required prop:value=password
@@ -199,9 +183,7 @@ pub fn RoomPage() -> impl IntoView {
                 </label>
                 <button class="btn btn--primary" type="submit">"Entrar"</button>
             </form>
-            <p class="status-text" class:status-text--error=move || status_meta(&status.get()).0 == "error">
-                {status}
-            </p>
+            <StatusMessage status=status/>
         </div>
         <div class="room-page" class:hidden=move || !authenticated.get()>
             <div class="stage-header">
@@ -445,7 +427,7 @@ fn member_cards(
                         }
                     >
                         <span class="card__avatar-letter">
-                            {move || member_at().map(|m| crate::ui::pages::palette::avatar_letter(&m.nick)).unwrap_or_default()}
+                            {move || member_at().map(|m| crate::ui::components::palette::avatar_letter(&m.nick)).unwrap_or_default()}
                         </span>
                     </div>
                     <video

@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use leptos::prelude::*;
 
-use crate::ui::pages::palette::{color_hex, palette_ids};
-use crate::ui::pages::status::status_meta;
+use crate::ui::components::color_picker::ColorPicker;
+use crate::ui::components::status_message::StatusMessage;
 use crate::signaling::protocol::MAX_MEMBERS;
 
 #[component]
@@ -13,7 +13,7 @@ pub fn HomePage() -> impl IntoView {
     // Leptos quebra (bindings de classe reagem errado, e o <For> de
     // `recent_rooms` diverge em tamanho do que o servidor renderizou).
     let (nick, set_nick) = signal(String::new());
-    let (color, set_color) = signal(crate::ui::pages::palette::DEFAULT_COLOR.to_string());
+    let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
     let (room_name, set_room_name) = signal(String::new());
     load_last_room_name_after_mount(set_room_name);
@@ -51,25 +51,7 @@ pub fn HomePage() -> impl IntoView {
                         on:input:target=move |ev| set_nick.set(ev.target().value())
                     />
                 </label>
-                <div class="field">
-                    <span class="field__label">"Sua cor"</span>
-                    <div class="color-picker">
-                        {palette_ids()
-                            .map(|id| {
-                                let (border, _) = color_hex(id);
-                                view! {
-                                    <button
-                                        type="button"
-                                        class="color-swatch"
-                                        class:color-swatch--selected=move || color.get() == id
-                                        style=format!("background-color: {border}")
-                                        on:click=move |_| set_color.set(id.to_string())
-                                    ></button>
-                                }
-                            })
-                            .collect::<Vec<_>>()}
-                    </div>
-                </div>
+                <ColorPicker selected=color on_select=set_color/>
                 <label class="field">
                     <span class="field__label">"Nome da sala"</span>
                     <input
@@ -95,9 +77,7 @@ pub fn HomePage() -> impl IntoView {
                 </button>
             </form>
 
-            <p class="status-text" class:status-text--error=move || status_meta(&status.get()).0 == "error">
-                {status}
-            </p>
+            <StatusMessage status=status/>
 
             <div class="recent-rooms" class:hidden=move || recent_rooms.get().is_empty()>
                 <p class="invite__label">"Salas recentes"</p>
