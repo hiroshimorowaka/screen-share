@@ -234,7 +234,7 @@ pub fn RoomPage() -> impl IntoView {
                     aria-label="Compartilhar ou parar de compartilhar minha tela"
                     on:click=toggle_share.clone()
                 >
-                    {icon_monitor}
+                    {move || if is_sharing.get() { icon_screen_off().into_any() } else { icon_monitor().into_any() }}
                 </button>
                 <button
                     class="icon-btn icon-btn--neutral"
