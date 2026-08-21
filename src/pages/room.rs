@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_screen_off};
+use crate::pages::icons::{icon_eye, icon_eye_off, icon_log_out, icon_maximize, icon_screen_off, icon_video, icon_video_off};
 use crate::pages::palette::{color_hex, palette_ids};
 use crate::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -476,8 +476,14 @@ fn member_cards(
                             >
                                 {icon_maximize}
                             </button>
-                            <button class="btn--ghost" class:hidden=move || !(is_self() && is_sharing.get()) on:click=toggle_preview_click>
-                                {move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }}
+                            <button
+                                class="icon-btn icon-btn--neutral"
+                                class:hidden=move || !(is_self() && is_sharing.get())
+                                title=move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }
+                                aria-label="Esconder ou mostrar seu preview"
+                                on:click=toggle_preview_click
+                            >
+                                {move || if own_preview_hidden.get() { icon_video().into_any() } else { icon_video_off().into_any() }}
                             </button>
                             <button
                                 class="icon-btn icon-btn--danger"

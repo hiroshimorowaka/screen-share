@@ -72,3 +72,24 @@ pub fn icon_minimize() -> impl IntoView {
         </svg>
     }
 }
+
+/// Câmera — "mostrar meu preview" (estado atual: escondido).
+pub fn icon_video() -> impl IntoView {
+    view! {
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            <path d="M23 7l-7 5 7 5V7z"></path>
+        </svg>
+    }
+}
+
+/// Câmera riscada — "esconder meu preview" (estado atual: visível).
+pub fn icon_video_off() -> impl IntoView {
+    view! {
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+            <path d="M23 7l-7 5 7 5V7z"></path>
+            <line x1="1" y1="1" x2="23" y2="23"></line>
+        </svg>
+    }
+}
