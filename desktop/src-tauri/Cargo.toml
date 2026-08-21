@@ -9,3 +9,4 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon", "image-png"] }
+webkit2gtk = "2.0"

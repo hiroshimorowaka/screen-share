@@ -9,6 +9,24 @@ fn main() {
             let quit = MenuItemBuilder::with_id("quit", "Sair").build(app)?;
             let menu = MenuBuilder::new(app).items(&[&show, &quit]).build()?;
 
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.with_webview(|webview| {
+                    use webkit2gtk::glib::Cast;
+                    use webkit2gtk::{PermissionRequestExt, WebViewExt};
+
+                    let webview = webview.inner();
+                    webview.connect_permission_request(|_webview, request| {
+                        if let Some(media_request) =
+                            request.downcast_ref::<webkit2gtk::UserMediaPermissionRequest>()
+                        {
+                            media_request.allow();
+                            return true;
+                        }
+                        false
+                    });
+                });
+            }
+
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
