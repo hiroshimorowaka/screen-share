@@ -31,7 +31,10 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
 
     view! {
-        <Stylesheet id="leptos" href="/pkg/screen_share.css"/>
+        <Stylesheet id="base" href="/styles/base.css"/>
+        <Stylesheet id="home" href="/styles/home.css"/>
+        <Stylesheet id="room" href="/styles/room.css"/>
+        <Stylesheet id="card" href="/styles/card.css"/>
         <Title text="Compartilhamento de tela"/>
         <Router>
             <main>

@@ -100,9 +100,6 @@ site-root = "target/site"
 # The site-root relative folder where all compiled output (JS, WASM and CSS) is written
 site-pkg-dir = "pkg"
 
-# The source CSS file.
-style-file = "style/main.css"
-
 # Assets source dir. All files found here will be copied and synchronized to site-root.
 assets-dir = "public"
 

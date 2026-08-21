@@ -1,0 +1,69 @@
+/* Home: the "create room" and "join a room" cards sit side by side when
+   there's room, stacked below that — each `.panel` stays capped at 30rem,
+   so on wide screens the two fit side by side within the container's
+   `max-width`. */
+.home-layout {
+  width: 100%;
+  max-width: 64rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+}
+
+.home-layout .panel {
+  flex: 1 1 26rem;
+}
+
+.invite__label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 0 0 0.5rem;
+}
+
+/* --- recent rooms --- */
+
+.recent-rooms {
+  margin-top: 1.5rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--border);
+}
+
+.recent-room {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 0.6rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  text-decoration: none;
+  margin-bottom: 0.5rem;
+}
+
+.recent-room:hover {
+  border-color: var(--accent-strong);
+}
+
+.recent-room__name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-room__code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.recent-room__meta {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-shrink: 0;
+}
