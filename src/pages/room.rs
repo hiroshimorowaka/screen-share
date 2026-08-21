@@ -136,6 +136,7 @@ pub fn RoomPage() -> impl IntoView {
     let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
     let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
+    setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -222,7 +223,7 @@ pub fn RoomPage() -> impl IntoView {
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
                 </span>
             </div>
-            <div class="grid" class:grid--focused=move || expanded.get().is_some()>
+            <div id="member-grid" class="grid" class:grid--focused=move || expanded.get().is_some()>
                 {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, connection_errors)}
             </div>
             <div
@@ -420,8 +421,8 @@ fn member_cards(
                     class:card--focus=is_expanded
                     class:card--clickable=showing_video
                     style=move || {
-                        let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
-                        format!("border-color: {border}; background-color: {bg};")
+                        let (border, _bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                        format!("border-color: {border}; --member-accent: {border};")
                     }
                     on:click=toggle_focus_click
                 >
@@ -439,8 +440,8 @@ fn member_cards(
                         class="card__avatar"
                         class:hidden=showing_video
                         style=move || {
-                            let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
-                            format!("background-color: {bg}; border-color: {border};")
+                            let (border, _bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                            format!("background-color: color-mix(in srgb, {border} 22%, var(--surface-2)); border-color: {border};")
                         }
                     >
                         <span class="card__avatar-letter">
@@ -1168,6 +1169,19 @@ fn stop_sharing(
             track.stop();
         }
     }
+    // O <video> de preview continua com `srcObject` apontando pra essa stream
+    // mesmo depois das tracks paradas — em vários Chromium isso basta pro
+    // indicador nativo de compartilhamento (bolinha vermelha na aba + barra
+    // "parar de compartilhar") continuar visível. Limpar o `srcObject`
+    // remove a última referência e libera o indicador de verdade.
+    if let Some(peer_id) = my_peer_id.get_untracked() {
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
+                let video: web_sys::HtmlVideoElement = video.unchecked_into();
+                video.set_src_object(None);
+            }
+        }
+    }
     for (_, pc) in conn.outgoing.borrow_mut().drain() {
         pc.close();
     }
@@ -1330,4 +1344,108 @@ fn setup_auto_hide_controls(
     show_and_schedule_hide();
 
     (cancel_pending, schedule_hide)
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn setup_adaptive_grid(
+    _members: ReadSignal<Vec<RoomMember>>,
+    _hide_idle: RwSignal<bool>,
+    _own_preview_hidden: RwSignal<bool>,
+    _is_sharing: ReadSignal<bool>,
+    _expanded: RwSignal<Option<String>>,
+) {
+}
+
+/// Igual ao Discord: quantas colunas/linhas o grid usa depende de quantos
+/// cards estão visíveis *e* do formato do próprio container — 1 pessoa
+/// ocupa a tela inteira, 2 ficam lado a lado (ou empilhadas, se a janela for
+/// mais alta que larga), e por aí vai, ao contrário de um `grid-template-
+/// columns` fixo que deixaria cards minúsculos boiando num container gigante
+/// quando há poucos membros. Como esse cálculo depende do tamanho real do
+/// container em pixels (não só da contagem), não dá pra fazer só com CSS —
+/// por isso o `grid-template-columns/rows` é escrito via `style` inline
+/// depois de medir o container. `#[cfg(feature = "hydrate")]` já filtra
+/// então essa função só roda com um navegador de verdade disponível.
+#[cfg(feature = "hydrate")]
+fn setup_adaptive_grid(
+    members: ReadSignal<Vec<RoomMember>>,
+    hide_idle: RwSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
+    is_sharing: ReadSignal<bool>,
+    expanded: RwSignal<Option<String>>,
+) {
+    use wasm_bindgen::prelude::Closure;
+    use wasm_bindgen::JsCast;
+
+    let schedule_recompute = move || {
+        let raf_callback = Closure::once_into_js(move || recompute_adaptive_grid(expanded));
+        if let Some(window) = web_sys::window() {
+            let _ = window.request_animation_frame(raf_callback.as_ref().unchecked_ref());
+        }
+    };
+
+    // Reagir a qualquer sinal que muda quantos cards ficam visíveis (entrar/
+    // sair da sala, ocultar quem não transmite, esconder o próprio preview,
+    // começar/parar de compartilhar, entrar/sair do modo foco). A recontagem
+    // em si acontece no próximo frame (`schedule_recompute`), depois que o
+    // DOM já refletiu as classes `hidden` novas.
+    Effect::new(move |_| {
+        members.track();
+        hide_idle.track();
+        own_preview_hidden.track();
+        is_sharing.track();
+        expanded.track();
+        schedule_recompute();
+    });
+
+    let on_resize = Closure::<dyn FnMut()>::new(move || schedule_recompute());
+    if let Some(window) = web_sys::window() {
+        let _ = window.add_event_listener_with_callback("resize", on_resize.as_ref().unchecked_ref());
+    }
+    on_resize.forget();
+}
+
+#[cfg(feature = "hydrate")]
+fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
+    use wasm_bindgen::JsCast;
+
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Some(grid) = document.get_element_by_id("member-grid") else { return };
+    let grid: web_sys::HtmlElement = grid.unchecked_into();
+    let style = grid.style();
+
+    if expanded.get_untracked().is_some() {
+        // `.grid--focused` já define seu próprio grid-template via CSS —
+        // limpa qualquer valor inline deixado pelo modo normal, senão o
+        // inline (que tem prioridade sobre a regra da classe) trava o
+        // layout do modo foco.
+        let _ = style.remove_property("grid-template-columns");
+        let _ = style.remove_property("grid-template-rows");
+        return;
+    }
+
+    let Ok(list) = grid.query_selector_all(".card:not(.hidden)") else { return };
+    let visible = list.length() as usize;
+    if visible == 0 {
+        return;
+    }
+
+    let width = grid.client_width() as f64;
+    let height = grid.client_height() as f64;
+    if width <= 0.0 || height <= 0.0 {
+        return;
+    }
+
+    // Fórmula clássica de grid de videochamada: escolhe o número de colunas
+    // que deixa cada célula o mais próxima possível de um retângulo 16:9,
+    // dado o formato real do container — é por isso que 2 pessoas ficam
+    // lado a lado numa janela larga mas empilhadas numa janela estreita.
+    const TILE_ASPECT: f64 = 16.0 / 9.0;
+    let container_ratio = width / height;
+    let raw_cols = ((visible as f64) * container_ratio / TILE_ASPECT).sqrt();
+    let cols = (raw_cols.round().max(1.0) as usize).min(visible);
+    let rows = visible.div_ceil(cols);
+
+    let _ = style.set_property("grid-template-columns", &format!("repeat({cols}, minmax(0, 1fr))"));
+    let _ = style.set_property("grid-template-rows", &format!("repeat({rows}, minmax(0, 1fr))"));
 }

@@ -475,12 +475,18 @@ h1 {
   flex-wrap: wrap;
 }
 
+/* Sem `grid-template-columns/rows` fixo aqui de propósito — quem define isso
+   é `recompute_adaptive_grid` (room.rs), calculado a partir do tamanho real
+   do container em pixels e de quantos cards estão visíveis, igual ao
+   Discord: 1 pessoa ocupa a tela inteira, 2 ficam lado a lado (ou
+   empilhadas, se a janela for mais alta que larga) etc. Um `grid-template`
+   estático não dá conta disso — um valor fixo deixaria cards minúsculos
+   boiando num container gigante quando há poucos membros, ou cards
+   gigantes espremidos quando há muitos. */
 .grid {
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
-  grid-auto-rows: minmax(0, 1fr);
   gap: 0.75rem;
   padding: 0.75rem;
   overflow-y: auto;
@@ -495,7 +501,17 @@ h1 {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--surface-2);
+  /* Fundo sempre neutro (era a cor do membro em bloco cheio, o que virava
+     uma parede de cor saturada com vários cards lado a lado) — a cor do
+     membro agora só aparece como um brilho sutil atrás do avatar e no
+     anel da borda, no espírito do Discord. */
+  background:
+    radial-gradient(
+      ellipse 65% 55% at 50% 38%,
+      color-mix(in srgb, var(--member-accent, var(--accent)) 16%, transparent),
+      transparent 70%
+    ),
+    var(--surface-2);
   border: 2px solid var(--border);
   transition: filter 0.1s ease;
 }
@@ -528,9 +544,14 @@ h1 {
   background: #000;
 }
 
+/* `vmin` escala junto com o tamanho do card (que agora é dinâmico, ver
+   `.grid`) — sem isso o avatar ficava minúsculo perdido no meio de um card
+   ocupando a tela inteira (sala com 1-2 pessoas), do jeito que o Discord
+   aumenta o avatar de quem não está transmitindo em chamadas com pouca
+   gente. */
 .card__avatar {
-  width: 4rem;
-  height: 4rem;
+  width: clamp(3rem, 14vmin, 9rem);
+  height: clamp(3rem, 14vmin, 9rem);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -539,7 +560,7 @@ h1 {
 }
 
 .card__avatar-letter {
-  font-size: 1.6rem;
+  font-size: clamp(1.2rem, 5.5vmin, 3.5rem);
   font-weight: 700;
   color: #fff;
 }
@@ -636,7 +657,7 @@ h1 {
   gap: 0.5rem;
   padding: 0;
   border: none;
-  background: rgba(0, 0, 0, 0.55);
+  background: rgba(0, 0, 0, 0.45);
   color: var(--text);
   font-size: 0.9rem;
   font-weight: 600;
@@ -644,7 +665,7 @@ h1 {
 }
 
 .card__watch-overlay:hover {
-  background: rgba(0, 0, 0, 0.7);
+  background: rgba(0, 0, 0, 0.6);
 }
 
 .card__watch-overlay-icon {
@@ -827,23 +848,39 @@ h1 {
 
 /* Aproximação puramente CSS de "foco + tirinha", sem duplicar nenhum
    elemento (o <video> de cada card é único, precisa continuar sendo o
-   mesmo nó DOM pro ontrack/srcObject continuarem funcionando). A grade em
-   foco tem duas linhas explícitas: uma linha que consome todo o espaço
-   vertical que sobrar (linha 1, `minmax(0, 1fr)`), reservada só pro card
-   em foco via `grid-row: 1`, e uma tirinha baixa embaixo dela (linha 2,
-   onde os cards não focados se auto-posicionam) — igual ao Discord, a
-   lista de participantes fica abaixo da transmissão em foco, não acima.
-   `grid-row: 1` (posição totalmente explícita, diferente de um
-   `grid-row: span N` em rem fixo) faz o vídeo em foco realmente preencher
-   a tela, qualquer que seja a altura da janela, e garante que ele é
-   posicionado ANTES dos cards da tirinha não importa a ordem desses no
-   DOM. Se sobrarem mais membros do que cabem numa única tirinha, os
-   excedentes caem numa 3ª linha (mesma altura da tirinha) — também
-   abaixo do vídeo em foco, então a tirinha só cresce pra baixo.  */
+   mesmo nó DOM pro ontrack/srcObject continuarem funcionando). Troca o
+   flexbox do `.grid` base por grid: duas linhas explícitas — uma que
+   consome todo o espaço vertical que sobrar (linha 1, `minmax(0, 1fr)`),
+   reservada só pro card em foco via `grid-row: 1`, e uma tirinha baixa
+   embaixo dela (linha 2, onde os cards não focados se auto-posicionam) —
+   igual ao Discord, a lista de participantes fica abaixo da transmissão em
+   foco, não acima. As colunas da tirinha usam `auto-fit` com um teto fixo
+   (não `1fr`) pra sobrar espaço vazio nas pontas quando há poucos membros,
+   e `justify-content: center` centraliza esse resto — a tirinha fica
+   centralizada em vez de esticada de ponta a ponta. `grid-row: 1` (posição
+   totalmente explícita, diferente de um `grid-row: span N` em rem fixo)
+   faz o vídeo em foco realmente preencher a tela, qualquer que seja a
+   altura da janela, e garante que ele é posicionado ANTES dos cards da
+   tirinha não importa a ordem desses no DOM. Se sobrarem mais membros do
+   que cabem numa única tirinha, os excedentes caem numa 3ª linha (mesma
+   altura da tirinha) — também abaixo do vídeo em foco, então a tirinha só
+   cresce pra baixo. */
 .grid--focused {
-  grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
-  grid-template-rows: minmax(0, 1fr) 5.5rem;
-  grid-auto-rows: 5.5rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 11rem));
+  grid-template-rows: minmax(0, 1fr) 6.5rem;
+  grid-auto-rows: 6.5rem;
+  justify-content: center;
+}
+
+/* Fora do modo foco os cards usam flex-basis/aspect-ratio (ver `.card`);
+   dentro do grid eles precisam ceder esse controle pro tamanho da
+   coluna/linha, ou os dois sistemas de dimensionamento brigam entre si. */
+.grid--focused .card {
+  flex: unset;
+  min-width: unset;
+  max-width: unset;
+  aspect-ratio: unset;
 }
 
 .card--focus {
@@ -851,13 +888,23 @@ h1 {
   grid-row: 1;
 }
 
+/* Cards da tirinha (todo mundo que não está em foco): a borda grossa colorida
+   e o brilho de fundo que funcionam num card grande ficam desproporcionais
+   num retângulo de 6.5rem de altura — aqui achata pra um visual mais calmo,
+   perto da lista de participantes do Discord. `!important` porque a cor da
+   borda vem de `style` inline (por membro) e precisa ser sobrescrita aqui. */
+.grid--focused .card:not(.card--focus) {
+  border: 1px solid var(--border) !important;
+  background: var(--surface-2);
+}
+
 .grid--focused .card:not(.card--focus) .card__avatar {
-  width: 2.25rem;
-  height: 2.25rem;
+  width: 2.5rem;
+  height: 2.5rem;
 }
 
 .grid--focused .card:not(.card--focus) .card__avatar-letter {
-  font-size: 1rem;
+  font-size: 1.1rem;
 }
 
 .grid--focused .card:not(.card--focus) .card__actions {
