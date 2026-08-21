@@ -3,17 +3,16 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{Manager, WindowEvent};
 
 fn main() {
-    // WebKitGTK's DMA-BUF video renderer fails to initialize on several
-    // Linux driver/compositor combinations and falls back to rendering
-    // solid black instead of erroring — this forces the older, reliable
-    // rendering path. See tauri-apps/tauri#9394.
-    std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1");
-
-    // Belt-and-suspenders alongside the DMA-BUF workaround above: forces
-    // WebKitGTK's plain (non-GPU-accelerated) compositor, which several
-    // reports found necessary to get WebRTC video actually rendering
-    // (rather than blank/black) on Linux.
-    std::env::set_var("WEBKIT_DISABLE_COMPOSITING_MODE", "1");
+    // NOTE: WEBKIT_DISABLE_DMABUF_RENDERER=1 and WEBKIT_DISABLE_COMPOSITING_MODE=1
+    // were both tried here and reverted — neither is the fix. The actual
+    // failure is upstream of rendering entirely: the screen-capture
+    // PipeWire stream negotiates a DMA-BUF/DMA_DRM format that GStreamer's
+    // capture pipeline then rejects with "no more input formats" /
+    // "not-negotiated", and WebKit doesn't retry with a different format
+    // for capture sources (see GStreamerVideoCapturer.cpp's own FIXME:
+    // "Caps re-negotiation disabled on display capture source"). This
+    // looks like a PipeWire/Mesa DMA-BUF modifier negotiation bug outside
+    // of what this app's code can control.
 
     tauri::Builder::default()
         .setup(|app| {
