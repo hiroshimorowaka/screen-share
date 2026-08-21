@@ -1,4 +1,4 @@
-use crate::profile::{Profile, RecentRoom};
+use crate::ui::profile::{Profile, RecentRoom};
 
 const NICK_KEY: &str = "screen_share_nick";
 const PROFILE_KEY: &str = "screen_share_profile";

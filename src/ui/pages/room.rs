@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use crate::pages::icons::{
+use crate::ui::pages::icons::{
     icon_check, icon_eye, icon_eye_off, icon_link, icon_log_out, icon_maximize, icon_monitor, icon_pip, icon_screen_off, icon_video, icon_video_off,
 };
-use crate::pages::palette::{color_hex, palette_ids};
-use crate::pages::status::status_meta;
+use crate::ui::pages::palette::{color_hex, palette_ids};
+use crate::ui::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
 
 #[derive(Clone, PartialEq)]
@@ -19,7 +19,7 @@ pub struct RoomMember {
 #[cfg(feature = "hydrate")]
 #[derive(Clone)]
 struct RoomConnection {
-    ws: std::rc::Rc<std::cell::RefCell<Option<crate::client::socket::WsClient>>>,
+    ws: std::rc::Rc<std::cell::RefCell<Option<crate::ui::client::socket::WsClient>>>,
     outgoing: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
     incoming: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
     local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
@@ -62,7 +62,7 @@ pub fn RoomPage() -> impl IntoView {
     // Começa com o valor padrão do SSR; o real (localStorage) só chega
     // depois do mount, ou a hidratação do color-swatch selecionado quebra.
     let (nick, set_nick) = signal(String::new());
-    let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
+    let (color, set_color) = signal(crate::ui::pages::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
@@ -283,7 +283,7 @@ fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSigna
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        let profile = crate::client::storage::load_profile();
+        let profile = crate::ui::client::storage::load_profile();
         set_nick.set(profile.nick);
         set_color.set(profile.color);
     });
@@ -307,7 +307,7 @@ fn start_room_check(
 ) {
     use leptos::task::spawn_local;
 
-    use crate::client::rooms_api::check_room;
+    use crate::ui::client::rooms_api::check_room;
 
     spawn_local(async move {
         let result = check_room(&room_code).await;
@@ -445,7 +445,7 @@ fn member_cards(
                         }
                     >
                         <span class="card__avatar-letter">
-                            {move || member_at().map(|m| crate::pages::palette::avatar_letter(&m.nick)).unwrap_or_default()}
+                            {move || member_at().map(|m| crate::ui::pages::palette::avatar_letter(&m.nick)).unwrap_or_default()}
                         </span>
                     </div>
                     <video
@@ -657,8 +657,8 @@ fn apply_joined_snapshot(
 ) {
     use std::collections::HashSet;
 
-    use crate::client::storage::save_recent_room;
-    use crate::profile::RecentRoom;
+    use crate::ui::client::storage::save_recent_room;
+    use crate::ui::profile::RecentRoom;
 
     let sharer_set: HashSet<String> = active_sharers.into_iter().collect();
     let members: Vec<RoomMember> = joined_members
@@ -693,7 +693,7 @@ fn build_message_handler(
     use wasm_bindgen::JsCast;
     use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
-    use crate::client::webrtc::{accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection};
+    use crate::ui::client::webrtc::{accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection};
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
     move |msg: ServerMessage| match msg {
@@ -945,7 +945,7 @@ fn adopt_pending_session(
     set_room_exists: WriteSignal<Option<bool>>,
     my_peer_id: ReadSignal<Option<String>>,
 ) {
-    use crate::client::session;
+    use crate::ui::client::session;
 
     let Some(mut session) = session::take(&room_code) else { return };
 
@@ -1015,9 +1015,9 @@ fn setup_room_connection(
     set_room_exists: WriteSignal<Option<bool>>,
     my_peer_id: ReadSignal<Option<String>>,
 ) -> impl Fn(String, String, String) + Clone + 'static {
-    use crate::client::socket::WsClient;
-    use crate::client::storage::{ensure_device_id, save_profile};
-    use crate::profile::Profile;
+    use crate::ui::client::socket::WsClient;
+    use crate::ui::client::storage::{ensure_device_id, save_profile};
+    use crate::ui::profile::Profile;
     use crate::signaling::protocol::ClientMessage;
 
     move |nick: String, color: String, password: String| {
@@ -1071,7 +1071,7 @@ fn share_supported() -> bool {
 
 #[cfg(feature = "hydrate")]
 fn share_supported() -> bool {
-    crate::client::webrtc::is_display_media_supported()
+    crate::ui::client::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -1101,7 +1101,7 @@ fn share_toggle_handler(
     use wasm_bindgen::JsCast;
     use web_sys::MediaStreamTrack;
 
-    use crate::client::webrtc::capture_display;
+    use crate::ui::client::webrtc::capture_display;
     use crate::signaling::protocol::ClientMessage;
 
     move |_| {

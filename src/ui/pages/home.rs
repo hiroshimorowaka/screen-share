@@ -2,8 +2,8 @@ use std::collections::HashMap;
 
 use leptos::prelude::*;
 
-use crate::pages::palette::{color_hex, palette_ids};
-use crate::pages::status::status_meta;
+use crate::ui::pages::palette::{color_hex, palette_ids};
+use crate::ui::pages::status::status_meta;
 use crate::signaling::protocol::MAX_MEMBERS;
 
 #[component]
@@ -13,14 +13,14 @@ pub fn HomePage() -> impl IntoView {
     // Leptos quebra (bindings de classe reagem errado, e o <For> de
     // `recent_rooms` diverge em tamanho do que o servidor renderizou).
     let (nick, set_nick) = signal(String::new());
-    let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
+    let (color, set_color) = signal(crate::ui::pages::palette::DEFAULT_COLOR.to_string());
     load_profile_after_mount(set_nick, set_color);
     let (room_name, set_room_name) = signal(String::new());
     load_last_room_name_after_mount(set_room_name);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
     let (submitting, set_submitting) = signal(false);
-    let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::profile::RecentRoom>::new());
+    let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::ui::profile::RecentRoom>::new());
     // Contagem de membros por sala: diferente de `recent_rooms`, sempre vem
     // do servidor — muda a cada entrada/saída, não persiste no navegador.
     let (member_counts, set_member_counts) = signal(HashMap::<String, usize>::new());
@@ -215,7 +215,7 @@ fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSigna
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        let profile = crate::client::storage::load_profile();
+        let profile = crate::ui::client::storage::load_profile();
         set_nick.set(profile.nick);
         set_color.set(profile.color);
     });
@@ -229,40 +229,40 @@ fn load_last_room_name_after_mount(set_room_name: WriteSignal<String>) {
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        if let Some(name) = crate::client::storage::load_last_room_name() {
+        if let Some(name) = crate::ui::client::storage::load_last_room_name() {
             set_room_name.set(name);
         }
     });
 }
 
 #[cfg(not(feature = "hydrate"))]
-fn load_recent_rooms_after_mount(_set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {}
+fn load_recent_rooms_after_mount(_set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>) {}
 
 #[cfg(feature = "hydrate")]
-fn load_recent_rooms_after_mount(set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>) {
+fn load_recent_rooms_after_mount(set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>) {
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        set_recent_rooms.set(crate::client::storage::load_recent_rooms());
+        set_recent_rooms.set(crate::ui::client::storage::load_recent_rooms());
     });
 }
 
 #[cfg(not(feature = "hydrate"))]
 fn prune_recent_rooms(
-    _set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>,
+    _set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>,
     _set_member_counts: WriteSignal<HashMap<String, usize>>,
 ) {}
 
 #[cfg(feature = "hydrate")]
 fn prune_recent_rooms(
-    set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>,
+    set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>,
     set_member_counts: WriteSignal<HashMap<String, usize>>,
 ) {
     use leptos::task::spawn_local;
 
-    use crate::client::{rooms_api::check_room, storage::remove_recent_room};
+    use crate::ui::client::{rooms_api::check_room, storage::remove_recent_room};
 
-    for room in crate::client::storage::load_recent_rooms() {
+    for room in crate::ui::client::storage::load_recent_rooms() {
         let code = room.code.clone();
         spawn_local(async move {
             if let Some(status) = check_room(&code).await {
@@ -331,10 +331,10 @@ fn create_room_handler(
 
     use leptos_router::hooks::use_navigate;
 
-    use crate::client::session::{self, PendingSession};
-    use crate::client::socket::WsClient;
-    use crate::client::storage::{ensure_device_id, save_last_room_name, save_profile, save_recent_room};
-    use crate::profile::{Profile, RecentRoom};
+    use crate::ui::client::session::{self, PendingSession};
+    use crate::ui::client::socket::WsClient;
+    use crate::ui::client::storage::{ensure_device_id, save_last_room_name, save_profile, save_recent_room};
+    use crate::ui::profile::{Profile, RecentRoom};
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
 
     move |ev: leptos::ev::SubmitEvent| {

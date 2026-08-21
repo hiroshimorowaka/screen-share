@@ -10,7 +10,7 @@ pub struct Profile {
 
 impl Default for Profile {
     fn default() -> Self {
-        Self { nick: String::new(), color: crate::pages::palette::DEFAULT_COLOR.to_string() }
+        Self { nick: String::new(), color: crate::ui::pages::palette::DEFAULT_COLOR.to_string() }
     }
 }
 

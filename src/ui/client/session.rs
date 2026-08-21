@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::client::socket::WsClient;
+use crate::ui::client::socket::WsClient;
 use crate::signaling::protocol::MemberInfo;
 
 /// Conexão já autenticada que `HomePage` deixa pronta pra `RoomPage`

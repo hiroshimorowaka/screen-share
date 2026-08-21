@@ -6,7 +6,7 @@ async fn main() {
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
-    use screen_share::app::*;
+    use screen_share::ui::app::*;
     use screen_share::signaling::registry::Registry;
     use screen_share::signaling::rooms_status::room_status_handler;
     use screen_share::signaling::ws::ws_handler;
