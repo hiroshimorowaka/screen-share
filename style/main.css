@@ -426,6 +426,15 @@ h1 {
   justify-content: center;
   background: var(--surface-2);
   border: 2px solid var(--border);
+  transition: filter 0.1s ease;
+}
+
+.card--clickable {
+  cursor: pointer;
+}
+
+.card--clickable:hover {
+  filter: brightness(1.08);
 }
 
 .card video {
@@ -466,53 +475,144 @@ h1 {
   background: #111;
 }
 
+/* Estilo Discord: ao invés de um botão discreto entre outros no rodapé, o
+   convite pra assistir domina o banner inteiro enquanto a pessoa não está
+   sendo assistida — some assim que alguém clica (ou assim que o
+   compartilhamento acaba). */
+.card__watch-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.card__watch-overlay:hover {
+  background: rgba(0, 0, 0, 0.7);
+}
+
+.card__watch-overlay-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 1.1rem;
+}
+
 .card__footer {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.5rem;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
-  padding: 0.4rem 0.6rem;
-  background: rgba(0, 0, 0, 0.55);
+  /* Deixa a área vazia do rodapé "transparente" a cliques — só o pill do
+     nick e os botões de ação (que voltam a pointer-events: auto) recebem
+     clique; o resto passa direto pro .card, que expande/encolhe. */
+  pointer-events: none;
 }
 
 .card__nick {
+  pointer-events: auto;
+  max-width: 60%;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
   color: var(--text);
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+/* Estilo Discord: controles por card só aparecem ao passar o mouse (ou
+   foco de teclado), em vez de ficarem sempre visíveis competindo com o
+   vídeo. */
 .card__actions {
+  pointer-events: auto;
   display: flex;
   gap: 0.35rem;
   flex-wrap: wrap;
   justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.card:hover .card__actions,
+.card:focus-within .card__actions {
+  opacity: 1;
 }
 
 .card__actions .btn--ghost {
   padding: 0.3rem 0.55rem;
   font-size: 0.72rem;
+  background: rgba(0, 0, 0, 0.55);
 }
 
 /* Aproximação puramente CSS de "foco + tirinha", sem duplicar nenhum
    elemento (o <video> de cada card é único, precisa continuar sendo o
-   mesmo nó DOM pro ontrack/srcObject continuarem funcionando). O card em
-   foco recebe posicionamento explícito de grid; os demais ficam em
-   auto-placement, o que naturalmente os organiza ao redor do card grande. */
+   mesmo nó DOM pro ontrack/srcObject continuarem funcionando). A grade em
+   foco tem duas linhas explícitas: uma tirinha baixa (linha 1, onde os
+   cards não focados se auto-posicionam) e uma linha que consome todo o
+   espaço vertical que sobrar (linha 2, `minmax(0, 1fr)`), reservada só
+   pro card em foco via `grid-row: 2` — diferente de um `grid-row: span N`
+   em rem fixo, isso faz o vídeo em foco realmente preencher a tela,
+   qualquer que seja a altura da janela. Se sobrarem mais membros do que
+   cabem numa única tirinha, os excedentes caem numa 3ª linha (mesma
+   altura da tirinha) abaixo do vídeo em foco — caso raro, com salas bem
+   cheias numa janela estreita. */
 .grid--focused {
   grid-template-columns: repeat(auto-fill, minmax(6rem, 1fr));
-  grid-auto-rows: 4.5rem;
+  grid-template-rows: 5.5rem minmax(0, 1fr);
+  grid-auto-rows: 5.5rem;
 }
 
 .card--focus {
   grid-column: 1 / -1;
-  grid-row: span 5;
+  grid-row: 2;
+}
+
+.grid--focused .card:not(.card--focus) .card__avatar {
+  width: 2.25rem;
+  height: 2.25rem;
+}
+
+.grid--focused .card:not(.card--focus) .card__avatar-letter {
+  font-size: 1rem;
+}
+
+.grid--focused .card:not(.card--focus) .card__actions {
+  display: none;
+}
+
+.grid--focused .card:not(.card--focus) .card__watch-overlay {
+  gap: 0.15rem;
+  font-size: 0;
+}
+
+.grid--focused .card:not(.card--focus) .card__watch-overlay-icon {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.7rem;
 }
 
 /* --- paleta de cores --- */

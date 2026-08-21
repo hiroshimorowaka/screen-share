@@ -309,29 +309,42 @@ fn member_cards(
             // Com a Task 10, o vídeo do próprio card só aparece se não estiver
             // escondido — troca a definição de `showing_video` da Task 9.
             let showing_video = move || own_preview_visible() || (!is_self() && is_watching_this());
-            let can_expand = move || showing_video();
 
             let watch = watch_click_handler(conn.clone(), members, watching, i);
             let stop_watch = stop_watching_click_handler(conn.clone(), members, watching, i);
-            let expand_click = {
-                move |_: leptos::ev::MouseEvent| {
-                    if let Some(member) = member_at() {
-                        expanded.set(Some(member.peer_id));
-                    }
+            let toggle_preview_click = move |ev: leptos::ev::MouseEvent| {
+                ev.stop_propagation();
+                own_preview_hidden.update(|hidden| *hidden = !*hidden);
+            };
+            // Clicar em qualquer lugar do banner (fora dos botões, que
+            // interrompem a propagação) alterna foco: se já tem vídeo
+            // visível — o próprio preview ou a transmissão de alguém que já
+            // estamos assistindo —, expande; clicar de novo no card em foco
+            // encolhe; clicar num card pequeno da tirinha que já mostra
+            // vídeo troca o foco pra ele direto, sem precisar encolher antes.
+            let toggle_focus_click = move |_: leptos::ev::MouseEvent| {
+                if !showing_video() {
+                    return;
+                }
+                let Some(member) = member_at() else { return };
+                if is_expanded() {
+                    expanded.set(None);
+                } else {
+                    expanded.set(Some(member.peer_id));
                 }
             };
-            let shrink_click = move |_: leptos::ev::MouseEvent| expanded.set(None);
-            let toggle_preview_click = move |_: leptos::ev::MouseEvent| own_preview_hidden.update(|hidden| *hidden = !*hidden);
 
             view! {
                 <div
                     class="card"
                     class:hidden=move || member_at().is_none()
                     class:card--focus=is_expanded
+                    class:card--clickable=showing_video
                     style=move || {
                         let (border, bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
                         format!("border-color: {border}; background-color: {bg};")
                     }
+                    on:click=toggle_focus_click
                 >
                     <div
                         class="card__avatar"
@@ -366,23 +379,32 @@ fn member_cards(
                     >
                         "Não foi possível conectar."
                     </div>
+                    <button
+                        class="card__watch-overlay"
+                        class:hidden=move || !can_watch()
+                        on:click=move |ev: leptos::ev::MouseEvent| {
+                            ev.stop_propagation();
+                            watch(ev);
+                        }
+                    >
+                        <span class="card__watch-overlay-icon">"▶"</span>
+                        <span>"Assistir compartilhamento"</span>
+                    </button>
                     <div class="card__footer">
                         <span class="card__nick">{move || member_at().map(|m| m.nick).unwrap_or_default()}</span>
                         <div class="card__actions">
-                            <button class="btn--ghost" class:hidden=move || !can_watch() on:click=watch.clone()>
-                                "Assistir compartilhamento"
-                            </button>
-                            <button class="btn--ghost" class:hidden=move || !is_watching_this() on:click=stop_watch.clone()>
+                            <button
+                                class="btn--ghost"
+                                class:hidden=move || !is_watching_this()
+                                on:click=move |ev: leptos::ev::MouseEvent| {
+                                    ev.stop_propagation();
+                                    stop_watch(ev);
+                                }
+                            >
                                 "Parar de assistir"
                             </button>
                             <button class="btn--ghost" class:hidden=move || !(is_self() && is_sharing.get()) on:click=toggle_preview_click>
                                 {move || if own_preview_hidden.get() { "Mostrar preview" } else { "Esconder preview" }}
-                            </button>
-                            <button class="btn--ghost" class:hidden=move || !can_expand() || is_expanded() on:click=expand_click>
-                                "Expandir"
-                            </button>
-                            <button class="btn--ghost" class:hidden=move || !is_expanded() on:click=shrink_click>
-                                "Encolher"
                             </button>
                         </div>
                     </div>
