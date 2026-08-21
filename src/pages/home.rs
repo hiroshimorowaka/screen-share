@@ -5,9 +5,22 @@ use crate::pages::status::status_meta;
 
 #[component]
 pub fn HomePage() -> impl IntoView {
-    let profile = initial_profile();
-    let (nick, set_nick) = signal(profile.nick);
-    let (color, set_color) = signal(profile.color);
+    // Assim como `recent_rooms` (ver comentário abaixo), nick/cor SEMPRE
+    // começam no valor que o servidor também usaria (string vazia / cor
+    // padrão) — nunca lidos do localStorage aqui. Diferente da lista de
+    // salas recentes, aqui o problema não é um crash de hidratação: é que
+    // `class:color-swatch--selected=move || color.get() == id` (um
+    // binding de classe booleana, não uma lista) hidrata "silenciosamente
+    // errado" quando o valor no servidor (cor padrão) diverge do valor
+    // real do cliente — a troca de classe do nó que tinha o valor
+    // divergente na hidratação simplesmente para de reagir a mudanças
+    // depois (sem erro no console, só clique sem efeito nesse swatch
+    // específico). Carregar o valor real depois do mount, via sinal que
+    // já nasceu batendo com o SSR, evita o mismatch e mantém tudo
+    // reativo.
+    let (nick, set_nick) = signal(String::new());
+    let (color, set_color) = signal(crate::pages::palette::DEFAULT_COLOR.to_string());
+    load_profile_after_mount(set_nick, set_color);
     let (room_name, set_room_name) = signal(String::new());
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
@@ -103,18 +116,18 @@ pub fn HomePage() -> impl IntoView {
     }
 }
 
-fn initial_profile() -> crate::profile::Profile {
-    initial_profile_impl()
-}
-
 #[cfg(not(feature = "hydrate"))]
-fn initial_profile_impl() -> crate::profile::Profile {
-    crate::profile::Profile::default()
-}
+fn load_profile_after_mount(_set_nick: WriteSignal<String>, _set_color: WriteSignal<String>) {}
 
 #[cfg(feature = "hydrate")]
-fn initial_profile_impl() -> crate::profile::Profile {
-    crate::client::storage::load_profile()
+fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteSignal<String>) {
+    use leptos::task::spawn_local;
+
+    spawn_local(async move {
+        let profile = crate::client::storage::load_profile();
+        set_nick.set(profile.nick);
+        set_color.set(profile.color);
+    });
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -206,7 +219,7 @@ fn create_room_handler(
             let nick_value = nick_value.clone();
             let color_value = color_value.clone();
             move |msg: ServerMessage| {
-                if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers } = msg {
+                if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers, .. } = msg {
                     save_profile(&Profile { nick: nick_value.clone(), color: color_value.clone() });
                     save_recent_room(RecentRoom { code: room.clone(), name: room_name.clone() });
                     if let Some(ws) = ws_slot.borrow_mut().take() {
