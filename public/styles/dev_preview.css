@@ -1,0 +1,92 @@
+/* Floats over the room grid instead of reserving layout space — the grid
+   still measures the full viewport, so `setup_adaptive_grid` behaves
+   exactly like it does on the real room page (see the note on
+   `DevRoomPreviewPage` in dev_preview.rs). A dashed amber border marks it as
+   a dev-only surface, unmistakably not part of the product itself. */
+.dev-panel {
+  position: fixed;
+  top: 4.5rem;
+  left: 1rem;
+  z-index: 30;
+  width: 20rem;
+  max-height: calc(100vh - 6rem);
+  overflow-y: auto;
+  padding: 1rem;
+  border: 1px dashed #e0a325;
+  border-radius: 0.75rem;
+  background: rgba(20, 20, 22, 0.92);
+  backdrop-filter: blur(6px);
+}
+
+.dev-panel .field {
+  margin-bottom: 0.6rem;
+}
+
+.dev-panel__add-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.dev-panel__add-actions .btn {
+  flex: 1;
+  padding: 0.5rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.dev-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.75rem;
+}
+
+.dev-panel__row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  padding: 0.4rem;
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+}
+
+.dev-panel__row .btn {
+  padding: 0.3rem 0.55rem;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.dev-panel__swatch {
+  appearance: none;
+  width: 1.3rem;
+  height: 1.3rem;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.dev-panel__nick {
+  flex: 1 1 5rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.dev-panel__watchers {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+.dev-panel__watchers .btn {
+  padding: 0.15rem 0.5rem;
+}

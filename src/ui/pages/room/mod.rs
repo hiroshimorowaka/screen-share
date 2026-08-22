@@ -1,4 +1,6 @@
 mod connection;
+#[cfg(debug_assertions)]
+mod dev_preview;
 mod grid;
 mod invite;
 mod media_controls;
@@ -7,6 +9,9 @@ mod message_handler;
 mod room_check;
 mod share;
 mod watch;
+
+#[cfg(debug_assertions)]
+pub(crate) use dev_preview::DevRoomPreviewPage;
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -21,7 +26,7 @@ use watch::leave_or_stop_watching_handler;
 
 use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
-use crate::ui::components::icons::{icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_video, icon_video_off};
+use crate::ui::components::icons::{icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_video_off};
 use crate::ui::components::status::status_meta;
 use crate::ui::components::status_message::StatusMessage;
 
@@ -187,44 +192,48 @@ pub fn RoomPage() -> impl IntoView {
                 on:mouseenter=move |_| pause_hide_controls()
                 on:mouseleave=move |_| resume_hide_controls()
             >
-                <button
-                    class="icon-btn"
-                    class:icon-btn--danger=is_sharing
-                    class:icon-btn--neutral=move || !is_sharing.get()
-                    class:hidden=move || !can_share
-                    title=move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }
-                    aria-label="Compartilhar ou parar de compartilhar minha tela"
-                    on:click=toggle_share.clone()
-                >
-                    {move || if is_sharing.get() { icon_screen_off().into_any() } else { icon_monitor().into_any() }}
-                </button>
-                <button
-                    class="icon-btn icon-btn--neutral"
-                    class:icon-btn--active=hide_idle
-                    title=move || if hide_idle.get() { "Mostrar todo mundo" } else { "Ocultar quem não está transmitindo" }
-                    aria-label="Ocultar quem não está transmitindo"
-                    on:click=move |_| hide_idle.update(|v| *v = !*v)
-                >
-                    {icon_eye_off}
-                </button>
-                <button
-                    class="icon-btn icon-btn--neutral"
-                    class:icon-btn--active=own_preview_hidden
-                    class:hidden=move || !is_sharing.get()
-                    title=move || if own_preview_hidden.get() { "Mostrar meu preview" } else { "Esconder meu preview" }
-                    aria-label="Esconder meu preview"
-                    on:click=move |_| own_preview_hidden.update(|v| *v = !*v)
-                >
-                    {move || if own_preview_hidden.get() { icon_video().into_any() } else { icon_video_off().into_any() }}
-                </button>
-                <button
-                    class="icon-btn icon-btn--danger"
-                    title=move || if expanded.get().is_some() { "Parar de assistir" } else { "Sair da sala" }
-                    aria-label="Sair da sala"
-                    on:click=leave_or_stop_watching
-                >
-                    {icon_log_out}
-                </button>
+                <div class="control-group">
+                    <button
+                        class="icon-btn"
+                        class:icon-btn--danger=is_sharing
+                        class:icon-btn--neutral=move || !is_sharing.get()
+                        class:hidden=move || !can_share
+                        title=move || if is_sharing.get() { "Parar de compartilhar" } else { "Compartilhar minha tela" }
+                        aria-label="Compartilhar ou parar de compartilhar minha tela"
+                        on:click=toggle_share.clone()
+                    >
+                        {move || if is_sharing.get() { icon_screen_off().into_any() } else { icon_monitor().into_any() }}
+                    </button>
+                    <button
+                        class="icon-btn icon-btn--neutral"
+                        class:icon-btn--active=hide_idle
+                        title=move || if hide_idle.get() { "Mostrar todo mundo" } else { "Ocultar quem não está transmitindo" }
+                        aria-label="Ocultar quem não está transmitindo"
+                        on:click=move |_| hide_idle.update(|v| *v = !*v)
+                    >
+                        {icon_eye_off}
+                    </button>
+                    <button
+                        class="icon-btn icon-btn--neutral"
+                        class:icon-btn--active=own_preview_hidden
+                        class:hidden=move || !is_sharing.get()
+                        title=move || if own_preview_hidden.get() { "Mostrar meu preview" } else { "Esconder meu preview" }
+                        aria-label="Esconder meu preview"
+                        on:click=move |_| own_preview_hidden.update(|v| *v = !*v)
+                    >
+                        {icon_video_off}
+                    </button>
+                </div>
+                <div class="control-group control-group--danger">
+                    <button
+                        class="icon-btn icon-btn--danger"
+                        title=move || if expanded.get().is_some() { "Parar de assistir" } else { "Sair da sala" }
+                        aria-label=move || if expanded.get().is_some() { "Parar de assistir" } else { "Sair da sala" }
+                        on:click=leave_or_stop_watching
+                    >
+                        {move || if expanded.get().is_some() { icon_screen_off().into_any() } else { icon_log_out().into_any() }}
+                    </button>
+                </div>
             </div>
         </div>
     }

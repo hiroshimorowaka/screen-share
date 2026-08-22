@@ -87,6 +87,29 @@ pub fn HomePage() -> impl IntoView {
             </form>
 
             <StatusMessage status=status/>
+        </div>
+
+        <div class="panel">
+            <h1>"Entrar em uma sala"</h1>
+            <p class="subtext">"Cole o código da sala ou o link completo do convite — você poderá informar o nick e a senha na página da sala."</p>
+
+            <form on:submit=join_room>
+                <label class="field">
+                    <span class="field__label">"Código ou link da sala"</span>
+                    <input
+                        class="field__input"
+                        type="text"
+                        required
+                        prop:value=join_input
+                        on:input:target=move |ev| set_join_input.set(ev.target().value())
+                    />
+                </label>
+                <button class="btn btn--primary" type="submit">"Entrar na sala"</button>
+            </form>
+
+            <p class="status-text status-text--error" class:hidden=move || join_status.get().is_empty()>
+                {join_status}
+            </p>
 
             <div class="recent-rooms" class:hidden=move || recent_rooms.get().is_empty()>
                 <p class="invite__label">"Salas recentes"</p>
@@ -113,29 +136,6 @@ pub fn HomePage() -> impl IntoView {
                     }
                 </For>
             </div>
-        </div>
-
-        <div class="panel">
-            <h1>"Entrar em uma sala"</h1>
-            <p class="subtext">"Cole o código da sala ou o link completo do convite — você poderá informar o nick e a senha na página da sala."</p>
-
-            <form on:submit=join_room>
-                <label class="field">
-                    <span class="field__label">"Código ou link da sala"</span>
-                    <input
-                        class="field__input"
-                        type="text"
-                        required
-                        prop:value=join_input
-                        on:input:target=move |ev| set_join_input.set(ev.target().value())
-                    />
-                </label>
-                <button class="btn btn--primary" type="submit">"Entrar na sala"</button>
-            </form>
-
-            <p class="status-text status-text--error" class:hidden=move || join_status.get().is_empty()>
-                {join_status}
-            </p>
         </div>
         </div>
     }

@@ -146,7 +146,9 @@ body:has(.room-page) {
    with no mouse movement and comes back on the first move (see
    `setup_auto_hide_controls` in grid.rs). Uses opacity/pointer-events
    instead of `class:hidden` (which is instant display:none) to get a smooth
-   transition, like the fade on Discord's own call bar. */
+   transition, like the fade on Discord's own call bar. Grouped into pills
+   (regular controls vs. the leave/danger action) rather than one long row
+   of separate circles, matching Discord's own call-bar layout. */
 .room-controls {
   position: fixed;
   left: 50%;
@@ -156,11 +158,6 @@ body:has(.room-page) {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.6rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(8px);
-  border: 1px solid var(--border);
   opacity: 1;
   transition: opacity 0.25s ease;
 }
@@ -170,14 +167,69 @@ body:has(.room-page) {
   pointer-events: none;
 }
 
-.room-controls .icon-btn {
-  width: 3rem;
-  height: 3rem;
+.control-group {
+  display: flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.4rem;
+  border-radius: 0.85rem;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
 }
 
-.room-controls .icon-btn .icon {
+.control-group--danger {
+  background: var(--error);
+  border-color: var(--error);
+}
+
+.control-group .icon-btn {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 0.6rem;
+}
+
+.control-group .icon-btn .icon {
   width: 1.4rem;
   height: 1.4rem;
+}
+
+/* Inside a pill the buttons sit directly on the pill's own background —
+   only hover/active states get their own highlight, instead of every
+   button carrying its own circle of background color. */
+.control-group .icon-btn--neutral {
+  background: transparent;
+}
+
+.control-group .icon-btn--neutral:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Toggle buttons here carry both `.icon-btn--neutral` (their resting look)
+   and `.icon-btn--active` (added on top when the toggle is on) at once —
+   `.control-group .icon-btn--neutral`'s transparent background otherwise
+   wins on specificity and the "on" state never shows. Restating the accent
+   background/color here, at the same specificity and after it in the
+   cascade, is what makes the highlight actually appear. */
+.control-group .icon-btn--active {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-radius: 0.6rem;
+}
+
+.control-group .icon-btn--active:hover {
+  background: var(--accent-strong);
+  color: var(--accent-ink);
+}
+
+/* Same size/shape as the buttons in the regular control group — just sitting
+   on the red pill instead of the dark one. */
+.control-group--danger .icon-btn {
+  background: transparent;
+}
+
+.control-group--danger .icon-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
 }
 
 /* Pure-CSS approximation of "focus + filmstrip", without duplicating any

@@ -7,6 +7,8 @@ use leptos_router::{
 
 use crate::ui::pages::home::HomePage;
 use crate::ui::pages::room::RoomPage;
+#[cfg(debug_assertions)]
+use crate::ui::pages::room::DevRoomPreviewPage;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -38,11 +40,36 @@ pub fn App() -> impl IntoView {
         <Title text="Compartilhamento de tela"/>
         <Router>
             <main>
-                <Routes fallback=|| "Página não encontrada.".into_view()>
-                    <Route path=StaticSegment("") view=HomePage/>
-                    <Route path=(StaticSegment("r"), ParamSegment("code")) view=RoomPage/>
-                </Routes>
+                {app_routes()}
             </main>
         </Router>
+    }
+}
+
+/// The dev-only room test bench route only exists in debug builds — a
+/// release build never compiles `app_routes_debug`'s body (the route's own
+/// module is likewise `#[cfg(debug_assertions)]`, see `room/mod.rs`), so
+/// there's no dev-only path to accidentally ship. `<Routes>` types itself
+/// from its exact list of children, which is why this needs two full
+/// versions rather than one `<Routes>` with a conditional child inside it.
+#[cfg(debug_assertions)]
+fn app_routes() -> impl IntoView {
+    view! {
+        <Stylesheet id="dev-preview" href="/styles/dev_preview.css"/>
+        <Routes fallback=|| "Página não encontrada.".into_view()>
+            <Route path=StaticSegment("") view=HomePage/>
+            <Route path=(StaticSegment("r"), ParamSegment("code")) view=RoomPage/>
+            <Route path=(StaticSegment("dev"), StaticSegment("room-preview")) view=DevRoomPreviewPage/>
+        </Routes>
+    }
+}
+
+#[cfg(not(debug_assertions))]
+fn app_routes() -> impl IntoView {
+    view! {
+        <Routes fallback=|| "Página não encontrada.".into_view()>
+            <Route path=StaticSegment("") view=HomePage/>
+            <Route path=(StaticSegment("r"), ParamSegment("code")) view=RoomPage/>
+        </Routes>
     }
 }
