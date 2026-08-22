@@ -290,6 +290,34 @@
   height: 1.3rem;
 }
 
+/* Volume slider stays collapsed to just its icon until hovered/focused, so
+   it doesn't eat into the other action buttons' space by default. */
+.volume-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.volume-control__slider {
+  width: 0;
+  opacity: 0;
+  margin-left: 0;
+  overflow: hidden;
+  accent-color: var(--accent);
+  cursor: pointer;
+  transition:
+    width 0.15s ease,
+    opacity 0.15s ease,
+    margin-left 0.15s ease;
+}
+
+.volume-control:hover .volume-control__slider,
+.volume-control:focus-within .volume-control__slider {
+  width: 5rem;
+  opacity: 1;
+  margin-left: 0.4rem;
+}
+
 /* Cards in the filmstrip (everyone not in focus): the thick colored border
    and background glow that work on a large card look disproportionate on a
    6.5rem-tall rectangle — flattened here for a calmer look, closer to

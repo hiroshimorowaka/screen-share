@@ -29,7 +29,10 @@ use watch::leave_or_stop_watching_handler;
 
 use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
-use crate::ui::components::icons::{icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_video_off};
+use crate::ui::components::icons::{
+    icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off,
+    icon_video_off,
+};
 use crate::ui::components::status::status_meta;
 use crate::ui::components::status_message::StatusMessage;
 
@@ -70,6 +73,8 @@ pub fn RoomPage() -> impl IntoView {
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
     let own_preview_hidden = RwSignal::new(false);
+    let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
+    let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
     let invite_copied = RwSignal::new(false);
@@ -93,7 +98,12 @@ pub fn RoomPage() -> impl IntoView {
 
     let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
 
-    adopt_pending_session(initial_code.clone(), conn.clone(), room_signals, set_requires_password);
+    adopt_pending_session(
+        initial_code.clone(),
+        conn.clone(),
+        room_signals,
+        set_requires_password,
+    );
 
     // Reloading the page while still in a room shouldn't drop back to the
     // nick/password gate — rejoin silently with whatever this same tab used
@@ -106,7 +116,13 @@ pub fn RoomPage() -> impl IntoView {
         }
     }
 
-    start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name, set_requires_password);
+    start_room_check(
+        initial_code.clone(),
+        authenticated,
+        set_room_exists,
+        set_room_name,
+        set_requires_password,
+    );
 
     let manual_join = {
         let join_room = join_room.clone();
@@ -118,7 +134,9 @@ pub fn RoomPage() -> impl IntoView {
             ev.prevent_default();
             let nick_value = nick.get_untracked().trim().to_string();
             let password_value = password.get_untracked();
-            if nick_value.is_empty() || (requires_password.get_untracked() && password_value.is_empty()) {
+            if nick_value.is_empty()
+                || (requires_password.get_untracked() && password_value.is_empty())
+            {
                 set_status.set("Preencha nick e senha.".to_string());
                 return;
             }
@@ -136,10 +154,23 @@ pub fn RoomPage() -> impl IntoView {
         }
     };
 
-    let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id, expanded);
+    let toggle_share = share_toggle_handler(
+        conn.clone(),
+        is_sharing,
+        set_is_sharing,
+        own_preview_hidden,
+        set_status,
+        my_peer_id,
+        expanded,
+    );
     let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
-    let leave_or_stop_watching =
-        leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id, initial_code.clone());
+    let leave_or_stop_watching = leave_or_stop_watching_handler(
+        conn.clone(),
+        watching,
+        expanded,
+        my_peer_id,
+        initial_code.clone(),
+    );
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
@@ -221,6 +252,8 @@ pub fn RoomPage() -> impl IntoView {
                     own_preview_hidden,
                     hide_idle,
                     connection_errors,
+                    volume_by_peer,
+                    muted_by_peer,
                     latency_by_peer,
                 })}
             </div>

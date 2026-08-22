@@ -1,11 +1,16 @@
 use leptos::prelude::*;
 
 use super::connection::RoomConnection;
-use super::media_controls::{exit_fullscreen_if_active, toggle_fullscreen, toggle_picture_in_picture, VideoSlot};
+use super::media_controls::{
+    exit_fullscreen_if_active, set_muted, set_volume, toggle_fullscreen, toggle_picture_in_picture,
+    VideoSlot,
+};
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use super::RoomMember;
 use crate::signaling::protocol::MAX_MEMBERS;
-use crate::ui::components::icons::{icon_eye, icon_maximize, icon_pip, icon_screen_off};
+use crate::ui::components::icons::{
+    icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume, icon_volume_off,
+};
 use crate::ui::components::palette::{avatar_letter, color_hex};
 
 /// Border/background used for a card slot that currently holds no member.
@@ -23,6 +28,8 @@ pub(super) struct MemberCardSignals {
     pub(super) own_preview_hidden: RwSignal<bool>,
     pub(super) hide_idle: RwSignal<bool>,
     pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
+    pub(super) volume_by_peer: RwSignal<std::collections::HashMap<String, f64>>,
+    pub(super) muted_by_peer: RwSignal<std::collections::HashSet<String>>,
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
 }
 
@@ -58,6 +65,8 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
         own_preview_hidden,
         hide_idle,
         connection_errors,
+        volume_by_peer,
+        muted_by_peer,
         latency_by_peer,
     } = signals;
 
@@ -115,6 +124,28 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                 ev.stop_propagation();
                 let peer_id = member_at().map_or(String::new(), |m| m.peer_id);
                 toggle_picture_in_picture(video_slot(), &peer_id);
+            };
+            let is_muted = move || {
+                member_at().is_some_and(|m| muted_by_peer.get().contains(&m.peer_id))
+            };
+            let current_volume_pct = move || {
+                let volume = member_at()
+                    .and_then(|m| volume_by_peer.get().get(&m.peer_id).copied())
+                    .unwrap_or(1.0);
+                (volume * 100.0).round()
+            };
+            let mute_toggle_click = move |ev: leptos::ev::MouseEvent| {
+                ev.stop_propagation();
+                let Some(member) = member_at() else { return };
+                let now_muted = !is_muted();
+                muted_by_peer.update(|set| {
+                    if now_muted {
+                        set.insert(member.peer_id.clone());
+                    } else {
+                        set.remove(&member.peer_id);
+                    }
+                });
+                set_muted(video_slot(), &member.peer_id, now_muted);
             };
             let card_click = move |ev: leptos::ev::MouseEvent| {
                 // Clicking a fullscreen card should just back out of
@@ -238,6 +269,42 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                             >
                                 {icon_pip}
                             </button>
+                            <div
+                                class="volume-control"
+                                class:hidden=move || !is_watching_this()
+                                on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                            >
+                                <button
+                                    class="icon-btn icon-btn--neutral"
+                                    title=move || if is_muted() { "Ativar som" } else { "Silenciar" }
+                                    aria-label=move || if is_muted() { "Ativar som" } else { "Silenciar" }
+                                    on:click=mute_toggle_click
+                                >
+                                    {move || if is_muted() { icon_volume_off().into_any() } else { icon_volume().into_any() }}
+                                </button>
+                                <input
+                                    class="volume-control__slider"
+                                    type="range"
+                                    min="0"
+                                    max="100"
+                                    prop:value=move || if is_muted() { 0.0 } else { current_volume_pct() }
+                                    on:input:target=move |ev| {
+                                        let Some(member) = member_at() else { return };
+                                        let value = ev.target().value();
+                                        let volume = value.parse::<f64>().unwrap_or(100.0) / 100.0;
+                                        volume_by_peer.update(|m| {
+                                            m.insert(member.peer_id.clone(), volume);
+                                        });
+                                        set_volume(video_slot(), &member.peer_id, volume);
+                                        if volume > 0.0 && is_muted() {
+                                            muted_by_peer.update(|set| {
+                                                set.remove(&member.peer_id);
+                                            });
+                                            set_muted(video_slot(), &member.peer_id, false);
+                                        }
+                                    }
+                                />
+                            </div>
                             <button
                                 class="icon-btn icon-btn--danger"
                                 class:hidden=move || !is_watching_this()
