@@ -1,4 +1,4 @@
-/// (id do protocolo, cor da borda/avatar, cor de fundo do card).
+/// (protocol id, border/avatar color, card background color).
 const PALETTE: &[(&str, &str, &str)] = &[
     ("coral", "#ff6b6b", "#3a1f1f"),
     ("amber", "#ffb347", "#3a2a14"),

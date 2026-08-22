@@ -17,7 +17,8 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
 
     let send_task = tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            let json = serde_json::to_string(&msg).unwrap();
+            let json = serde_json::to_string(&msg)
+                .expect("ServerMessage holds only primitives/strings, so it always serializes");
             if ws_sender.send(Message::Text(json.into())).await.is_err() {
                 break;
             }

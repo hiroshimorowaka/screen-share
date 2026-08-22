@@ -1,0 +1,139 @@
+use leptos::prelude::*;
+
+use super::connection::RoomConnection;
+
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn share_supported() -> bool {
+    true
+}
+
+#[cfg(feature = "hydrate")]
+pub(super) fn share_supported() -> bool {
+    crate::ui::client::webrtc::is_display_media_supported()
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn share_toggle_handler(
+    _conn: RoomConnection,
+    _is_sharing: ReadSignal<bool>,
+    _set_is_sharing: WriteSignal<bool>,
+    _own_preview_hidden: RwSignal<bool>,
+    _set_status: WriteSignal<String>,
+    _my_peer_id: ReadSignal<Option<String>>,
+    _expanded: RwSignal<Option<String>>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    move |_| {}
+}
+
+#[cfg(feature = "hydrate")]
+pub(super) fn share_toggle_handler(
+    conn: RoomConnection,
+    is_sharing: ReadSignal<bool>,
+    set_is_sharing: WriteSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
+    set_status: WriteSignal<String>,
+    my_peer_id: ReadSignal<Option<String>>,
+    expanded: RwSignal<Option<String>>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+    use leptos::task::spawn_local;
+    use wasm_bindgen::JsCast;
+    use web_sys::MediaStreamTrack;
+
+    use crate::signaling::protocol::ClientMessage;
+    use crate::ui::client::webrtc::capture_display;
+
+    move |_| {
+        if is_sharing.get_untracked() {
+            stop_sharing(&conn, set_is_sharing, own_preview_hidden, expanded, my_peer_id);
+            return;
+        }
+
+        let conn = conn.clone();
+        let my_peer_id_value = my_peer_id.get_untracked();
+        set_status.set("Selecione a tela para compartilhar...".to_string());
+
+        spawn_local(async move {
+            let stream = match capture_display().await {
+                Ok(stream) => stream,
+                Err(_) => {
+                    set_status.set("Conectado.".to_string());
+                    return;
+                }
+            };
+
+            if let Some(peer_id) = my_peer_id_value.as_deref() {
+                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                    if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
+                        let video: web_sys::HtmlVideoElement = video.unchecked_into();
+                        video.set_src_object(Some(&stream));
+                        let _ = video.play();
+                    }
+                }
+            }
+            *conn.local_stream.borrow_mut() = Some(stream.clone());
+            set_is_sharing.set(true);
+
+            // The browser's own native "Stop sharing" button fires `onended`
+            // directly on the track, without going through our `toggle_share`.
+            if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
+                let conn_for_end = conn.clone();
+                let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                    stop_sharing(&conn_for_end, set_is_sharing, own_preview_hidden, expanded, my_peer_id);
+                });
+                track.set_onended(Some(onended.as_ref().unchecked_ref()));
+                onended.forget();
+            }
+
+            if let Some(ws) = conn.ws.borrow().as_ref() {
+                ws.send(&ClientMessage::StartShare);
+            }
+        });
+    }
+}
+
+#[cfg(feature = "hydrate")]
+pub(super) fn stop_sharing(
+    conn: &RoomConnection,
+    set_is_sharing: WriteSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
+    expanded: RwSignal<Option<String>>,
+    my_peer_id: ReadSignal<Option<String>>,
+) {
+    use wasm_bindgen::JsCast;
+
+    if let Some(stream) = conn.local_stream.borrow_mut().take() {
+        for track in stream.get_tracks().iter() {
+            let track: web_sys::MediaStreamTrack = track.unchecked_into();
+            track.stop();
+        }
+    }
+    // The preview `<video>` keeps its `srcObject` pointing at this stream
+    // even after the tracks are stopped — on several Chromium builds that
+    // alone is enough to keep the native sharing indicator (red dot on the
+    // tab + "stop sharing" bar) visible. Clearing `srcObject` removes the
+    // last reference and actually releases the indicator.
+    if let Some(peer_id) = my_peer_id.get_untracked() {
+        if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+            if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
+                let video: web_sys::HtmlVideoElement = video.unchecked_into();
+                video.set_src_object(None);
+            }
+        }
+    }
+    for (_, pc) in conn.outgoing.borrow_mut().drain() {
+        pc.close();
+    }
+    if let Some(ws) = conn.ws.borrow().as_ref() {
+        ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
+    }
+    set_is_sharing.set(false);
+    own_preview_hidden.set(false);
+    // The server only sends `PeerStoppedSharing` to the other members, so
+    // nobody else collapses the focus for us — without this the grid would
+    // stay stuck in `grid--focused` with an empty card.
+    expanded.update(|current| {
+        if *current == my_peer_id.get_untracked() {
+            *current = None;
+        }
+    });
+}

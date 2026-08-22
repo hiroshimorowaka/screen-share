@@ -1,6 +1,31 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Guidance for AI agents and humans working in this repository.
+
+---
+
+## 1. Language policy
+
+**English:** code, identifiers, comments, doc comments, commit messages, branch
+names, issue titles and bodies, PR, log strings, generated docs.
+
+**Portuguese (pt-BR):** conversation with the maintainer.
+
+No mixing. A Portuguese identifier or commit message is a defect.
+
+Be concise and prioritize brevity over completeness. Respond with only the information necessary to answer the request or complete the task.
+
+* Avoid unnecessary explanations, introductions, conclusions, and repetition.
+* Keep responses as short as possible while remaining accurate.
+* Prefer bullet points over long paragraphs when appropriate.
+* Do not explain obvious concepts unless explicitly asked.
+* Focus on actionable information instead of background context.
+* Do not restate the user's request or summarize your own response.
+* Assume the reader is technically proficient unless stated otherwise.
+
+Default to minimal responses. Expand only when the user explicitly requests more detail.
+
+---
 
 ## What this project is
 
@@ -210,3 +235,137 @@ connection, clipboard access) is exercised by hand in a real browser
 instead; there is no browser automation harness in this repo for that
 layer, so changes touching `client/` or the pages should be sanity-checked
 in an actual browser before being considered done.
+
+## Rust and Leptos coding practices
+
+General practices to keep this codebase clean, testable, and cheap to
+extend as it grows past the pilot feature set.
+
+### Engineering philosophy
+
+Every abstraction must earn its existence — a trait, a generic, or a new
+layer is justified only if it improves testability, isolates the
+browser/WebRTC boundary, reduces coupling, or expresses a domain concept
+(a room, a member, a share). If it doesn't do one of those, it's making
+the code harder to follow for no return.
+
+- Prefer simple code over generic code.
+- Prefer explicit code over reusable code until there's a second real call
+  site — not a hypothetical one.
+- Optimize for correctness first, maintainability second, performance
+  third.
+- Write for the next person reading this without you around to explain
+  it — future maintainability outweighs saving a few lines.
+
+### Code quality
+
+- Single responsibility per function, module, and component — one reason
+  for each to change.
+- Small functions and small components with one clear purpose; if a
+  component's body doesn't fit on screen, split it.
+- High cohesion, low coupling. Keep browser-only code behind the
+  `hydrate`/`ssr` split described above rather than sprinkling `#[cfg(...)]`
+  through shared logic.
+- Remove duplication, but never at the cost of readability — a little
+  repetition beats the wrong abstraction.
+- Explicitness over cleverness; readability over premature optimization.
+- Push logic that doesn't need a browser or a live connection (parsing,
+  validation, the status-classification function, room-code generation,
+  etc.) into plain functions that can be unit tested, rather than burying
+  it inside a component or a `web-sys` callback.
+
+### Complexity and control flow
+
+- Prefer early returns over deep nesting.
+- Split complex logic into smaller pure functions rather than growing one
+  function to cover every case.
+- If a function can't be understood without scrolling, it's doing too
+  much.
+
+### State and mutability
+
+- Prefer immutable data; reach for `mut` (or a `RwSignal`/`WriteSignal`)
+  only when the value genuinely changes.
+- Keep mutable state as local as possible — don't thread a signal or a
+  `&mut` further than it needs to go.
+- Model state transitions explicitly (a matched enum, as with the
+  status-driven UI's idle/busy/live/error classification) rather than a
+  handful of booleans that can drift out of sync with each other.
+- Minimize what's shared across components; prefer passing signals down
+  explicitly over reaching for global state.
+
+### Constants
+
+Avoid magic numbers and literals (timeouts, retry counts, the 10-member
+room cap, reconnect delays). Give each a named `const` with a short
+comment explaining why that value, not just what it is.
+
+### Function design
+
+- Prefer early returns to reduce nesting.
+- Prefer borrowing (`&str`, `&[T]`) over taking ownership when the
+  function doesn't need to keep the value.
+- Limit public function parameters to five or fewer; past that, introduce
+  a small config/context struct instead of a long parameter list.
+- Avoid boolean flag parameters — prefer an enum that names the behavior,
+  or split into two functions.
+- Prefer iterator combinators over manual loops when they read more
+  clearly; don't force them where a plain loop is clearer.
+
+### Type design
+
+- Prefer domain-specific newtypes over bare primitives where a value has
+  meaning beyond its representation (a room code, a nick, a hex color)
+  rather than passing raw `String`s everywhere.
+- Derive only the traits actually used — an unused `Clone` or `Default` is
+  noise and a maintenance liability.
+- Keep struct fields private unless external mutation is genuinely
+  required; expose behavior through methods.
+- Represent impossible states as impossible types where practical — an
+  enum variant that can't coexist with a field should replace that field,
+  not add a runtime check for it (e.g. a `SharingState` enum instead of an
+  `is_sharing: bool` plus a separately-tracked stream handle that may or
+  may not be `None` in sync with it).
+
+### API design
+
+Public functions, server functions, and module boundaries should be:
+
+- **predictable** — the same shape of input produces the same shape of
+  output, no hidden side effects;
+- **minimal** — expose what the caller needs, nothing else;
+- **orthogonal** — independent capabilities are independent
+  functions/types, not one function with a mode switch.
+
+Design around domain concepts (`Room`, `Member`, `SignalMessage`) rather
+than leaking implementation details (internal registry data structures,
+raw WebSocket frames) across a module boundary.
+
+### Comments
+
+Comments explain **why**, never **what** the code already says. If code
+needs a comment to explain what it does, rewrite it until the intent is
+obvious instead of narrating around it. A comment earns its place by
+capturing a constraint or a piece of context that isn't visible in the
+code itself (e.g. why a particular WebRTC/browser quirk is being worked
+around).
+
+### Error handling
+
+- Use concrete error types (an enum implementing `std::error::Error`, or
+  Leptos's `ServerFnError`) rather than stringly-typed errors passed
+  around as `String`.
+- Avoid `.unwrap()`/`.expect()`/`panic!` outside tests and outside cases
+  that are genuinely infallible (and say so in a comment when non-obvious
+  at the call site); a panic on the server takes the whole process down,
+  a panic in `hydrate` code takes down the tab.
+- Avoid opaque catch-all error variants — each variant should make it
+  possible to tell what failed and what the caller (or the UI) should do
+  about it (retry, show a message, redirect home).
+
+### Dependencies and lints
+
+- Run `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
+  before considering a change done; fix warnings rather than silencing
+  them, and if a lint must be allowed, do it at the item level with a
+  short reason, not at the crate level.

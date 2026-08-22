@@ -1,0 +1,281 @@
+.card {
+  position: relative;
+  min-height: 0;
+  border-radius: 0.6rem;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Background is always neutral (it used to be the member's color as a
+     solid block, which turned into a wall of saturated color with several
+     cards side by side) — the member's color now only shows up as a subtle
+     glow behind the avatar and in the border ring, in the spirit of
+     Discord. */
+  background:
+    radial-gradient(
+      ellipse 65% 55% at 50% 38%,
+      color-mix(in srgb, var(--member-accent, var(--accent)) 16%, transparent),
+      transparent 70%
+    ),
+    var(--surface-2);
+  border: 2px solid var(--border);
+  transition: filter 0.1s ease;
+}
+
+.card--clickable {
+  cursor: pointer;
+}
+
+.card--clickable:hover {
+  filter: brightness(1.08);
+}
+
+/* In fullscreen (the maximize button puts the .card, not the <video>, into
+   fullscreen — see the comment on request_fullscreen in media_controls.rs),
+   the card fills the whole window: the rounded colored border no longer
+   makes sense, so it disappears too. The viewer badge and the footer with
+   the nick stay visible normally, since they are children of the .card
+   itself. */
+.card:fullscreen {
+  border: none;
+  border-radius: 0;
+  background: #000;
+}
+
+.card video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+/* `vmin` scales with the card's size (which is now dynamic, see `.grid`) —
+   without this the avatar was tiny and lost in the middle of a card filling
+   the whole screen (a room with 1-2 people), the same way Discord enlarges
+   the avatar of someone not streaming in calls with few people. */
+.card__avatar {
+  width: clamp(3rem, 14vmin, 9rem);
+  height: clamp(3rem, 14vmin, 9rem);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid;
+}
+
+.card__avatar-letter {
+  font-size: clamp(1.2rem, 5.5vmin, 3.5rem);
+  font-weight: 700;
+  color: #fff;
+}
+
+.card__error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 1rem;
+  color: var(--error);
+  font-size: 0.85rem;
+  background: #111;
+}
+
+/* Viewer count (eye icon + number), visible to both the sharer and their
+   viewers alike — it isn't an action, so it stays visible whenever the
+   person is streaming, without depending on hover. Hovering reveals who
+   they are, in its own tooltip. */
+.watcher-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.watcher-badge .icon {
+  width: 0.9rem;
+  height: 0.9rem;
+}
+
+.watcher-badge__tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 0.35rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 0.5rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+
+.watcher-badge:hover .watcher-badge__tooltip {
+  opacity: 1;
+}
+
+.grid--focused .card:not(.card--focus) .watcher-badge {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.65rem;
+  top: 0.25rem;
+  right: 0.25rem;
+}
+
+.grid--focused .card:not(.card--focus) .watcher-badge .icon {
+  width: 0.7rem;
+  height: 0.7rem;
+}
+
+/* Discord style: instead of a discreet button among others in the footer,
+   the invitation to watch takes over the whole banner while the person
+   isn't being watched yet — it disappears as soon as someone clicks it (or
+   as soon as the share ends). */
+.card__watch-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.card__watch-overlay:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.card__watch-overlay-icon {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-size: 1.1rem;
+}
+
+.card__footer {
+  position: absolute;
+  left: 0.5rem;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  /* Makes the footer's empty area "transparent" to clicks — only the nick
+     pill and the action buttons (which restore pointer-events: auto) catch
+     clicks; everything else passes straight through to the .card, which
+     expands/collapses. */
+  pointer-events: none;
+}
+
+.card__nick {
+  pointer-events: auto;
+  max-width: 60%;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Discord style: per-card controls only appear on mouse hover (or keyboard
+   focus), instead of always being visible and competing with the video. */
+.card__actions {
+  pointer-events: auto;
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.card:hover .card__actions,
+.card:focus-within .card__actions {
+  opacity: 1;
+}
+
+/* Stop watching and fullscreen are a card's most used actions — a bit
+   bigger than the other icon-btns (e.g. leave room) to make them easier to
+   click accurately. */
+.card__actions .icon-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.card__actions .icon-btn .icon {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+/* Cards in the filmstrip (everyone not in focus): the thick colored border
+   and background glow that work on a large card look disproportionate on a
+   6.5rem-tall rectangle — flattened here for a calmer look, closer to
+   Discord's participant list. `!important` because the border color comes
+   from inline `style` (per member) and needs to be overridden here. */
+.grid--focused .card:not(.card--focus) {
+  border: 1px solid var(--border) !important;
+  background: var(--surface-2);
+}
+
+.grid--focused .card:not(.card--focus) .card__avatar {
+  width: 2.5rem;
+  height: 2.5rem;
+}
+
+.grid--focused .card:not(.card--focus) .card__avatar-letter {
+  font-size: 1.1rem;
+}
+
+.grid--focused .card:not(.card--focus) .card__actions {
+  display: none;
+}
+
+.grid--focused .card:not(.card--focus) .card__watch-overlay {
+  gap: 0.15rem;
+  font-size: 0;
+}
+
+.grid--focused .card:not(.card--focus) .card__watch-overlay-icon {
+  width: 1.6rem;
+  height: 1.6rem;
+  font-size: 0.7rem;
+}

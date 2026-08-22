@@ -6,7 +6,7 @@ pub fn hash_password(password: &str) -> String {
     let salt = SaltString::generate(&mut OsRng);
     Argon2::default()
         .hash_password(password.as_bytes(), &salt)
-        .expect("hashing de senha não deveria falhar")
+        .expect("argon2 hashing a valid UTF-8 password should never fail")
         .to_string()
 }
 

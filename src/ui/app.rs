@@ -5,8 +5,8 @@ use leptos_router::{
     ParamSegment, StaticSegment,
 };
 
-use crate::pages::home::HomePage;
-use crate::pages::room::RoomPage;
+use crate::ui::pages::home::HomePage;
+use crate::ui::pages::room::RoomPage;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
@@ -31,7 +31,10 @@ pub fn App() -> impl IntoView {
     provide_meta_context();
 
     view! {
-        <Stylesheet id="leptos" href="/pkg/screen_share.css"/>
+        <Stylesheet id="base" href="/styles/base.css"/>
+        <Stylesheet id="home" href="/styles/home.css"/>
+        <Stylesheet id="room" href="/styles/room.css"/>
+        <Stylesheet id="card" href="/styles/card.css"/>
         <Title text="Compartilhamento de tela"/>
         <Router>
             <main>

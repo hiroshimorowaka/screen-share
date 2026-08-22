@@ -1,5 +1,6 @@
-/// Classifica a frase de status direto, sem um enum de estado separado — a
-/// frase já é a fonte única de verdade exibida pelos componentes.
+/// Classifies the status sentence directly, without a separate state enum —
+/// the sentence itself is already the single source of truth shown by the
+/// components.
 pub fn status_meta(status: &str) -> (&'static str, &'static str) {
     match status {
         "Pronto para compartilhar." => ("idle", "PRONTO"),

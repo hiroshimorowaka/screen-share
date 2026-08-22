@@ -1,0 +1,222 @@
+/* The room page (member grid) fills the whole window (height: 100vh) on its
+   own — the body's default padding (meant to center the <div class="panel">
+   of the form screens) has to be zeroed here, or it adds to the 100vh and
+   the whole page gets a scrollbar that shouldn't exist. */
+body:has(.room-page) {
+  padding: 0;
+}
+
+.room-page {
+  width: 100%;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.stage-header {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  padding: 0.85rem 1.25rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+}
+
+.room-page .stage-header {
+  flex-wrap: wrap;
+}
+
+/* "Convidar" button in the room header — copies the invite link to the
+   clipboard. */
+.invite-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 0.6rem;
+  padding: 0.4rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease;
+}
+
+.invite-btn:hover {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
+.invite-btn .icon {
+  width: 1rem;
+  height: 1rem;
+}
+
+.invite-btn--copied {
+  border-color: var(--accent-strong);
+  color: var(--accent-strong);
+}
+
+/* No fixed `grid-template-columns/rows` here on purpose — that's set by
+   `recompute_adaptive_grid` (grid.rs), computed from the container's actual
+   pixel size and how many cards are visible, just like Discord: 1 person
+   fills the whole screen, 2 sit side by side (or stacked, if the window is
+   taller than it is wide), and so on. A static `grid-template` can't handle
+   this — a fixed value would leave tiny cards floating in a giant container
+   when there are few members, or huge cards squeezed together when there
+   are many. */
+.grid {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  overflow-y: auto;
+  background: #000;
+}
+
+/* Round icon-only buttons — used for a card's "dangerous"/quick actions
+   (stop watching, fullscreen) and in the header (leave room), in the style
+   of Discord's call controls. */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease;
+}
+
+.icon-btn:active {
+  transform: scale(0.92);
+}
+
+.icon-btn .icon {
+  width: 1.05rem;
+  height: 1.05rem;
+}
+
+.icon-btn--danger {
+  background: var(--error);
+  color: #fff;
+}
+
+.icon-btn--danger:hover {
+  background: color-mix(in srgb, var(--error) 85%, white 15%);
+}
+
+.icon-btn--neutral {
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+}
+
+.icon-btn--neutral:hover {
+  background: rgba(0, 0, 0, 0.75);
+  color: var(--accent-strong);
+}
+
+/* "On" state of an icon-btn that acts as a toggle (e.g. the hide-idle and
+   hide-my-preview buttons on the floating bar) — needs to look visibly
+   different from the normal state even without hover. */
+.icon-btn--active {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.icon-btn--active:hover {
+  background: var(--accent-strong);
+  color: var(--accent-ink);
+}
+
+/* Discord-style floating bar with the room controls (share, hide idle
+   members, hide my preview, leave) — fades out on its own after a while
+   with no mouse movement and comes back on the first move (see
+   `setup_auto_hide_controls` in grid.rs). Uses opacity/pointer-events
+   instead of `class:hidden` (which is instant display:none) to get a smooth
+   transition, like the fade on Discord's own call bar. */
+.room-controls {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.6rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--border);
+  opacity: 1;
+  transition: opacity 0.25s ease;
+}
+
+.room-controls--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.room-controls .icon-btn {
+  width: 3rem;
+  height: 3rem;
+}
+
+.room-controls .icon-btn .icon {
+  width: 1.4rem;
+  height: 1.4rem;
+}
+
+/* Pure-CSS approximation of "focus + filmstrip", without duplicating any
+   element (each card's <video> is unique and must stay the same DOM node
+   for ontrack/srcObject to keep working). Replaces the base `.grid`'s
+   flexbox with a grid: two explicit rows — one that consumes all leftover
+   vertical space (row 1, `minmax(0, 1fr)`), reserved just for the focused
+   card via `grid-row: 1`, and a short filmstrip below it (row 2, where the
+   non-focused cards auto-place themselves) — like Discord, the participant
+   list sits below the focused stream, not above it. The filmstrip columns
+   use `auto-fit` with a fixed cap (not `1fr`) so empty space is left at the
+   edges when there are few members, and `justify-content: center` centers
+   that leftover space — the filmstrip ends up centered instead of
+   stretched edge to edge. `grid-row: 1` (a fully explicit position, unlike
+   a `grid-row: span N` with a fixed rem height) makes the focused video
+   really fill the screen regardless of window height, and guarantees it is
+   positioned BEFORE the filmstrip cards no matter their order in the DOM.
+   If there are more members than fit in a single filmstrip row, the
+   overflow falls into a 3rd row (same height as the filmstrip) — also below
+   the focused video, so the filmstrip only grows downward. */
+.grid--focused {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 11rem));
+  grid-template-rows: minmax(0, 1fr) 6.5rem;
+  grid-auto-rows: 6.5rem;
+  justify-content: center;
+}
+
+/* Outside focus mode, cards use flex-basis/aspect-ratio (see `.card`);
+   inside the grid they need to cede that control to the column/row size, or
+   the two sizing systems fight each other. */
+.grid--focused .card {
+  flex: unset;
+  min-width: unset;
+  max-width: unset;
+  aspect-ratio: unset;
+}
+
+.card--focus {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
