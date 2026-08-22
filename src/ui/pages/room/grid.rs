@@ -128,6 +128,33 @@ pub(super) fn setup_adaptive_grid(
     on_resize.forget();
 }
 
+/// Picks how many columns get each tile closest to a 16:9 rectangle, given
+/// the container's actual pixel size. Checks every candidate directly
+/// (there are at most `MAX_MEMBERS` of them) instead of a closed-form
+/// approximation — a single-shot formula can land tiles far from 16:9 for
+/// odd member counts on a wide window (5 people never splits evenly into a
+/// 16:9 tile, and the wrong column count stretched tiles into ~3:1
+/// rectangles instead of something roughly square). Comparing aspect ratios
+/// as a log-ratio treats "too wide" and "too tall" symmetrically, so it
+/// doesn't systematically favor one over the other.
+///
+/// Only called from `recompute_adaptive_grid`, which is `hydrate`-only — an
+/// `ssr`-only, non-test compile never calls this and would otherwise flag
+/// it as dead code.
+#[cfg_attr(not(any(feature = "hydrate", test)), allow(dead_code))]
+fn best_column_count(visible: usize, width: f64, height: f64) -> usize {
+    const TILE_ASPECT: f64 = 16.0 / 9.0;
+
+    (1..=visible)
+        .map(|cols| {
+            let rows = visible.div_ceil(cols);
+            let tile_aspect = (width / cols as f64) / (height / rows as f64);
+            (cols, (tile_aspect / TILE_ASPECT).ln().abs())
+        })
+        .min_by(|(_, a), (_, b)| a.total_cmp(b))
+        .map_or(1, |(cols, _)| cols)
+}
+
 #[cfg(feature = "hydrate")]
 fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
     use wasm_bindgen::JsCast;
@@ -141,9 +168,21 @@ fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
         // `.grid--focused` already defines its own grid-template via CSS —
         // clear any inline value left by normal mode, or the inline value
         // (which takes priority over the class rule) locks up focus mode's
-        // layout.
+        // layout. Same for the per-card `grid-column`/`grid-row` normal mode
+        // sets to center a sparse last row — left in place, their higher
+        // specificity than any class rule would misplace the filmstrip
+        // cards too.
         let _ = style.remove_property("grid-template-columns");
         let _ = style.remove_property("grid-template-rows");
+        if let Ok(cards) = grid.query_selector_all(".card") {
+            for i in 0..cards.length() {
+                let Some(card) = cards.item(i).and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok()) else {
+                    continue;
+                };
+                let _ = card.style().remove_property("grid-column");
+                let _ = card.style().remove_property("grid-row");
+            }
+        }
         return;
     }
 
@@ -159,16 +198,67 @@ fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
         return;
     }
 
-    // Classic video-call grid formula: pick the number of columns that gets
-    // each cell as close as possible to a 16:9 rectangle, given the
-    // container's actual aspect ratio — that's why 2 people sit side by
-    // side in a wide window but stacked in a narrow one.
-    const TILE_ASPECT: f64 = 16.0 / 9.0;
-    let container_ratio = width / height;
-    let raw_cols = ((visible as f64) * container_ratio / TILE_ASPECT).sqrt();
-    let cols = (raw_cols.round().max(1.0) as usize).min(visible);
+    let cols = best_column_count(visible, width, height);
     let rows = visible.div_ceil(cols);
 
-    let _ = style.set_property("grid-template-columns", &format!("repeat({cols}, minmax(0, 1fr))"));
+    // Each real column is two grid tracks wide, so a sparse last row (fewer
+    // cards than `cols`) can be centered — like Discord's own call grid —
+    // by giving just that row's cards a start offset in half-column units,
+    // instead of leaving them left-aligned by default auto-placement. Every
+    // card gets an explicit `grid-column`/`grid-row` rather than relying on
+    // auto-placement for the rest: mixing an explicit offset for some cards
+    // with auto-placed siblings isn't guaranteed to land them in the same
+    // row.
+    let _ = style.set_property("grid-template-columns", &format!("repeat({}, minmax(0, 1fr))", cols * 2));
     let _ = style.set_property("grid-template-rows", &format!("repeat({rows}, minmax(0, 1fr))"));
+
+    let remainder = visible % cols;
+    let last_row_start = visible - remainder;
+    let center_offset = cols - remainder;
+
+    for i in 0..visible {
+        let Some(card) = list.item(i as u32).and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok()) else {
+            continue;
+        };
+
+        let (row, slot_in_row, row_len) = if remainder > 0 && i >= last_row_start {
+            (rows, i - last_row_start, remainder)
+        } else {
+            (i / cols + 1, i % cols, cols)
+        };
+        let offset = if row_len < cols { center_offset } else { 0 };
+        let start = 1 + offset + slot_in_row * 2;
+
+        let card_style = card.style();
+        let _ = card_style.set_property("grid-column", &format!("{start} / span 2"));
+        let _ = card_style.set_property("grid-row", &row.to_string());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn best_column_count_picks_the_aspect_closest_to_16_9() {
+        assert_eq!(best_column_count(1, 1920.0, 900.0), 1);
+        assert_eq!(best_column_count(2, 1920.0, 900.0), 2);
+        assert_eq!(best_column_count(3, 1920.0, 900.0), 2);
+        assert_eq!(best_column_count(5, 1920.0, 900.0), 3);
+        assert_eq!(best_column_count(10, 1920.0, 900.0), 4);
+    }
+
+    #[test]
+    fn best_column_count_never_exceeds_the_member_count() {
+        for visible in 1..=10 {
+            assert!(best_column_count(visible, 1920.0, 900.0) <= visible);
+        }
+    }
+
+    #[test]
+    fn best_column_count_is_never_zero() {
+        for visible in 1..=10 {
+            assert!(best_column_count(visible, 1920.0, 900.0) >= 1);
+        }
+    }
 }
