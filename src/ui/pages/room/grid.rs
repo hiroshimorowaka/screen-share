@@ -59,7 +59,7 @@ pub(super) fn setup_auto_hide_controls(
 
     let on_move = {
         let show_and_schedule_hide = show_and_schedule_hide.clone();
-        Closure::<dyn FnMut()>::new(move || show_and_schedule_hide())
+        Closure::<dyn FnMut()>::new(show_and_schedule_hide)
     };
     let _ = window.add_event_listener_with_callback("mousemove", on_move.as_ref().unchecked_ref());
     on_move.forget();
@@ -121,7 +121,7 @@ pub(super) fn setup_adaptive_grid(
         schedule_recompute();
     });
 
-    let on_resize = Closure::<dyn FnMut()>::new(move || schedule_recompute());
+    let on_resize = Closure::<dyn FnMut()>::new(schedule_recompute);
     if let Some(window) = web_sys::window() {
         let _ = window.add_event_listener_with_callback("resize", on_resize.as_ref().unchecked_ref());
     }

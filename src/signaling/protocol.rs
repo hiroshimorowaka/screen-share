@@ -9,8 +9,8 @@ pub struct MemberInfo {
     pub color: String,
 }
 
-/// Quem já assiste cada sharer ativo, mandado no snapshot de entrada — evita
-/// esperar o primeiro `WatchersChanged` pra mostrar a contagem certa.
+/// Who's already watching each active sharer, sent in the join snapshot —
+/// avoids waiting for the first `WatchersChanged` to show the right count.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WatcherInfo {
     pub sharer_id: String,
@@ -53,15 +53,15 @@ pub enum ServerMessage {
     RoomFull,
     PeerJoined { peer_id: String, nick: String, color: String },
     PeerLeft { peer_id: String },
-    /// Só pra quem foi desconectado por reentrada do mesmo device — nunca
-    /// broadcast; o resto da sala já recebe o `PeerLeft` normal.
+    /// Sent only to whoever was disconnected by a same-device re-join — never
+    /// broadcast; the rest of the room already gets a normal `PeerLeft`.
     Kicked,
     PeerStartedSharing { peer_id: String },
     PeerStoppedSharing { peer_id: String },
     WatchRequested { from: String },
     WatchStopped { from: String },
-    /// Broadcast pra sala inteira, não só pro sharer — qualquer card mostra
-    /// "N assistindo" do ponto de vista de qualquer membro.
+    /// Broadcast to the whole room, not just the sharer — any card shows
+    /// "N watching" from any member's point of view.
     WatchersChanged { sharer_id: String, watchers: Vec<String> },
     Offer { from: String, sdp: String },
     Answer { from: String, sdp: String },
@@ -74,8 +74,8 @@ pub enum ServerMessage {
     },
 }
 
-/// Resposta de `GET /api/rooms/:code`. `name`/`member_count` são omitidos
-/// do JSON quando `exists` é `false`.
+/// Response for `GET /api/rooms/:code`. `name`/`member_count` are omitted
+/// from the JSON when `exists` is `false`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoomStatus {
     pub exists: bool,

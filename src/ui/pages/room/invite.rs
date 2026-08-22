@@ -5,8 +5,11 @@ pub(super) fn invite_click_handler(_room_code: String, _invite_copied: RwSignal<
     move |_| {}
 }
 
-/// `invite_copied` stays on for 2s only to visually confirm the copy — the
+/// How long `invite_copied` stays on to visually confirm the copy — the
 /// Clipboard API doesn't notify on its own.
+#[cfg(feature = "hydrate")]
+const COPIED_INDICATOR_MS: i32 = 2000;
+
 #[cfg(feature = "hydrate")]
 pub(super) fn invite_click_handler(room_code: String, invite_copied: RwSignal<bool>) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
@@ -26,7 +29,8 @@ pub(super) fn invite_click_handler(room_code: String, invite_copied: RwSignal<bo
             invite_copied.set(true);
             let Some(window) = web_sys::window() else { return };
             let reset = wasm_bindgen::prelude::Closure::once_into_js(move || invite_copied.set(false));
-            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(reset.as_ref().unchecked_ref(), 2000);
+            let _ = window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(reset.as_ref().unchecked_ref(), COPIED_INDICATOR_MS);
         });
     }
 }

@@ -1,54 +1,72 @@
 use leptos::prelude::*;
 
 use super::connection::RoomConnection;
-use super::media_controls::{toggle_fullscreen, toggle_picture_in_picture};
+use super::media_controls::{toggle_fullscreen, toggle_picture_in_picture, VideoSlot};
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use super::RoomMember;
 use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::icons::{icon_eye, icon_maximize, icon_pip, icon_screen_off};
 use crate::ui::components::palette::{avatar_letter, color_hex};
 
+/// Border/background used for a card slot that currently holds no member.
+const EMPTY_SLOT_COLORS: (&str, &str) = ("#b0b8c1", "#2a2d31");
+
+/// Everything a member card needs to render itself and react to room state.
+#[derive(Clone, Copy)]
+pub(super) struct MemberCardSignals {
+    pub(super) members: ReadSignal<Vec<RoomMember>>,
+    pub(super) my_peer_id: ReadSignal<Option<String>>,
+    pub(super) is_sharing: ReadSignal<bool>,
+    pub(super) watching: RwSignal<std::collections::HashSet<String>>,
+    pub(super) expanded: RwSignal<Option<String>>,
+    pub(super) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
+    pub(super) own_preview_hidden: RwSignal<bool>,
+    pub(super) hide_idle: RwSignal<bool>,
+    pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
+}
+
 /// `MAX_MEMBERS` fixed, static cards, not a reactive `<For>` — the buttons
 /// capture `RoomConnection` (`Rc<RefCell<...>>`, not Send + Sync, which
 /// Leptos 0.8 requires of `<For>` children). Slot `i` shows whoever is in
 /// position `i` of `members`, not a fixed member.
-pub(super) fn member_cards(
-    conn: RoomConnection,
-    members: ReadSignal<Vec<RoomMember>>,
-    my_peer_id: ReadSignal<Option<String>>,
-    is_sharing: ReadSignal<bool>,
-    watching: RwSignal<std::collections::HashSet<String>>,
-    expanded: RwSignal<Option<String>>,
-    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    own_preview_hidden: RwSignal<bool>,
-    hide_idle: RwSignal<bool>,
-    connection_errors: RwSignal<std::collections::HashSet<String>>,
-) -> Vec<impl IntoView> {
+pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> Vec<impl IntoView> {
+    let MemberCardSignals {
+        members,
+        my_peer_id,
+        is_sharing,
+        watching,
+        expanded,
+        watchers_by_sharer,
+        own_preview_hidden,
+        hide_idle,
+        connection_errors,
+    } = signals;
+
     (0..MAX_MEMBERS)
         .map(|i| {
             let member_at = move || members.get().get(i).cloned();
             let is_self = move || {
-                member_at()
-                    .zip(my_peer_id.get())
-                    .map(|(m, my_id)| m.peer_id == my_id)
-                    .unwrap_or(false)
+                member_at().zip(my_peer_id.get()).is_some_and(|(m, my_id)| m.peer_id == my_id)
             };
             let is_watching_this = move || {
-                member_at().map(|m| watching.get().contains(&m.peer_id)).unwrap_or(false)
+                member_at().is_some_and(|m| watching.get().contains(&m.peer_id))
             };
             let can_watch = move || {
-                member_at().map(|m| m.sharing).unwrap_or(false) && !is_self() && !is_watching_this()
+                member_at().is_some_and(|m| m.sharing) && !is_self() && !is_watching_this()
             };
             // `RoomMember.sharing` is never `true` on one's own card — the
             // server only sends `PeerStartedSharing` to everyone else.
             let member_is_sharing = move || {
-                member_at().map(|m| m.sharing).unwrap_or(false) || (is_self() && is_sharing.get())
+                member_at().is_some_and(|m| m.sharing) || (is_self() && is_sharing.get())
             };
             let is_expanded = move || {
-                member_at().map(|m| expanded.get().as_deref() == Some(m.peer_id.as_str())).unwrap_or(false)
+                member_at().is_some_and(|m| expanded.get().as_deref() == Some(m.peer_id.as_str()))
             };
             let own_preview_visible = move || is_self() && is_sharing.get() && !own_preview_hidden.get();
             let showing_video = move || own_preview_visible() || (!is_self() && is_watching_this());
+            let border_color = move || {
+                member_at().map_or(EMPTY_SLOT_COLORS, |m| color_hex(&m.color))
+            };
             let watcher_ids = move || {
                 member_at().and_then(|m| watchers_by_sharer.get().get(&m.peer_id).cloned()).unwrap_or_default()
             };
@@ -60,23 +78,23 @@ pub(super) fn member_cards(
                         all_members
                             .iter()
                             .find(|m| &m.peer_id == id)
-                            .map(|m| m.nick.clone())
-                            .unwrap_or_else(|| "alguém".to_string())
+                            .map_or_else(|| "alguém".to_string(), |m| m.nick.clone())
                     })
                     .collect::<Vec<_>>()
             };
 
             let watch = watch_click_handler(conn.clone(), members, watching, i);
             let stop_watch = stop_watching_click_handler(conn.clone(), members, watching, expanded, i);
+            let video_slot = move || if is_self() { VideoSlot::Own } else { VideoSlot::Peer };
             let fullscreen_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
-                let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
-                toggle_fullscreen(is_self(), &peer_id);
+                let peer_id = member_at().map_or(String::new(), |m| m.peer_id);
+                toggle_fullscreen(video_slot(), &peer_id);
             };
             let pip_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
-                let peer_id = member_at().map(|m| m.peer_id).unwrap_or_default();
-                toggle_picture_in_picture(is_self(), &peer_id);
+                let peer_id = member_at().map_or(String::new(), |m| m.peer_id);
+                toggle_picture_in_picture(video_slot(), &peer_id);
             };
             let toggle_focus_click = move |_: leptos::ev::MouseEvent| {
                 if !showing_video() {
@@ -102,7 +120,7 @@ pub(super) fn member_cards(
                     class:card--focus=is_expanded
                     class:card--clickable=showing_video
                     style=move || {
-                        let (border, _bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                        let border = border_color().0;
                         format!("border-color: {border}; --member-accent: {border};")
                     }
                     on:click=toggle_focus_click
@@ -121,31 +139,31 @@ pub(super) fn member_cards(
                         class="card__avatar"
                         class:hidden=showing_video
                         style=move || {
-                            let (border, _bg) = member_at().map(|m| color_hex(&m.color)).unwrap_or(("#b0b8c1", "#2a2d31"));
+                            let border = border_color().0;
                             format!("background-color: color-mix(in srgb, {border} 22%, var(--surface-2)); border-color: {border};")
                         }
                     >
                         <span class="card__avatar-letter">
-                            {move || member_at().map(|m| avatar_letter(&m.nick)).unwrap_or_default()}
+                            {move || member_at().map_or_else(String::new, |m| avatar_letter(&m.nick))}
                         </span>
                     </div>
                     <video
-                        id=move || member_at().map(|m| format!("video-self-{}", m.peer_id)).unwrap_or_default()
-                        class:hidden=move || !(is_self() && showing_video())
+                        id=move || member_at().map_or_else(String::new, |m| format!("video-self-{}", m.peer_id))
+                        class:hidden=move || !is_self() || !showing_video()
                         autoplay=true
                         playsinline=true
                         muted=true
                     ></video>
                     <video
-                        id=move || member_at().map(|m| format!("video-{}", m.peer_id)).unwrap_or_default()
-                        class:hidden=move || !(!is_self() && showing_video())
+                        id=move || member_at().map_or_else(String::new, |m| format!("video-{}", m.peer_id))
+                        class:hidden=move || is_self() || !showing_video()
                         autoplay=true
                         playsinline=true
                     ></video>
                     <div
                         class="card__error"
                         class:hidden=move || {
-                            member_at().map(|m| !connection_errors.get().contains(&m.peer_id)).unwrap_or(true)
+                            member_at().is_none_or(|m| !connection_errors.get().contains(&m.peer_id))
                         }
                     >
                         "Não foi possível conectar."

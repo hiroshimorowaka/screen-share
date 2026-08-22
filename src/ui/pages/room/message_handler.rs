@@ -1,6 +1,8 @@
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 #[cfg(feature = "hydrate")]
+use super::connection::RoomSignals;
+#[cfg(feature = "hydrate")]
 use super::RoomMember;
 
 #[cfg(feature = "hydrate")]
@@ -11,17 +13,15 @@ pub(super) fn apply_joined_snapshot(
     joined_members: Vec<crate::signaling::protocol::MemberInfo>,
     active_sharers: Vec<String>,
     watcher_info: Vec<crate::signaling::protocol::WatcherInfo>,
-    set_my_peer_id: WriteSignal<Option<String>>,
-    set_members: WriteSignal<Vec<RoomMember>>,
-    set_room_name: WriteSignal<Option<String>>,
-    set_authenticated: WriteSignal<bool>,
-    set_status: WriteSignal<String>,
-    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
+    signals: RoomSignals,
 ) {
     use std::collections::HashSet;
 
     use crate::ui::client::storage::save_recent_room;
     use crate::ui::profile::RecentRoom;
+
+    let RoomSignals { set_my_peer_id, set_members, set_room_name, set_authenticated, set_status, watchers_by_sharer, .. } =
+        signals;
 
     let sharer_set: HashSet<String> = active_sharers.into_iter().collect();
     let members: Vec<RoomMember> = joined_members
@@ -39,18 +39,8 @@ pub(super) fn apply_joined_snapshot(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn build_message_handler(
-    set_status: WriteSignal<String>,
-    set_authenticated: WriteSignal<bool>,
-    set_room_name: WriteSignal<Option<String>>,
-    set_members: WriteSignal<Vec<RoomMember>>,
-    set_my_peer_id: WriteSignal<Option<String>>,
     conn: super::connection::RoomConnection,
-    watching: RwSignal<std::collections::HashSet<String>>,
-    expanded: RwSignal<Option<String>>,
-    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    connection_errors: RwSignal<std::collections::HashSet<String>>,
-    set_room_exists: WriteSignal<Option<bool>>,
-    my_peer_id: ReadSignal<Option<String>>,
+    signals: RoomSignals,
 ) -> impl Fn(crate::signaling::protocol::ServerMessage) + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -59,22 +49,22 @@ pub(super) fn build_message_handler(
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
     use crate::ui::client::webrtc::{accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection};
 
+    let RoomSignals {
+        set_status,
+        set_authenticated,
+        set_members,
+        my_peer_id,
+        set_room_exists,
+        watching,
+        expanded,
+        watchers_by_sharer,
+        connection_errors,
+        ..
+    } = signals;
+
     move |msg: ServerMessage| match msg {
         ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers, watcher_info } => {
-            apply_joined_snapshot(
-                room,
-                room_name,
-                peer_id,
-                joined_members,
-                active_sharers,
-                watcher_info,
-                set_my_peer_id,
-                set_members,
-                set_room_name,
-                set_authenticated,
-                set_status,
-                watchers_by_sharer,
-            );
+            apply_joined_snapshot(room, room_name, peer_id, joined_members, active_sharers, watcher_info, signals);
         }
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
         ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
@@ -98,8 +88,12 @@ pub(super) fn build_message_handler(
         }
         ServerMessage::PeerLeft { peer_id } => {
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
-            conn.outgoing.borrow_mut().remove(&peer_id).map(|pc| pc.close());
-            conn.incoming.borrow_mut().remove(&peer_id).map(|pc| pc.close());
+            if let Some(pc) = conn.outgoing.borrow_mut().remove(&peer_id) {
+                pc.close();
+            }
+            if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
+                pc.close();
+            }
             expanded.update(|current| {
                 if current.as_deref() == Some(peer_id.as_str()) {
                     *current = None;

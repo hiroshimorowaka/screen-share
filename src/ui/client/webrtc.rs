@@ -7,7 +7,7 @@ use web_sys::{
 };
 
 pub async fn capture_display() -> Result<MediaStream, JsValue> {
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("sem window"))?;
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
     let media_devices = window.navigator().media_devices()?;
 
     let constraints = DisplayMediaStreamConstraints::new();
@@ -18,10 +18,15 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
     stream.dyn_into::<MediaStream>()
 }
 
+/// A public STUN server, used only so each peer can discover its own
+/// public-facing address for the ICE candidates it offers — no media or
+/// signaling data ever passes through it.
+const STUN_SERVER_URL: &str = "stun:stun.l.google.com:19302";
+
 pub fn new_peer_connection() -> Result<RtcPeerConnection, JsValue> {
     let ice_server = RtcIceServer::new();
     let urls = js_sys::Array::new();
-    urls.push(&JsValue::from_str("stun:stun.l.google.com:19302"));
+    urls.push(&JsValue::from_str(STUN_SERVER_URL));
     ice_server.set_urls(&JsValue::from(urls));
 
     let servers = js_sys::Array::new();
@@ -37,7 +42,7 @@ pub async fn create_offer(pc: &RtcPeerConnection) -> Result<String, JsValue> {
     let offer = JsFuture::from(pc.create_offer()).await?;
     let sdp = js_sys::Reflect::get(&offer, &JsValue::from_str("sdp"))?
         .as_string()
-        .ok_or_else(|| JsValue::from_str("offer sem sdp"))?;
+        .ok_or_else(|| JsValue::from_str("offer has no sdp"))?;
 
     let desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
     desc.set_sdp(&sdp);
@@ -54,7 +59,7 @@ pub async fn create_answer(pc: &RtcPeerConnection, offer_sdp: &str) -> Result<St
     let answer = JsFuture::from(pc.create_answer()).await?;
     let sdp = js_sys::Reflect::get(&answer, &JsValue::from_str("sdp"))?
         .as_string()
-        .ok_or_else(|| JsValue::from_str("answer sem sdp"))?;
+        .ok_or_else(|| JsValue::from_str("answer has no sdp"))?;
 
     let local_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
     local_desc.set_sdp(&sdp);

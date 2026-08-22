@@ -39,21 +39,35 @@ impl RoomConnection {
     }
 }
 
+/// The reactive state a WebSocket message can update, bundled so the
+/// connection-setup and message-routing functions each take one argument
+/// for it instead of the same eleven signals apiece.
+///
+/// Every field is read from `#[cfg(feature = "hydrate")]` code only — the
+/// `ssr` build only ever passes this struct through inert stub functions,
+/// so an `ssr`-only compile sees no reads and would otherwise flag it as
+/// dead code.
+#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
+#[derive(Clone, Copy)]
+pub(super) struct RoomSignals {
+    pub(super) set_status: WriteSignal<String>,
+    pub(super) set_authenticated: WriteSignal<bool>,
+    pub(super) set_room_name: WriteSignal<Option<String>>,
+    pub(super) set_members: WriteSignal<Vec<RoomMember>>,
+    pub(super) set_my_peer_id: WriteSignal<Option<String>>,
+    pub(super) my_peer_id: ReadSignal<Option<String>>,
+    pub(super) set_room_exists: WriteSignal<Option<bool>>,
+    pub(super) watching: RwSignal<std::collections::HashSet<String>>,
+    pub(super) expanded: RwSignal<Option<String>>,
+    pub(super) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
+    pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
+}
+
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn setup_room_connection(
     _room_code: String,
     _conn: RoomConnection,
-    _set_status: WriteSignal<String>,
-    _set_authenticated: WriteSignal<bool>,
-    _set_room_name: WriteSignal<Option<String>>,
-    _set_members: WriteSignal<Vec<RoomMember>>,
-    _set_my_peer_id: WriteSignal<Option<String>>,
-    _watching: RwSignal<std::collections::HashSet<String>>,
-    _expanded: RwSignal<Option<String>>,
-    _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    _connection_errors: RwSignal<std::collections::HashSet<String>>,
-    _set_room_exists: WriteSignal<Option<bool>>,
-    _my_peer_id: ReadSignal<Option<String>>,
+    _signals: RoomSignals,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     move |_nick: String, _color: String, _password: String| {}
 }
@@ -62,17 +76,7 @@ pub(super) fn setup_room_connection(
 pub(super) fn setup_room_connection(
     room_code: String,
     conn: RoomConnection,
-    set_status: WriteSignal<String>,
-    set_authenticated: WriteSignal<bool>,
-    set_room_name: WriteSignal<Option<String>>,
-    set_members: WriteSignal<Vec<RoomMember>>,
-    set_my_peer_id: WriteSignal<Option<String>>,
-    watching: RwSignal<std::collections::HashSet<String>>,
-    expanded: RwSignal<Option<String>>,
-    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    connection_errors: RwSignal<std::collections::HashSet<String>>,
-    set_room_exists: WriteSignal<Option<bool>>,
-    my_peer_id: ReadSignal<Option<String>>,
+    signals: RoomSignals,
 ) -> impl Fn(String, String, String) + Clone + 'static {
     use crate::signaling::protocol::ClientMessage;
     use crate::ui::client::socket::WsClient;
@@ -81,13 +85,15 @@ pub(super) fn setup_room_connection(
 
     use super::message_handler::build_message_handler;
 
+    let RoomSignals { set_status, .. } = signals;
+
     move |nick: String, color: String, password: String| {
         let conn = conn.clone();
         conn.expected_close.set(false);
         let room_code = room_code.clone();
         set_status.set("Conectando...".to_string());
 
-        let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists, my_peer_id);
+        let on_message = build_message_handler(conn.clone(), signals);
 
         match WsClient::connect("/ws", on_message) {
             Ok(ws) => {
@@ -126,46 +132,19 @@ pub(super) fn setup_room_connection(
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn adopt_pending_session(
-    _room_code: String,
-    _conn: RoomConnection,
-    _set_status: WriteSignal<String>,
-    _set_authenticated: WriteSignal<bool>,
-    _set_room_name: WriteSignal<Option<String>>,
-    _set_members: WriteSignal<Vec<RoomMember>>,
-    _set_my_peer_id: WriteSignal<Option<String>>,
-    _watching: RwSignal<std::collections::HashSet<String>>,
-    _expanded: RwSignal<Option<String>>,
-    _watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    _connection_errors: RwSignal<std::collections::HashSet<String>>,
-    _set_room_exists: WriteSignal<Option<bool>>,
-    _my_peer_id: ReadSignal<Option<String>>,
-) {
-}
+pub(super) fn adopt_pending_session(_room_code: String, _conn: RoomConnection, _signals: RoomSignals) {}
 
 #[cfg(feature = "hydrate")]
-pub(super) fn adopt_pending_session(
-    room_code: String,
-    conn: RoomConnection,
-    set_status: WriteSignal<String>,
-    set_authenticated: WriteSignal<bool>,
-    set_room_name: WriteSignal<Option<String>>,
-    set_members: WriteSignal<Vec<RoomMember>>,
-    set_my_peer_id: WriteSignal<Option<String>>,
-    watching: RwSignal<std::collections::HashSet<String>>,
-    expanded: RwSignal<Option<String>>,
-    watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    connection_errors: RwSignal<std::collections::HashSet<String>>,
-    set_room_exists: WriteSignal<Option<bool>>,
-    my_peer_id: ReadSignal<Option<String>>,
-) {
+pub(super) fn adopt_pending_session(room_code: String, conn: RoomConnection, signals: RoomSignals) {
     use crate::ui::client::session;
 
     use super::message_handler::{apply_joined_snapshot, build_message_handler};
 
+    let RoomSignals { set_status, .. } = signals;
+
     let Some(mut session) = session::take(&room_code) else { return };
 
-    let on_message = build_message_handler(set_status, set_authenticated, set_room_name, set_members, set_my_peer_id, conn.clone(), watching, expanded, watchers_by_sharer, connection_errors, set_room_exists, my_peer_id);
+    let on_message = build_message_handler(conn.clone(), signals);
     session.ws.set_on_message(on_message);
     session.ws.on_close({
         let conn = conn.clone();
@@ -185,12 +164,7 @@ pub(super) fn adopt_pending_session(
         session.members,
         session.active_sharers,
         Vec::new(),
-        set_my_peer_id,
-        set_members,
-        set_room_name,
-        set_authenticated,
-        set_status,
-        watchers_by_sharer,
+        signals,
     );
 
     *conn.ws.borrow_mut() = Some(session.ws);

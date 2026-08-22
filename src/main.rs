@@ -1,17 +1,17 @@
 #[cfg(feature = "ssr")]
 #[tokio::main]
-async fn main() {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use axum::routing::get;
     use axum::Router;
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
-    use screen_share::ui::app::*;
     use screen_share::signaling::registry::Registry;
     use screen_share::signaling::rooms_status::room_status_handler;
     use screen_share::signaling::ws::ws_handler;
+    use screen_share::ui::app::{shell, App};
 
-    let conf = get_configuration(None).unwrap();
+    let conf = get_configuration(None)?;
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
     let routes = generate_route_list(App);
@@ -32,10 +32,9 @@ async fn main() {
         .merge(signaling_router);
 
     log!("listening on http://{}", &addr);
-    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
-    axum::serve(listener, app.into_make_service())
-        .await
-        .unwrap();
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    axum::serve(listener, app.into_make_service()).await?;
+    Ok(())
 }
 
 #[cfg(not(feature = "ssr"))]

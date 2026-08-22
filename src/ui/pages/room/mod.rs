@@ -11,10 +11,10 @@ mod watch;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use connection::{adopt_pending_session, setup_room_connection, RoomConnection};
+use connection::{adopt_pending_session, setup_room_connection, RoomConnection, RoomSignals};
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 use invite::invite_click_handler;
-use member_card::member_cards;
+use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;
 use share::{share_supported, share_toggle_handler};
 use watch::leave_or_stop_watching_handler;
@@ -63,38 +63,23 @@ pub fn RoomPage() -> impl IntoView {
     let can_share = share_supported();
 
     let conn = RoomConnection::new();
-
-    let join_room = setup_room_connection(
-        initial_code.clone(),
-        conn.clone(),
+    let room_signals = RoomSignals {
         set_status,
         set_authenticated,
         set_room_name,
         set_members,
         set_my_peer_id,
+        my_peer_id,
+        set_room_exists,
         watching,
         expanded,
         watchers_by_sharer,
         connection_errors,
-        set_room_exists,
-        my_peer_id,
-    );
+    };
 
-    adopt_pending_session(
-        initial_code.clone(),
-        conn.clone(),
-        set_status,
-        set_authenticated,
-        set_room_name,
-        set_members,
-        set_my_peer_id,
-        watching,
-        expanded,
-        watchers_by_sharer,
-        connection_errors,
-        set_room_exists,
-        my_peer_id,
-    );
+    let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
+
+    adopt_pending_session(initial_code.clone(), conn.clone(), room_signals);
 
     start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name);
 
@@ -184,7 +169,17 @@ pub fn RoomPage() -> impl IntoView {
                 </span>
             </div>
             <div id="member-grid" class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, members, my_peer_id, is_sharing, watching, expanded, watchers_by_sharer, own_preview_hidden, hide_idle, connection_errors)}
+                {member_cards(conn, MemberCardSignals {
+                    members,
+                    my_peer_id,
+                    is_sharing,
+                    watching,
+                    expanded,
+                    watchers_by_sharer,
+                    own_preview_hidden,
+                    hide_idle,
+                    connection_errors,
+                })}
             </div>
             <div
                 class="room-controls"
