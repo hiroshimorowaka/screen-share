@@ -1,4 +1,5 @@
 import { app, BrowserWindow, Tray, Menu, session, desktopCapturer, ipcMain } from 'electron';
+import { spawn, ChildProcess } from 'child_process';
 import * as path from 'path';
 
 const PROD_URL = 'https://screen-share-h0rb5w.fly.dev/';
@@ -12,6 +13,9 @@ function createMainWindow(): void {
     width: 1100,
     height: 750,
     title: 'Screen Share',
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+    },
   });
   mainWindow.loadURL(PROD_URL);
 
@@ -47,7 +51,62 @@ function createTray(): void {
   tray.on('click', showMainWindow);
 }
 
+let audioLoopback: ChildProcess | null = null;
+
+function stopAudioLoopback(): void {
+  if (audioLoopback) {
+    audioLoopback.kill();
+    audioLoopback = null;
+  }
+}
+
+function isLoopbackDevicePresent(): Promise<boolean> {
+  return new Promise((resolve) => {
+    const dump = spawn('pw-dump');
+    let output = '';
+    dump.stdout.on('data', (chunk: Buffer) => {
+      output += chunk.toString();
+    });
+    dump.on('close', () => {
+      resolve(output.includes('"node.name": "screen_share_audio"'));
+    });
+    dump.on('error', () => resolve(false));
+  });
+}
+
+async function waitForLoopbackDevice(timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await isLoopbackDevicePresent()) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error('Timed out waiting for the audio loopback device to appear');
+}
+
+ipcMain.handle('start-audio-loopback', async () => {
+  if (audioLoopback) return;
+  audioLoopback = spawn('pw-loopback', [
+    '-C', '@DEFAULT_SINK@.monitor',
+    '--capture-props', 'media.class=Audio/Source node.name=screen_share_audio node.description="Screen Share Audio"',
+    '--playback-props', 'node.autoconnect=false',
+  ]);
+  audioLoopback.on('exit', () => {
+    audioLoopback = null;
+  });
+  try {
+    await waitForLoopbackDevice(3000);
+  } catch (err) {
+    stopAudioLoopback();
+    throw err;
+  }
+});
+
+ipcMain.handle('stop-audio-loopback', () => {
+  stopAudioLoopback();
+});
+
 app.on('before-quit', () => {
+  stopAudioLoopback();
   isQuitting = true;
 });
 

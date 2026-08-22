@@ -84,7 +84,7 @@ function isLoopbackDevicePresent(): Promise<boolean> {
       output += chunk.toString();
     });
     dump.on('close', () => {
-      resolve(output.includes('"node.name":"screen_share_audio"'));
+      resolve(output.includes('"node.name": "screen_share_audio"'));
     });
     dump.on('error', () => resolve(false));
   });

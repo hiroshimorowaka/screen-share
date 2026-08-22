@@ -17,3 +17,8 @@ contextBridge.exposeInMainWorld('picker', {
     ipcRenderer.send('picker:selected', id);
   },
 });
+
+contextBridge.exposeInMainWorld('desktopAudio', {
+  start: () => ipcRenderer.invoke('start-audio-loopback'),
+  stop: () => ipcRenderer.invoke('stop-audio-loopback'),
+});
