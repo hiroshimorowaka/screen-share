@@ -24,7 +24,7 @@ use latency::setup_ping_loop;
 use media_controls::setup_fullscreen_autohide_controls;
 use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;
-use share::{share_supported, share_toggle_handler};
+use share::{desktop_audio_supported, share_supported, share_toggle_handler};
 use watch::leave_or_stop_watching_handler;
 
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -73,6 +73,8 @@ pub fn RoomPage() -> impl IntoView {
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
     let own_preview_hidden = RwSignal::new(false);
+    let share_audio = RwSignal::new(false);
+    let sharing_with_audio = RwSignal::new(false);
     let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
     let hide_idle = RwSignal::new(false);
@@ -159,6 +161,8 @@ pub fn RoomPage() -> impl IntoView {
         is_sharing,
         set_is_sharing,
         own_preview_hidden,
+        share_audio.read_only(),
+        sharing_with_audio,
         set_status,
         my_peer_id,
         expanded,
@@ -275,6 +279,18 @@ pub fn RoomPage() -> impl IntoView {
                     >
                         {move || if is_sharing.get() { icon_screen_off().into_any() } else { icon_monitor().into_any() }}
                     </button>
+                    <label
+                        class="checkbox-field"
+                        class:hidden=move || !desktop_audio_supported()
+                    >
+                        <input
+                            type="checkbox"
+                            prop:checked=share_audio
+                            prop:disabled=is_sharing
+                            on:change:target=move |ev| share_audio.set(ev.target().checked())
+                        />
+                        <span>"Compartilhar áudio"</span>
+                    </label>
                     <button
                         class="icon-btn icon-btn--neutral"
                         class:icon-btn--active=hide_idle

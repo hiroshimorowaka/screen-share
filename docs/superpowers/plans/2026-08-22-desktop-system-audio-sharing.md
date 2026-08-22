@@ -101,10 +101,14 @@ async function waitForLoopbackDevice(timeoutMs: number): Promise<void> {
 
 ipcMain.handle('start-audio-loopback', async () => {
   if (audioLoopback) return;
+  // `media.class=Audio/Source` must be on the *playback* side, not the
+  // capture side — an earlier version of this had them backwards,
+  // producing a correctly-named, selectable device that carried pure
+  // silence (confirmed by recording it directly with pw-record).
   audioLoopback = spawn('pw-loopback', [
-    '-C', '@DEFAULT_SINK@.monitor',
-    '--capture-props', 'media.class=Audio/Source node.name=screen_share_audio node.description="Screen Share Audio"',
-    '--playback-props', 'node.autoconnect=false',
+    '-C', '@DEFAULT_SINK@',
+    '--capture-props', 'stream.capture.sink=true node.passive=true',
+    '--playback-props', 'media.class=Audio/Source node.name=screen_share_audio node.description="Screen Share Audio"',
   ]);
   audioLoopback.on('exit', () => {
     audioLoopback = null;

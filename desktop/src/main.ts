@@ -1,5 +1,5 @@
-import { app, BrowserWindow, Tray, Menu, session, desktopCapturer, ipcMain } from 'electron';
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess, spawn } from 'child_process';
+import { app, BrowserWindow, desktopCapturer, ipcMain, Menu, session, Tray } from 'electron';
 import * as path from 'path';
 
 const PROD_URL = 'https://screen-share-h0rb5w.fly.dev/';
@@ -85,10 +85,16 @@ async function waitForLoopbackDevice(timeoutMs: number): Promise<void> {
 
 ipcMain.handle('start-audio-loopback', async () => {
   if (audioLoopback) return;
+  // `media.class=Audio/Source` must be on the *playback* side, not the
+  // capture side — that's the node other apps actually see and select
+  // from. Getting this backwards (as an earlier version of this code
+  // did) still creates a selectable, correctly-named device, but one
+  // that carries pure silence: confirmed by recording it directly with
+  // pw-record while audio played, bypassing this app entirely.
   audioLoopback = spawn('pw-loopback', [
-    '-C', '@DEFAULT_SINK@.monitor',
-    '--capture-props', 'media.class=Audio/Source node.name=screen_share_audio node.description="Screen Share Audio"',
-    '--playback-props', 'node.autoconnect=false',
+    '-C', '@DEFAULT_SINK@',
+    '--capture-props', 'stream.capture.sink=true node.passive=true',
+    '--playback-props', 'media.class=Audio/Source node.name=screen_share_audio node.description="Screen Share Audio"',
   ]);
   audioLoopback.on('exit', () => {
     audioLoopback = null;

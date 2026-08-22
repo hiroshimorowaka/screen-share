@@ -40,16 +40,18 @@ Electron (`desktop/src/main.ts`) sobe e derruba um subprocesso
 `pw-loopback` — já instalado como parte do PipeWire neste sistema — que
 cria um dispositivo de áudio virtual (`Audio/Source` no PipeWire,
 aparece como um "microfone" comum para qualquer aplicação) espelhando
-o monitor do sink de áudio padrão do sistema. Confirmado ao vivo que o
-comando abaixo cria esse dispositivo sem causar eco/duplicação de
-áudio (o `node.autoconnect=false` do lado de playback do loopback é o
-que evita isso — sem ele, o loopback também reconecta sua própria
-saída no sink padrão, dobrando o volume):
+o monitor do sink de áudio padrão do sistema. A primeira versão testada
+deste comando colocava `media.class=Audio/Source` do lado errado (a
+captura, não o playback) — isso cria um dispositivo com nome certo e
+selecionável, mas que carrega só silêncio; confirmado gravando ele
+direto com `pw-record`, sem passar pelo app, enquanto um som tocava. A
+versão corrigida, testada ao vivo com um tom de teste + gravação
+isolada até confirmar sinal real chegando:
 
 ```
-pw-loopback -C @DEFAULT_SINK@.monitor \
-  --capture-props="media.class=Audio/Source node.name=screen_share_audio node.description='Screen Share Audio'" \
-  --playback-props="node.autoconnect=false"
+pw-loopback -C @DEFAULT_SINK@ \
+  --capture-props="stream.capture.sink=true node.passive=true" \
+  --playback-props="media.class=Audio/Source node.name=screen_share_audio node.description='Screen Share Audio'"
 ```
 
 O site (`src/ui/`) continua sendo exatamente o mesmo código Rust/Leptos

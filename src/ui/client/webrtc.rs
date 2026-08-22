@@ -2,11 +2,17 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    DisplayMediaStreamConstraints, MediaStream, RtcConfiguration, RtcIceCandidateInit,
+    ConstrainDomStringParameters, DisplayMediaStreamConstraints, MediaStream,
+    MediaStreamConstraints, MediaTrackConstraints, RtcConfiguration, RtcIceCandidateInit,
     RtcIceServer, RtcPeerConnection, RtcSdpType, RtcSessionDescriptionInit,
 };
 
-pub async fn capture_display() -> Result<MediaStream, JsValue> {
+pub fn is_desktop_app() -> bool {
+    let Some(window) = web_sys::window() else { return false };
+    js_sys::Reflect::has(&window, &JsValue::from_str("desktopAudio")).unwrap_or(false)
+}
+
+pub async fn capture_display(share_audio: bool) -> Result<MediaStream, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
     let media_devices = window.navigator().media_devices()?;
 
@@ -15,7 +21,87 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
 
     let promise = media_devices.get_display_media_with_constraints(&constraints)?;
     let stream = JsFuture::from(promise).await?;
-    stream.dyn_into::<MediaStream>()
+    let video_stream = stream.dyn_into::<MediaStream>()?;
+
+    if !share_audio {
+        return Ok(video_stream);
+    }
+
+    start_desktop_audio_loopback().await?;
+    match capture_loopback_audio(&media_devices).await {
+        Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
+        Err(err) => {
+            let _ = stop_desktop_audio_loopback().await;
+            Err(err)
+        }
+    }
+}
+
+async fn start_desktop_audio_loopback() -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
+    let start_fn: js_sys::Function =
+        js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("start"))?.dyn_into()?;
+    let promise: js_sys::Promise = start_fn.call0(&desktop_audio)?.dyn_into()?;
+    JsFuture::from(promise).await?;
+    Ok(())
+}
+
+pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
+    let stop_fn: js_sys::Function =
+        js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("stop"))?.dyn_into()?;
+    let promise: js_sys::Promise = stop_fn.call0(&desktop_audio)?.dyn_into()?;
+    JsFuture::from(promise).await?;
+    Ok(())
+}
+
+async fn capture_loopback_audio(media_devices: &web_sys::MediaDevices) -> Result<MediaStream, JsValue> {
+    let promise = media_devices.enumerate_devices()?;
+    let devices: js_sys::Array = JsFuture::from(promise).await?.dyn_into()?;
+
+    let mut device_id = None;
+    for device in devices.iter() {
+        let info: web_sys::MediaDeviceInfo = device.dyn_into()?;
+        if info.kind() == web_sys::MediaDeviceKind::Audioinput
+            && info.label().contains("Screen Share Audio")
+        {
+            device_id = Some(info.device_id());
+        }
+    }
+    let device_id =
+        device_id.ok_or_else(|| JsValue::from_str("Screen Share Audio device not found"))?;
+
+    // `exact` (not `ideal`): if this specific device isn't available for
+    // any reason, getUserMedia must reject instead of silently falling
+    // back to the system's default microphone.
+    let exact = ConstrainDomStringParameters::new();
+    exact.set_exact_str(&device_id);
+    let track_constraints = MediaTrackConstraints::new();
+    track_constraints.set_device_id_constrain_dom_string_parameters(&exact);
+    // This is system/music audio, not a voice call — Chromium's default
+    // voice-call audio processing (tuned for a mic) is actively harmful
+    // here, not just pointless.
+    track_constraints.set_echo_cancellation_bool(false);
+    track_constraints.set_noise_suppression_bool(false);
+    track_constraints.set_auto_gain_control_bool(false);
+    let audio_constraints = MediaStreamConstraints::new();
+    audio_constraints.set_audio_media_track_constraints(&track_constraints);
+
+    let promise = media_devices.get_user_media_with_constraints(&audio_constraints)?;
+    JsFuture::from(promise).await?.dyn_into::<MediaStream>()
+}
+
+fn combine_video_and_audio(video: &MediaStream, audio: &MediaStream) -> Result<MediaStream, JsValue> {
+    let tracks = js_sys::Array::new();
+    for track in video.get_tracks().iter() {
+        tracks.push(&track);
+    }
+    for track in audio.get_tracks().iter() {
+        tracks.push(&track);
+    }
+    MediaStream::new_with_tracks(&tracks)
 }
 
 /// A public STUN server, used only so each peer can discover its own
