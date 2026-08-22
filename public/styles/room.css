@@ -205,8 +205,21 @@ body:has(.room-page) {
   background: rgba(255, 255, 255, 0.08);
 }
 
+/* Toggle buttons here carry both `.icon-btn--neutral` (their resting look)
+   and `.icon-btn--active` (added on top when the toggle is on) at once —
+   `.control-group .icon-btn--neutral`'s transparent background otherwise
+   wins on specificity and the "on" state never shows. Restating the accent
+   background/color here, at the same specificity and after it in the
+   cascade, is what makes the highlight actually appear. */
 .control-group .icon-btn--active {
+  background: var(--accent);
+  color: var(--accent-ink);
   border-radius: 0.6rem;
+}
+
+.control-group .icon-btn--active:hover {
+  background: var(--accent-strong);
+  color: var(--accent-ink);
 }
 
 /* Same size/shape as the buttons in the regular control group — just sitting

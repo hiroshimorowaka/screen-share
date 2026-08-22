@@ -1,4 +1,6 @@
 mod connection;
+#[cfg(debug_assertions)]
+mod dev_preview;
 mod grid;
 mod invite;
 mod media_controls;
@@ -7,6 +9,9 @@ mod message_handler;
 mod room_check;
 mod share;
 mod watch;
+
+#[cfg(debug_assertions)]
+pub(crate) use dev_preview::DevRoomPreviewPage;
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
@@ -21,7 +26,7 @@ use watch::leave_or_stop_watching_handler;
 
 use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
-use crate::ui::components::icons::{icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_video, icon_video_off};
+use crate::ui::components::icons::{icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_video_off};
 use crate::ui::components::status::status_meta;
 use crate::ui::components::status_message::StatusMessage;
 
@@ -216,7 +221,7 @@ pub fn RoomPage() -> impl IntoView {
                         aria-label="Esconder meu preview"
                         on:click=move |_| own_preview_hidden.update(|v| *v = !*v)
                     >
-                        {move || if own_preview_hidden.get() { icon_video().into_any() } else { icon_video_off().into_any() }}
+                        {icon_video_off}
                     </button>
                 </div>
                 <div class="control-group control-group--danger">
