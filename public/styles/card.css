@@ -290,6 +290,53 @@
   height: 1.3rem;
 }
 
+/* The slider stays collapsed to just its icon until hovered/focused, then
+   pops up above the button as a small floating vertical fader — same
+   pattern as Discord/YouTube's volume control, so it doesn't eat into the
+   other action buttons' space by default. */
+.volume-control {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.volume-control__popup {
+  position: absolute;
+  bottom: calc(100%);
+  left: 50%;
+  transform: translateX(-50%) scale(0.9);
+  transform-origin: bottom center;
+  display: flex;
+  justify-content: center;
+  padding: 0.4rem 0.4rem;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    opacity 0.15s ease,
+    transform 0.15s ease;
+}
+
+.volume-control:hover .volume-control__popup,
+.volume-control:focus-within .volume-control__popup {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(-50%) scale(1);
+}
+
+.volume-control__slider {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  appearance: slider-vertical;
+  width: 0.3rem;
+  height: 4.5rem;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
 /* Cards in the filmstrip (everyone not in focus): the thick colored border
    and background glow that work on a large card look disproportionate on a
    6.5rem-tall rectangle — flattened here for a calmer look, closer to

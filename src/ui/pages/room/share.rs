@@ -44,7 +44,13 @@ pub(super) fn share_toggle_handler(
 
     move |_| {
         if is_sharing.get_untracked() {
-            stop_sharing(&conn, set_is_sharing, own_preview_hidden, expanded, my_peer_id);
+            stop_sharing(
+                &conn,
+                set_is_sharing,
+                own_preview_hidden,
+                expanded,
+                my_peer_id,
+            );
             return;
         }
 
@@ -63,9 +69,18 @@ pub(super) fn share_toggle_handler(
 
             if let Some(peer_id) = my_peer_id_value.as_deref() {
                 if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
+                    if let Some(video) =
+                        document.get_element_by_id(&format!("video-self-{peer_id}"))
+                    {
                         let video: web_sys::HtmlVideoElement = video.unchecked_into();
                         video.set_src_object(Some(&stream));
+                        // The `muted` attribute only sets the element's
+                        // *default* muted state at parse time — it doesn't
+                        // reflect the live `.muted` property, so a stream
+                        // with an audio track attached later can still play
+                        // out loud unless this is set explicitly. The
+                        // sharer must never hear their own shared audio.
+                        video.set_muted(true);
                         let _ = video.play();
                     }
                 }
@@ -77,7 +92,13 @@ pub(super) fn share_toggle_handler(
             if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
                 let conn_for_end = conn.clone();
                 let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                    stop_sharing(&conn_for_end, set_is_sharing, own_preview_hidden, expanded, my_peer_id);
+                    stop_sharing(
+                        &conn_for_end,
+                        set_is_sharing,
+                        own_preview_hidden,
+                        expanded,
+                        my_peer_id,
+                    );
                 });
                 track.set_onended(Some(onended.as_ref().unchecked_ref()));
                 onended.forget();
@@ -105,7 +126,16 @@ pub(super) fn stop_sharing(
     expanded: RwSignal<Option<String>>,
     my_peer_id: ReadSignal<Option<String>>,
 ) {
+    use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
+
+    // Always attempt this — it's a no-op in Electron if no audio
+    // session was ever started, and this path also runs in a plain
+    // browser (no `window.desktopAudio` there), where it's likewise a
+    // harmless no-op inside `stop_desktop_audio_loopback` itself.
+    spawn_local(async {
+        let _ = crate::ui::client::webrtc::stop_desktop_audio_loopback().await;
+    });
 
     // Chrome keeps its native "sharing" indicator alive as long as any
     // RTCRtpSender still references the track, even after the track itself

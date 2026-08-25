@@ -27,7 +27,9 @@ use crate::ui::components::palette::{color_hex, palette_ids, DEFAULT_COLOR};
 
 /// Bulk-add nicknames cycle through this so "adicionar vários" gives you an
 /// instantly readable room without typing.
-const BULK_ADD_NICKS: &[&str] = &["Ana", "Bia", "Caio", "Dudu", "Eva", "Fefe", "Gil", "Hugo", "Ivo", "Joca"];
+const BULK_ADD_NICKS: &[&str] = &[
+    "Ana", "Bia", "Caio", "Dudu", "Eva", "Fefe", "Gil", "Hugo", "Ivo", "Joca",
+];
 
 fn next_palette_color(current: &str) -> &'static str {
     let ids: Vec<&str> = palette_ids().collect();
@@ -48,6 +50,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     let latency_by_peer = RwSignal::new(HashMap::<String, u32>::new());
     let own_preview_hidden = RwSignal::new(false);
     let hide_idle = RwSignal::new(false);
+    let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
+    let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
     let controls_visible = RwSignal::new(true);
     let panel_open = RwSignal::new(true);
 
@@ -68,7 +72,14 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
             return;
         }
         let peer_id = take_next_id();
-        set_members.update(|members| members.push(RoomMember { peer_id, nick, color, sharing: false }));
+        set_members.update(|members| {
+            members.push(RoomMember {
+                peer_id,
+                nick,
+                color,
+                sharing: false,
+            })
+        });
     };
 
     let add_from_form = move |ev: leptos::ev::SubmitEvent| {
@@ -82,7 +93,10 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
         let slots_left = MAX_MEMBERS.saturating_sub(room_size);
         for i in 0..slots_left.min(5) {
             let n = room_size + i;
-            let nick = BULK_ADD_NICKS.get(n % BULK_ADD_NICKS.len()).copied().unwrap_or("Membro");
+            let nick = BULK_ADD_NICKS
+                .get(n % BULK_ADD_NICKS.len())
+                .copied()
+                .unwrap_or("Membro");
             let color = palette_ids().nth(n % 10).unwrap_or(DEFAULT_COLOR);
             add_member(nick.to_string(), color.to_string());
         }
@@ -191,12 +205,20 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
         if my_peer_id.get().as_deref() == Some(peer_id.as_str()) {
             is_sharing.get()
         } else {
-            members.get().iter().any(|m| m.peer_id == peer_id && m.sharing)
+            members
+                .get()
+                .iter()
+                .any(|m| m.peer_id == peer_id && m.sharing)
         }
     };
 
-    let leave_or_stop_watching =
-        leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id, "dev-preview".to_string());
+    let leave_or_stop_watching = leave_or_stop_watching_handler(
+        conn.clone(),
+        watching,
+        expanded,
+        my_peer_id,
+        "dev-preview".to_string(),
+    );
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
 
@@ -225,6 +247,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                     own_preview_hidden,
                     hide_idle,
                     connection_errors,
+                    volume_by_peer,
+                    muted_by_peer,
                     latency_by_peer,
                 })}
             </div>

@@ -24,7 +24,9 @@ pub(super) fn toggle_fullscreen(_slot: VideoSlot, _peer_id: &str) {}
 /// makes no sense for a live broadcast.
 #[cfg(feature = "hydrate")]
 pub(super) fn toggle_fullscreen(slot: VideoSlot, peer_id: &str) {
-    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
 
     if document.fullscreen_element().is_some() {
         document.exit_fullscreen();
@@ -52,7 +54,9 @@ pub(super) fn exit_fullscreen_if_active() -> bool {
 /// actually active, so the caller can skip its own click behavior.
 #[cfg(feature = "hydrate")]
 pub(super) fn exit_fullscreen_if_active() -> bool {
-    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return false };
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return false;
+    };
     if document.fullscreen_element().is_none() {
         return false;
     }
@@ -67,8 +71,12 @@ pub(super) fn exit_fullscreen_if_active() -> bool {
 /// feeding it just disappeared, so nothing else would exit it automatically.
 #[cfg(feature = "hydrate")]
 pub(super) fn exit_fullscreen_if_showing(peer_id: &str) -> bool {
-    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return false };
-    let Some(fullscreen_element) = document.fullscreen_element() else { return false };
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return false;
+    };
+    let Some(fullscreen_element) = document.fullscreen_element() else {
+        return false;
+    };
     if fullscreen_element.id() != format!("card-{peer_id}") {
         return false;
     }
@@ -88,7 +96,9 @@ pub(super) fn toggle_picture_in_picture(slot: VideoSlot, peer_id: &str) {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
-    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
 
     if document.picture_in_picture_element().is_some() {
         let promise = document.exit_picture_in_picture();
@@ -98,12 +108,50 @@ pub(super) fn toggle_picture_in_picture(slot: VideoSlot, peer_id: &str) {
         return;
     }
 
-    let Some(video) = document.get_element_by_id(&slot.element_id(peer_id)) else { return };
+    let Some(video) = document.get_element_by_id(&slot.element_id(peer_id)) else {
+        return;
+    };
     let video: web_sys::HtmlVideoElement = video.unchecked_into();
     let promise = video.request_picture_in_picture();
     spawn_local(async move {
         let _ = JsFuture::from(promise).await;
     });
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn set_volume(_slot: VideoSlot, _peer_id: &str, _volume: f64) {}
+
+/// `volume` is clamped to `[0, 1]` — `HtmlMediaElement::set_volume` panics
+/// (throws) outside that range.
+#[cfg(feature = "hydrate")]
+pub(super) fn set_volume(slot: VideoSlot, peer_id: &str, volume: f64) {
+    use wasm_bindgen::JsCast;
+
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Some(video) = document.get_element_by_id(&slot.element_id(peer_id)) else {
+        return;
+    };
+    let video: web_sys::HtmlVideoElement = video.unchecked_into();
+    video.set_volume(volume.clamp(0.0, 1.0));
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn set_muted(_slot: VideoSlot, _peer_id: &str, _muted: bool) {}
+
+#[cfg(feature = "hydrate")]
+pub(super) fn set_muted(slot: VideoSlot, peer_id: &str, muted: bool) {
+    use wasm_bindgen::JsCast;
+
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Some(video) = document.get_element_by_id(&slot.element_id(peer_id)) else {
+        return;
+    };
+    let video: web_sys::HtmlVideoElement = video.unchecked_into();
+    video.set_muted(muted);
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -130,8 +178,12 @@ pub(super) fn setup_fullscreen_autohide_controls() {
     const HIDE_AFTER_MS: i32 = 3000;
     const IDLE_CLASS: &str = "card--controls-idle";
 
-    let Some(window) = web_sys::window() else { return };
-    let Some(document) = window.document() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(document) = window.document() else {
+        return;
+    };
     let timeout_id: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
 
     let cancel_pending = {
@@ -166,9 +218,10 @@ pub(super) fn setup_fullscreen_autohide_controls() {
                     let _ = el.class_list().add_1(IDLE_CLASS);
                 }
             });
-            if let Ok(id) = window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(mark_idle.as_ref().unchecked_ref(), HIDE_AFTER_MS)
-            {
+            if let Ok(id) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                mark_idle.as_ref().unchecked_ref(),
+                HIDE_AFTER_MS,
+            ) {
                 timeout_id.set(Some(id));
             }
         }
@@ -182,7 +235,8 @@ pub(super) fn setup_fullscreen_autohide_controls() {
             schedule_idle();
         })
     };
-    let _ = document.add_event_listener_with_callback("mousemove", on_mousemove.as_ref().unchecked_ref());
+    let _ = document
+        .add_event_listener_with_callback("mousemove", on_mousemove.as_ref().unchecked_ref());
     on_mousemove.forget();
 
     let on_fullscreenchange = {
@@ -195,7 +249,9 @@ pub(super) fn setup_fullscreen_autohide_controls() {
             }
         })
     };
-    let _ =
-        document.add_event_listener_with_callback("fullscreenchange", on_fullscreenchange.as_ref().unchecked_ref());
+    let _ = document.add_event_listener_with_callback(
+        "fullscreenchange",
+        on_fullscreenchange.as_ref().unchecked_ref(),
+    );
     on_fullscreenchange.forget();
 }

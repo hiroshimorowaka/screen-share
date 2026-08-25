@@ -205,6 +205,20 @@ body:has(.room-page) {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.checkbox-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.checkbox-field input[disabled] {
+  cursor: not-allowed;
+}
+
 /* Toggle buttons here carry both `.icon-btn--neutral` (their resting look)
    and `.icon-btn--active` (added on top when the toggle is on) at once —
    `.control-group .icon-btn--neutral`'s transparent background otherwise
