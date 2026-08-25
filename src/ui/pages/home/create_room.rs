@@ -43,7 +43,9 @@ pub fn create_room_handler(
     use crate::signaling::protocol::{ClientMessage, ServerMessage};
     use crate::ui::client::session::{self, PendingSession};
     use crate::ui::client::socket::WsClient;
-    use crate::ui::client::storage::{ensure_device_id, save_last_room_name, save_profile, save_recent_room};
+    use crate::ui::client::storage::{
+        ensure_device_id, save_last_room_name, save_profile, save_recent_room, save_room_session, RoomSession,
+    };
     use crate::ui::profile::{Profile, RecentRoom};
 
     move |ev: leptos::ev::SubmitEvent| {
@@ -70,11 +72,16 @@ pub fn create_room_handler(
             let ws_slot = ws_slot.clone();
             let nick_value = nick_value.clone();
             let color_value = color_value.clone();
+            let password_value = password_value.clone();
             move |msg: ServerMessage| {
                 if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers, .. } = msg {
                     save_profile(&Profile { nick: nick_value.clone(), color: color_value.clone() });
                     save_recent_room(RecentRoom { code: room.clone(), name: room_name.clone() });
                     save_last_room_name(&room_name);
+                    save_room_session(
+                        &room,
+                        &RoomSession { nick: nick_value.clone(), color: color_value.clone(), password: password_value.clone() },
+                    );
                     if let Some(ws) = ws_slot.borrow_mut().take() {
                         session::stash(PendingSession {
                             room: room.clone(),

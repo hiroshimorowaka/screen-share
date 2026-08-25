@@ -75,6 +75,7 @@ pub(super) fn leave_or_stop_watching_handler(
     _watching: RwSignal<std::collections::HashSet<String>>,
     _expanded: RwSignal<Option<String>>,
     _my_peer_id: ReadSignal<Option<String>>,
+    _room_code: String,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
@@ -85,6 +86,7 @@ pub(super) fn leave_or_stop_watching_handler(
     watching: RwSignal<std::collections::HashSet<String>>,
     expanded: RwSignal<Option<String>>,
     my_peer_id: ReadSignal<Option<String>>,
+    room_code: String,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos_router::hooks::use_navigate;
 
@@ -92,6 +94,10 @@ pub(super) fn leave_or_stop_watching_handler(
 
     move |_| {
         let Some(focused_peer_id) = expanded.get_untracked() else {
+            // An active, deliberate leave — unlike a dropped connection
+            // (reload, closed tab), this one should require the nick/
+            // password gate again on the next visit.
+            crate::ui::client::storage::clear_room_session(&room_code);
             if let Some(ws) = conn.ws.borrow().as_ref() {
                 ws.close();
             }

@@ -90,10 +90,25 @@ pub fn RoomPage() -> impl IntoView {
 
     adopt_pending_session(initial_code.clone(), conn.clone(), room_signals, set_requires_password);
 
+    // Reloading the page while still in a room shouldn't drop back to the
+    // nick/password gate — rejoin silently with whatever this same tab used
+    // last time, same as `adopt_pending_session` does for the creator's own
+    // first load. Only runs if that didn't already authenticate us.
+    #[cfg(feature = "hydrate")]
+    if !authenticated.get_untracked() {
+        if let Some(stored) = crate::ui::client::storage::load_room_session(&initial_code) {
+            join_room(stored.nick, stored.color, stored.password);
+        }
+    }
+
     start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name, set_requires_password);
 
     let manual_join = {
         let join_room = join_room.clone();
+        // Only read from `#[cfg(feature = "hydrate")]` code below — an
+        // `ssr`-only compile sees no reads and would otherwise flag it.
+        #[cfg_attr(not(feature = "hydrate"), allow(unused_variables))]
+        let room_code = initial_code.clone();
         move |ev: leptos::ev::SubmitEvent| {
             ev.prevent_default();
             let nick_value = nick.get_untracked().trim().to_string();
@@ -103,13 +118,23 @@ pub fn RoomPage() -> impl IntoView {
                 return;
             }
             let password_value = (!password_value.is_empty()).then_some(password_value);
+            #[cfg(feature = "hydrate")]
+            crate::ui::client::storage::save_room_session(
+                &room_code,
+                &crate::ui::client::storage::RoomSession {
+                    nick: nick_value.clone(),
+                    color: color.get_untracked(),
+                    password: password_value.clone(),
+                },
+            );
             join_room(nick_value, color.get_untracked(), password_value);
         }
     };
 
     let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id, expanded);
     let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
-    let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
+    let leave_or_stop_watching =
+        leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id, initial_code.clone());
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
 
