@@ -17,6 +17,7 @@ use leptos::prelude::*;
 
 use super::connection::RoomConnection;
 use super::grid::{setup_adaptive_grid, setup_auto_hide_controls};
+use super::media_controls::setup_fullscreen_autohide_controls;
 use super::member_card::{member_cards, MemberCardSignals};
 use super::watch::leave_or_stop_watching_handler;
 use super::RoomMember;
@@ -221,6 +222,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     );
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
+    setup_fullscreen_autohide_controls();
 
     view! {
         <div class="room-page">
