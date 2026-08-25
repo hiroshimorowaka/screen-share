@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use rand::RngExt;
 use tokio::sync::mpsc::UnboundedSender;
@@ -7,6 +8,13 @@ use uuid::Uuid;
 
 use super::auth::{hash_password, verify_password};
 use super::protocol::{MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+
+/// How long a room stays reservable after its last member leaves before it's
+/// actually deleted — long enough to survive a page reload (the old
+/// WebSocket drops and a fresh `JoinRoom` arrives once the browser
+/// reconnects) without losing the room code to someone else or a "room not
+/// found" error.
+const EMPTY_ROOM_GRACE_PERIOD: Duration = Duration::from_secs(30);
 
 struct Member {
     nick: String,
@@ -16,7 +24,9 @@ struct Member {
 }
 
 struct Room {
-    password_hash: String,
+    /// `None` means the room has no password — anyone with the link/code
+    /// can join.
+    password_hash: Option<String>,
     name: String,
     members: HashMap<String, Member>,
     sharers: HashSet<String>,
@@ -36,6 +46,7 @@ pub struct JoinedSnapshot {
 pub struct RoomSummary {
     pub name: String,
     pub member_count: usize,
+    pub requires_password: bool,
 }
 
 #[derive(Debug, PartialEq)]
@@ -68,13 +79,13 @@ impl Registry {
         nick: String,
         color: String,
         room_name: String,
-        password: &str,
+        password: Option<String>,
         device_id: String,
         sender: UnboundedSender<ServerMessage>,
     ) -> (String, JoinedSnapshot) {
         let room_code = generate_room_code();
         let peer_id = Uuid::new_v4().to_string();
-        let password_hash = hash_password(password);
+        let password_hash = hash_optional_password(password);
 
         let mut members = HashMap::new();
         members.insert(peer_id.clone(), Member { nick: nick.clone(), color: color.clone(), device_id, sender });
@@ -100,14 +111,14 @@ impl Registry {
         room_code: &str,
         nick: String,
         color: String,
-        password: &str,
+        password: Option<String>,
         device_id: String,
         sender: UnboundedSender<ServerMessage>,
     ) -> Result<JoinedSnapshot, JoinError> {
         let mut rooms = self.lock_rooms();
         let room = rooms.get_mut(room_code).ok_or(JoinError::NotFound)?;
 
-        if !verify_password(password, &room.password_hash) {
+        if !check_optional_password(password.as_deref(), &room.password_hash) {
             return Err(JoinError::WrongPassword);
         }
 
@@ -158,7 +169,11 @@ impl Registry {
 
     pub fn room_status(&self, room_code: &str) -> Option<RoomSummary> {
         let rooms = self.lock_rooms();
-        rooms.get(room_code).map(|room| RoomSummary { name: room.name.clone(), member_count: room.members.len() })
+        rooms.get(room_code).map(|room| RoomSummary {
+            name: room.name.clone(),
+            member_count: room.members.len(),
+            requires_password: room.password_hash.is_some(),
+        })
     }
 
     pub fn start_share(&self, room_code: &str, peer_id: &str) {
@@ -219,20 +234,50 @@ impl Registry {
         }
     }
 
+    /// Doesn't delete an emptied room immediately — schedules it for removal
+    /// after `EMPTY_ROOM_GRACE_PERIOD` instead, so the same room code stays
+    /// joinable if whoever just left (e.g. reloading the page) reconnects.
     pub fn leave_room(&self, room_code: &str, peer_id: &str) {
         let mut rooms = self.lock_rooms();
-        let mut remove_room = false;
-
-        if let Some(room) = rooms.get_mut(room_code) {
+        let became_empty = if let Some(room) = rooms.get_mut(room_code) {
             remove_member(room, peer_id);
-            if room.members.is_empty() {
-                remove_room = true;
-            }
-        }
+            room.members.is_empty()
+        } else {
+            false
+        };
+        drop(rooms);
 
-        if remove_room {
-            rooms.remove(room_code);
+        if became_empty {
+            self.schedule_empty_room_cleanup(room_code.to_string());
         }
+    }
+
+    fn schedule_empty_room_cleanup(&self, room_code: String) {
+        let registry = self.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(EMPTY_ROOM_GRACE_PERIOD).await;
+            let mut rooms = registry.lock_rooms();
+            // Someone may have rejoined during the grace period — only
+            // remove the room if it's *still* empty.
+            if rooms.get(&room_code).is_some_and(|room| room.members.is_empty()) {
+                rooms.remove(&room_code);
+            }
+        });
+    }
+}
+
+/// `None` or an empty string both mean "no password".
+fn hash_optional_password(password: Option<String>) -> Option<String> {
+    let password = password?;
+    (!password.is_empty()).then(|| hash_password(&password))
+}
+
+/// A room with no password accepts any join attempt; one with a password
+/// requires a matching, non-empty input.
+fn check_optional_password(input: Option<&str>, hash: &Option<String>) -> bool {
+    match hash {
+        None => true,
+        Some(hash) => input.is_some_and(|password| !password.is_empty() && verify_password(password, hash)),
     }
 }
 
@@ -290,7 +335,7 @@ mod tests {
         let registry = Registry::new();
         let (tx, _rx) = unbounded_channel();
 
-        let (room_code, snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-tx".to_string(), tx);
+        let (room_code, snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-tx".to_string(), tx);
 
         assert_eq!(room_code.len(), ROOM_CODE_LENGTH);
         assert_eq!(
@@ -306,7 +351,7 @@ mod tests {
         let registry = Registry::new();
         let (tx, _rx) = unbounded_channel();
 
-        let result = registry.join_room("NOPE0000", "Bia".to_string(), "sky".to_string(), "senha123", "device-tx".to_string(), tx);
+        let result = registry.join_room("NOPE0000", "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-tx".to_string(), tx);
         assert_eq!(result.unwrap_err(), JoinError::NotFound);
     }
 
@@ -316,8 +361,8 @@ mod tests {
         let (host_tx, _host_rx) = unbounded_channel();
         let (viewer_tx, _viewer_rx) = unbounded_channel();
 
-        let (room_code, _snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha-errada", "device-viewer".to_string(), viewer_tx);
+        let (room_code, _snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha-errada".to_string()), "device-viewer".to_string(), viewer_tx);
 
         assert_eq!(result.unwrap_err(), JoinError::WrongPassword);
     }
@@ -328,8 +373,8 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, _viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        let snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
 
         assert_eq!(snapshot.members.len(), 2);
         assert!(snapshot.members.iter().any(|m| m.peer_id == creator_snapshot.peer_id && m.nick == "Ana"));
@@ -346,17 +391,17 @@ mod tests {
     async fn join_room_full_returns_error() {
         let registry = Registry::new();
         let (host_tx, _host_rx) = unbounded_channel();
-        let (room_code, _snapshot) = registry.create_room("Membro0".to_string(), "coral".to_string(), "Sala da Membro0".to_string(), "senha123", "device-host".to_string(), host_tx);
+        let (room_code, _snapshot) = registry.create_room("Membro0".to_string(), "coral".to_string(), "Sala da Membro0".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
 
         for i in 1..MAX_MEMBERS {
             let (tx, _rx) = unbounded_channel();
             registry
-                .join_room(&room_code, format!("Membro{i}"), "sky".to_string(), "senha123", format!("device-membro-{i}"), tx)
+                .join_room(&room_code, format!("Membro{i}"), "sky".to_string(), Some("senha123".to_string()), format!("device-membro-{i}"), tx)
                 .expect("deveria caber até MAX_MEMBERS");
         }
 
         let (extra_tx, _extra_rx) = unbounded_channel();
-        let result = registry.join_room(&room_code, "MembroExtra".to_string(), "sky".to_string(), "senha123", "device-extra".to_string(), extra_tx);
+        let result = registry.join_room(&room_code, "MembroExtra".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-extra".to_string(), extra_tx);
         assert_eq!(result.unwrap_err(), JoinError::Full);
     }
 
@@ -366,13 +411,13 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
         let (room_code, creator_snapshot) =
-            registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-ana".to_string(), host_tx);
-        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+            registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-ana".to_string(), host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drain Bia's PeerJoined
 
         let (host_tx_2, mut host_rx_2) = unbounded_channel();
         let snapshot = registry
-            .join_room(&room_code, "AnaCelular".to_string(), "coral".to_string(), "senha123", "device-ana".to_string(), host_tx_2)
+            .join_room(&room_code, "AnaCelular".to_string(), "coral".to_string(), Some("senha123".to_string()), "device-ana".to_string(), host_tx_2)
             .unwrap();
 
         assert_eq!(host_rx.recv().await.unwrap(), ServerMessage::Kicked);
@@ -396,8 +441,8 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drain the PeerJoined
 
         registry.start_share(&room_code, &creator_snapshot.peer_id);
@@ -413,8 +458,8 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drain the PeerJoined
 
         registry.start_share(&room_code, &creator_snapshot.peer_id);
@@ -431,8 +476,8 @@ mod tests {
         let (host_tx, _host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
 
         registry.leave_room(&room_code, &creator_snapshot.peer_id);
 
@@ -440,20 +485,57 @@ mod tests {
         assert_eq!(notification, ServerMessage::PeerLeft { peer_id: creator_snapshot.peer_id });
 
         let (another_tx, _another_rx) = unbounded_channel();
-        assert!(registry.join_room(&room_code, "Caio".to_string(), "sky".to_string(), "senha123", "device-another".to_string(), another_tx).is_ok());
+        assert!(registry.join_room(&room_code, "Caio".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-another".to_string(), another_tx).is_ok());
     }
 
     #[tokio::test]
-    async fn leave_room_removes_room_when_last_member_leaves() {
+    async fn leave_room_keeps_an_emptied_room_joinable_during_the_grace_period() {
         let registry = Registry::new();
         let (host_tx, _host_rx) = unbounded_channel();
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
 
         registry.leave_room(&room_code, &creator_snapshot.peer_id);
 
         let (tx, _rx) = unbounded_channel();
-        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-tx".to_string(), tx);
+        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-tx".to_string(), tx);
+        assert!(result.is_ok(), "an emptied room should still be joinable right away");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn leave_room_removes_an_emptied_room_once_the_grace_period_elapses() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+
+        registry.leave_room(&room_code, &creator_snapshot.peer_id);
+        // `leave_room` only *schedules* the cleanup task — give the
+        // single-threaded test runtime a turn to actually start it (so its
+        // `sleep` registers against the current time) before advancing the
+        // clock past the grace period, then again to let it finish running.
+        tokio::task::yield_now().await;
+        tokio::time::advance(EMPTY_ROOM_GRACE_PERIOD + Duration::from_secs(1)).await;
+        tokio::task::yield_now().await;
+
+        let (tx, _rx) = unbounded_channel();
+        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-tx".to_string(), tx);
         assert_eq!(result.unwrap_err(), JoinError::NotFound);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn leave_room_does_not_remove_the_room_if_someone_rejoins_during_the_grace_period() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+
+        registry.leave_room(&room_code, &creator_snapshot.peer_id);
+
+        let (tx, _rx) = unbounded_channel();
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-tx".to_string(), tx).unwrap();
+
+        tokio::time::advance(EMPTY_ROOM_GRACE_PERIOD + Duration::from_secs(1)).await;
+
+        let status = registry.room_status(&room_code);
+        assert!(status.is_some(), "the room should survive since it's no longer empty");
     }
 
     #[tokio::test]
@@ -462,8 +544,8 @@ mod tests {
         let (host_tx, _host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         registry.start_share(&room_code, &creator_snapshot.peer_id);
         viewer_rx.recv().await.unwrap(); // drain the PeerStartedSharing
 
@@ -481,8 +563,8 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drain the PeerJoined
 
         registry.add_watcher(&room_code, &creator_snapshot.peer_id, &viewer_snapshot.peer_id);
@@ -504,8 +586,8 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drain the PeerJoined
 
         registry.add_watcher(&room_code, &creator_snapshot.peer_id, &viewer_snapshot.peer_id);
@@ -532,15 +614,15 @@ mod tests {
         let (host_tx, _host_rx) = unbounded_channel();
         let (viewer_tx, mut viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         registry.start_share(&room_code, &creator_snapshot.peer_id);
         registry.add_watcher(&room_code, &creator_snapshot.peer_id, &viewer_snapshot.peer_id);
         viewer_rx.recv().await.unwrap(); // drain PeerStartedSharing
         viewer_rx.recv().await.unwrap(); // drain WatchersChanged
 
         let (late_tx, _late_rx) = unbounded_channel();
-        let late_snapshot = registry.join_room(&room_code, "Caio".to_string(), "sky".to_string(), "senha123", "device-late".to_string(), late_tx).unwrap();
+        let late_snapshot = registry.join_room(&room_code, "Caio".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-late".to_string(), late_tx).unwrap();
 
         assert_eq!(
             late_snapshot.watcher_info,
@@ -554,8 +636,8 @@ mod tests {
         let (host_tx, mut host_rx) = unbounded_channel();
         let (viewer_tx, _viewer_rx) = unbounded_channel();
 
-        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
-        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
         host_rx.recv().await.unwrap(); // drain PeerJoined
 
         registry.add_watcher(&room_code, &creator_snapshot.peer_id, &viewer_snapshot.peer_id);
@@ -576,19 +658,61 @@ mod tests {
         let registry = Registry::new();
         let (host_tx, _host_rx) = unbounded_channel();
         let (room_code, _snapshot) =
-            registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), "senha123", "device-host".to_string(), host_tx);
+            registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
 
         let (viewer_tx, _viewer_rx) = unbounded_channel();
-        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), "senha123", "device-viewer".to_string(), viewer_tx).unwrap();
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
 
         let status = registry.room_status(&room_code).unwrap();
         assert_eq!(status.name, "Sala da Ana");
         assert_eq!(status.member_count, 2);
+        assert!(status.requires_password);
     }
 
     #[tokio::test]
     async fn room_status_is_none_for_unknown_room() {
         let registry = Registry::new();
         assert!(registry.room_status("NOPE0000").is_none());
+    }
+
+    #[tokio::test]
+    async fn create_room_without_password_lets_anyone_join() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, _snapshot) =
+            registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), None, "device-host".to_string(), host_tx);
+
+        assert!(!registry.room_status(&room_code).unwrap().requires_password);
+
+        let (viewer_tx, _viewer_rx) = unbounded_channel();
+        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), None, "device-viewer".to_string(), viewer_tx);
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn create_room_with_an_empty_password_behaves_as_no_password() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, _snapshot) = registry.create_room(
+            "Ana".to_string(),
+            "coral".to_string(),
+            "Sala da Ana".to_string(),
+            Some(String::new()),
+            "device-host".to_string(),
+            host_tx,
+        );
+
+        assert!(!registry.room_status(&room_code).unwrap().requires_password);
+    }
+
+    #[tokio::test]
+    async fn join_room_with_a_password_fails_without_one_when_the_room_requires_it() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (room_code, _snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+
+        let (viewer_tx, _viewer_rx) = unbounded_channel();
+        let result = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), None, "device-viewer".to_string(), viewer_tx);
+        assert_eq!(result.unwrap_err(), JoinError::WrongPassword);
     }
 }

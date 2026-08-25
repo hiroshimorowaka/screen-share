@@ -68,8 +68,8 @@ pub(super) fn setup_room_connection(
     _room_code: String,
     _conn: RoomConnection,
     _signals: RoomSignals,
-) -> impl Fn(String, String, String) + Clone + 'static {
-    move |_nick: String, _color: String, _password: String| {}
+) -> impl Fn(String, String, Option<String>) + Clone + 'static {
+    move |_nick: String, _color: String, _password: Option<String>| {}
 }
 
 #[cfg(feature = "hydrate")]
@@ -77,7 +77,7 @@ pub(super) fn setup_room_connection(
     room_code: String,
     conn: RoomConnection,
     signals: RoomSignals,
-) -> impl Fn(String, String, String) + Clone + 'static {
+) -> impl Fn(String, String, Option<String>) + Clone + 'static {
     use crate::signaling::protocol::ClientMessage;
     use crate::ui::client::socket::WsClient;
     use crate::ui::client::storage::{ensure_device_id, save_profile};
@@ -87,7 +87,7 @@ pub(super) fn setup_room_connection(
 
     let RoomSignals { set_status, .. } = signals;
 
-    move |nick: String, color: String, password: String| {
+    move |nick: String, color: String, password: Option<String>| {
         let conn = conn.clone();
         conn.expected_close.set(false);
         let room_code = room_code.clone();
@@ -132,10 +132,21 @@ pub(super) fn setup_room_connection(
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn adopt_pending_session(_room_code: String, _conn: RoomConnection, _signals: RoomSignals) {}
+pub(super) fn adopt_pending_session(
+    _room_code: String,
+    _conn: RoomConnection,
+    _signals: RoomSignals,
+    _set_requires_password: WriteSignal<bool>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-pub(super) fn adopt_pending_session(room_code: String, conn: RoomConnection, signals: RoomSignals) {
+pub(super) fn adopt_pending_session(
+    room_code: String,
+    conn: RoomConnection,
+    signals: RoomSignals,
+    set_requires_password: WriteSignal<bool>,
+) {
     use crate::ui::client::session;
 
     use super::message_handler::{apply_joined_snapshot, build_message_handler};
@@ -143,6 +154,7 @@ pub(super) fn adopt_pending_session(room_code: String, conn: RoomConnection, sig
     let RoomSignals { set_status, .. } = signals;
 
     let Some(mut session) = session::take(&room_code) else { return };
+    set_requires_password.set(session.requires_password);
 
     let on_message = build_message_handler(conn.clone(), signals);
     session.ws.set_on_message(on_message);

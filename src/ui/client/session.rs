@@ -14,6 +14,7 @@ pub struct PendingSession {
     pub peer_id: String,
     pub members: Vec<MemberInfo>,
     pub active_sharers: Vec<String>,
+    pub requires_password: bool,
 }
 
 thread_local! {

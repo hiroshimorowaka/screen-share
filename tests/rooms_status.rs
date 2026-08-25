@@ -32,7 +32,7 @@ async fn room_status_reports_existing_room_with_name_and_member_count() {
 
     let create = ClientMessage::CreateRoom {
         nick: "Ana".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         room_name: "Sala dos lindos".to_string(),
         color: "coral".to_string(),
         device_id: "device-ana".to_string(),
@@ -48,12 +48,20 @@ async fn room_status_reports_existing_room_with_name_and_member_count() {
     };
 
     let status: RoomStatus = reqwest::get(format!("{http_url}/api/rooms/{room}")).await.unwrap().json().await.unwrap();
-    assert_eq!(status, RoomStatus { exists: true, name: Some("Sala dos lindos".to_string()), member_count: Some(1) });
+    assert_eq!(
+        status,
+        RoomStatus {
+            exists: true,
+            name: Some("Sala dos lindos".to_string()),
+            member_count: Some(1),
+            requires_password: Some(true),
+        }
+    );
 }
 
 #[tokio::test]
 async fn room_status_reports_missing_room_as_nonexistent() {
     let (_ws_url, http_url) = spawn_test_server().await;
     let status: RoomStatus = reqwest::get(format!("{http_url}/api/rooms/NOPE0000")).await.unwrap().json().await.unwrap();
-    assert_eq!(status, RoomStatus { exists: false, name: None, member_count: None });
+    assert_eq!(status, RoomStatus { exists: false, name: None, member_count: None, requires_password: None });
 }

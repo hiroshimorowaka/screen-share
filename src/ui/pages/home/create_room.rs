@@ -53,10 +53,11 @@ pub fn create_room_handler(
         let color_value = color.get_untracked();
         let room_name_value = room_name.get_untracked().trim().to_string();
         let password_value = password.get_untracked();
-        if nick_value.is_empty() || room_name_value.is_empty() || password_value.is_empty() {
-            set_status.set("Preencha todos os campos.".to_string());
+        if nick_value.is_empty() || room_name_value.is_empty() {
+            set_status.set("Preencha o nick e o nome da sala.".to_string());
             return;
         }
+        let password_value = (!password_value.is_empty()).then_some(password_value);
 
         set_submitting.set(true);
         set_status.set("Criando sala...".to_string());
@@ -64,6 +65,7 @@ pub fn create_room_handler(
         let ws_slot: Rc<RefCell<Option<WsClient>>> = Rc::new(RefCell::new(None));
         let navigate = use_navigate();
 
+        let requires_password = password_value.is_some();
         let on_message = {
             let ws_slot = ws_slot.clone();
             let nick_value = nick_value.clone();
@@ -81,6 +83,7 @@ pub fn create_room_handler(
                             peer_id,
                             members,
                             active_sharers,
+                            requires_password,
                         });
                     }
                     navigate(&format!("/r/{room}"), Default::default());

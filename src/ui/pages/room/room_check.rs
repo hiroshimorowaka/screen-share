@@ -6,6 +6,7 @@ pub(super) fn start_room_check(
     _authenticated: ReadSignal<bool>,
     _set_room_exists: WriteSignal<Option<bool>>,
     _set_room_name: WriteSignal<Option<String>>,
+    _set_requires_password: WriteSignal<bool>,
 ) {
 }
 
@@ -15,6 +16,7 @@ pub(super) fn start_room_check(
     authenticated: ReadSignal<bool>,
     set_room_exists: WriteSignal<Option<bool>>,
     set_room_name: WriteSignal<Option<String>>,
+    set_requires_password: WriteSignal<bool>,
 ) {
     use leptos::task::spawn_local;
 
@@ -30,10 +32,17 @@ pub(super) fn start_room_check(
         match result {
             Some(status) if status.exists => {
                 set_room_name.set(status.name);
+                set_requires_password.set(status.requires_password.unwrap_or(false));
                 set_room_exists.set(Some(true));
             }
             Some(_) => set_room_exists.set(Some(false)),
-            None => set_room_exists.set(Some(true)), // network failed: don't block, let the join attempt through
+            // Network failed: don't block, let the join attempt through —
+            // but assume a password may be needed rather than hiding the
+            // field and having the join fail with no way to enter one.
+            None => {
+                set_requires_password.set(true);
+                set_room_exists.set(Some(true));
+            }
         }
     });
 }
