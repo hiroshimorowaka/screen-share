@@ -39,6 +39,44 @@ pub(super) fn toggle_fullscreen(slot: VideoSlot, peer_id: &str) {
 }
 
 #[cfg(not(feature = "hydrate"))]
+pub(super) fn exit_fullscreen_if_active() -> bool {
+    false
+}
+
+/// Used by the card's own click-to-expand handler: clicking anywhere on a
+/// card that's currently fullscreen should back out of fullscreen and leave
+/// the expanded/normal state exactly as it was before — not toggle it, which
+/// used to happen invisibly (fullscreen hides the layout difference between
+/// the two) and left the wrong mode showing once the user exited fullscreen
+/// by other means (Esc, browser controls). Returns whether fullscreen was
+/// actually active, so the caller can skip its own click behavior.
+#[cfg(feature = "hydrate")]
+pub(super) fn exit_fullscreen_if_active() -> bool {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return false };
+    if document.fullscreen_element().is_none() {
+        return false;
+    }
+    document.exit_fullscreen();
+    true
+}
+
+/// Used when a watched peer stops sharing or leaves the room: if their card
+/// (identified by the `card-{peer_id}` id set in `member_card.rs`) is the
+/// one currently in fullscreen, back out of fullscreen instead of leaving
+/// the browser stuck there — the fullscreen API has no idea the video
+/// feeding it just disappeared, so nothing else would exit it automatically.
+#[cfg(feature = "hydrate")]
+pub(super) fn exit_fullscreen_if_showing(peer_id: &str) -> bool {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return false };
+    let Some(fullscreen_element) = document.fullscreen_element() else { return false };
+    if fullscreen_element.id() != format!("card-{peer_id}") {
+        return false;
+    }
+    document.exit_fullscreen();
+    true
+}
+
+#[cfg(not(feature = "hydrate"))]
 pub(super) fn toggle_picture_in_picture(_slot: VideoSlot, _peer_id: &str) {}
 
 /// Same `id` scheme as `toggle_fullscreen` uses to find the right video
@@ -66,4 +104,98 @@ pub(super) fn toggle_picture_in_picture(slot: VideoSlot, peer_id: &str) {
     spawn_local(async move {
         let _ = JsFuture::from(promise).await;
     });
+}
+
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn setup_fullscreen_autohide_controls() {}
+
+/// Marks the fullscreen `.card` with `card--controls-idle` (see `card.css`)
+/// after a few seconds without mouse movement, and clears it again on the
+/// next move — the same convention native video players use. Without this,
+/// `.card:hover` (which normally reveals `.card__actions`) never turns
+/// false in fullscreen, since the pointer can't leave a card that fills the
+/// whole screen, so the stop-watching/exit-fullscreen buttons stayed
+/// visible forever. Runs once for the whole page (there's only ever one
+/// fullscreen element at a time), rather than per-card.
+#[cfg(feature = "hydrate")]
+pub(super) fn setup_fullscreen_autohide_controls() {
+    use std::cell::Cell;
+    use std::rc::Rc;
+
+    use wasm_bindgen::prelude::Closure;
+    use wasm_bindgen::JsCast;
+
+    /// How long the pointer can sit still before the controls fade — long
+    /// enough to read a label, short enough not to linger over the video.
+    const HIDE_AFTER_MS: i32 = 3000;
+    const IDLE_CLASS: &str = "card--controls-idle";
+
+    let Some(window) = web_sys::window() else { return };
+    let Some(document) = window.document() else { return };
+    let timeout_id: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
+
+    let cancel_pending = {
+        let window = window.clone();
+        let timeout_id = timeout_id.clone();
+        move || {
+            if let Some(id) = timeout_id.take() {
+                window.clear_timeout_with_handle(id);
+            }
+        }
+    };
+
+    let clear_idle = {
+        let document = document.clone();
+        move || {
+            if let Some(el) = document.fullscreen_element() {
+                let _ = el.class_list().remove_1(IDLE_CLASS);
+            }
+        }
+    };
+
+    let schedule_idle = {
+        let window = window.clone();
+        let document = document.clone();
+        let timeout_id = timeout_id.clone();
+        let cancel_pending = cancel_pending.clone();
+        move || {
+            cancel_pending();
+            let document = document.clone();
+            let mark_idle = Closure::once_into_js(move || {
+                if let Some(el) = document.fullscreen_element() {
+                    let _ = el.class_list().add_1(IDLE_CLASS);
+                }
+            });
+            if let Ok(id) = window
+                .set_timeout_with_callback_and_timeout_and_arguments_0(mark_idle.as_ref().unchecked_ref(), HIDE_AFTER_MS)
+            {
+                timeout_id.set(Some(id));
+            }
+        }
+    };
+
+    let on_mousemove = {
+        let clear_idle = clear_idle.clone();
+        let schedule_idle = schedule_idle.clone();
+        Closure::<dyn FnMut()>::new(move || {
+            clear_idle();
+            schedule_idle();
+        })
+    };
+    let _ = document.add_event_listener_with_callback("mousemove", on_mousemove.as_ref().unchecked_ref());
+    on_mousemove.forget();
+
+    let on_fullscreenchange = {
+        let document = document.clone();
+        Closure::<dyn FnMut()>::new(move || {
+            cancel_pending();
+            clear_idle();
+            if document.fullscreen_element().is_some() {
+                schedule_idle();
+            }
+        })
+    };
+    let _ =
+        document.add_event_listener_with_callback("fullscreenchange", on_fullscreenchange.as_ref().unchecked_ref());
+    on_fullscreenchange.forget();
 }

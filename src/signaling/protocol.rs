@@ -17,6 +17,15 @@ pub struct WatcherInfo {
     pub watchers: Vec<String>,
 }
 
+/// A member's last-measured round-trip latency to the server, sent in the
+/// join snapshot — avoids showing no ping at all until that member's next
+/// `Ping`/`Pong` round trip happens to complete.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct LatencyInfo {
+    pub peer_id: String,
+    pub ms: u32,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -28,6 +37,13 @@ pub enum ClientMessage {
     StopShare,
     WatchShare { sharer_id: String },
     StopWatching { sharer_id: String },
+    /// Answered immediately with `Pong`, so the client can time the round
+    /// trip itself — see `ReportLatency`.
+    Ping,
+    /// The client's own measurement of the `Ping`/`Pong` round trip it just
+    /// timed, handed back so the server can broadcast it to the room as
+    /// that peer's ping (see `ServerMessage::PeerLatency`).
+    ReportLatency { ms: u32 },
     Offer { to: String, sdp: String },
     Answer { to: String, sdp: String },
     IceCandidate {
@@ -49,6 +65,7 @@ pub enum ServerMessage {
         members: Vec<MemberInfo>,
         active_sharers: Vec<String>,
         watcher_info: Vec<WatcherInfo>,
+        latencies: Vec<LatencyInfo>,
     },
     AuthFailed,
     RoomNotFound,
@@ -65,6 +82,10 @@ pub enum ServerMessage {
     /// Broadcast to the whole room, not just the sharer — any card shows
     /// "N watching" from any member's point of view.
     WatchersChanged { sharer_id: String, watchers: Vec<String> },
+    Pong,
+    /// Broadcast to the whole room — any card can show that peer's ping,
+    /// not just the peer who measured it.
+    PeerLatency { peer_id: String, ms: u32 },
     Offer { from: String, sdp: String },
     Answer { from: String, sdp: String },
     IceCandidate {
@@ -158,8 +179,39 @@ mod tests {
             }],
             active_sharers: vec![],
             watcher_info: vec![WatcherInfo { sharer_id: "peer-1".to_string(), watchers: vec!["peer-2".to_string()] }],
+            latencies: vec![LatencyInfo { peer_id: "peer-1".to_string(), ms: 42 }],
         };
         let json = serde_json::to_string(&msg).unwrap();
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn ping_message_round_trips_through_json() {
+        let msg = ClientMessage::Ping;
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"ping"}"#);
+
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn report_latency_message_round_trips_through_json() {
+        let msg = ClientMessage::ReportLatency { ms: 87 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"report_latency","ms":87}"#);
+
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn peer_latency_message_round_trips_through_json() {
+        let msg = ServerMessage::PeerLatency { peer_id: "peer-1".to_string(), ms: 87 };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"peer_latency","peer_id":"peer-1","ms":87}"#);
+
         let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);
     }

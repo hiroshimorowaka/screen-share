@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use uuid::Uuid;
 
 use super::auth::{hash_password, verify_password};
-use super::protocol::{MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+use super::protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
 
 /// How long a room stays reservable after its last member leaves before it's
 /// actually deleted — long enough to survive a page reload (the old
@@ -21,6 +21,8 @@ struct Member {
     color: String,
     device_id: String,
     sender: UnboundedSender<ServerMessage>,
+    /// `None` until this member's first `Ping`/`Pong` round trip completes.
+    latency_ms: Option<u32>,
 }
 
 struct Room {
@@ -41,6 +43,7 @@ pub struct JoinedSnapshot {
     pub members: Vec<MemberInfo>,
     pub active_sharers: Vec<String>,
     pub watcher_info: Vec<WatcherInfo>,
+    pub latencies: Vec<LatencyInfo>,
 }
 
 pub struct RoomSummary {
@@ -88,7 +91,10 @@ impl Registry {
         let password_hash = hash_optional_password(password);
 
         let mut members = HashMap::new();
-        members.insert(peer_id.clone(), Member { nick: nick.clone(), color: color.clone(), device_id, sender });
+        members.insert(
+            peer_id.clone(),
+            Member { nick: nick.clone(), color: color.clone(), device_id, sender, latency_ms: None },
+        );
 
         let mut rooms = self.lock_rooms();
         rooms.insert(
@@ -102,6 +108,7 @@ impl Registry {
             members: vec![MemberInfo { peer_id, nick, color }],
             active_sharers: vec![],
             watcher_info: vec![],
+            latencies: vec![],
         };
         (room_code, snapshot)
     }
@@ -147,7 +154,10 @@ impl Registry {
             });
         }
 
-        room.members.insert(peer_id.clone(), Member { nick: nick.clone(), color: color.clone(), device_id, sender });
+        room.members.insert(
+            peer_id.clone(),
+            Member { nick: nick.clone(), color: color.clone(), device_id, sender, latency_ms: None },
+        );
 
         let members: Vec<MemberInfo> = room
             .members
@@ -163,8 +173,13 @@ impl Registry {
                 watchers: room.watchers.get(sharer_id).map(|w| w.iter().cloned().collect()).unwrap_or_default(),
             })
             .collect();
+        let latencies: Vec<LatencyInfo> = room
+            .members
+            .iter()
+            .filter_map(|(id, m)| m.latency_ms.map(|ms| LatencyInfo { peer_id: id.clone(), ms }))
+            .collect();
 
-        Ok(JoinedSnapshot { peer_id, room_name: room.name.clone(), members, active_sharers, watcher_info })
+        Ok(JoinedSnapshot { peer_id, room_name: room.name.clone(), members, active_sharers, watcher_info, latencies })
     }
 
     pub fn room_status(&self, room_code: &str) -> Option<RoomSummary> {
@@ -223,6 +238,21 @@ impl Registry {
             let _ = sharer.sender.send(ServerMessage::WatchStopped { from: viewer_id.to_string() });
         }
         broadcast_watchers_changed(room, sharer_id);
+    }
+
+    /// Stores a member's self-measured ping (see `ClientMessage::Ping`'s doc
+    /// comment) and broadcasts it to the whole room, not just back to that
+    /// member — every card shows every member's ping.
+    pub fn report_latency(&self, room_code: &str, peer_id: &str, ms: u32) {
+        let mut rooms = self.lock_rooms();
+        let Some(room) = rooms.get_mut(room_code) else { return };
+
+        let Some(member) = room.members.get_mut(peer_id) else { return };
+        member.latency_ms = Some(ms);
+
+        for member in room.members.values() {
+            let _ = member.sender.send(ServerMessage::PeerLatency { peer_id: peer_id.to_string(), ms });
+        }
     }
 
     pub fn relay(&self, room_code: &str, to: &str, message: ServerMessage) {
@@ -628,6 +658,44 @@ mod tests {
             late_snapshot.watcher_info,
             vec![WatcherInfo { sharer_id: creator_snapshot.peer_id, watchers: vec![viewer_snapshot.peer_id] }]
         );
+    }
+
+    #[tokio::test]
+    async fn report_latency_broadcasts_to_the_whole_room_including_the_reporter() {
+        let registry = Registry::new();
+        let (host_tx, mut host_rx) = unbounded_channel();
+        let (viewer_tx, mut viewer_rx) = unbounded_channel();
+
+        let (room_code, _) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        let viewer_snapshot = registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
+        host_rx.recv().await.unwrap(); // drain PeerJoined
+
+        registry.report_latency(&room_code, &viewer_snapshot.peer_id, 87);
+
+        assert_eq!(
+            host_rx.recv().await.unwrap(),
+            ServerMessage::PeerLatency { peer_id: viewer_snapshot.peer_id.clone(), ms: 87 }
+        );
+        assert_eq!(
+            viewer_rx.recv().await.unwrap(),
+            ServerMessage::PeerLatency { peer_id: viewer_snapshot.peer_id, ms: 87 }
+        );
+    }
+
+    #[tokio::test]
+    async fn join_room_snapshot_includes_latencies_reported_before_joining() {
+        let registry = Registry::new();
+        let (host_tx, _host_rx) = unbounded_channel();
+        let (viewer_tx, _viewer_rx) = unbounded_channel();
+
+        let (room_code, creator_snapshot) = registry.create_room("Ana".to_string(), "coral".to_string(), "Sala da Ana".to_string(), Some("senha123".to_string()), "device-host".to_string(), host_tx);
+        registry.join_room(&room_code, "Bia".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-viewer".to_string(), viewer_tx).unwrap();
+        registry.report_latency(&room_code, &creator_snapshot.peer_id, 12);
+
+        let (late_tx, _late_rx) = unbounded_channel();
+        let late_snapshot = registry.join_room(&room_code, "Caio".to_string(), "sky".to_string(), Some("senha123".to_string()), "device-late".to_string(), late_tx).unwrap();
+
+        assert_eq!(late_snapshot.latencies, vec![LatencyInfo { peer_id: creator_snapshot.peer_id, ms: 12 }]);
     }
 
     #[tokio::test]

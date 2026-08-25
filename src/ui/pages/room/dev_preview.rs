@@ -45,6 +45,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     let watching = RwSignal::new(HashSet::<String>::new());
     let expanded = RwSignal::new(None::<String>);
     let watchers_by_sharer = RwSignal::new(HashMap::<String, Vec<String>>::new());
+    let latency_by_peer = RwSignal::new(HashMap::<String, u32>::new());
     let own_preview_hidden = RwSignal::new(false);
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
@@ -129,6 +130,29 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
         });
     };
 
+    /// Cycles through the three ping-badge color tiers plus "no reading
+    /// yet" — lets you eyeball all four states without a real signaling
+    /// round trip.
+    const PING_CYCLE_MS: &[u32] = &[15, 90, 220];
+    let cycle_latency = move |peer_id: String| {
+        latency_by_peer.update(|latencies| {
+            let next = match latencies.get(&peer_id) {
+                None => Some(PING_CYCLE_MS[0]),
+                Some(&ms) if ms == PING_CYCLE_MS[0] => Some(PING_CYCLE_MS[1]),
+                Some(&ms) if ms == PING_CYCLE_MS[1] => Some(PING_CYCLE_MS[2]),
+                Some(_) => None,
+            };
+            match next {
+                Some(ms) => {
+                    latencies.insert(peer_id, ms);
+                }
+                None => {
+                    latencies.remove(&peer_id);
+                }
+            }
+        });
+    };
+
     // The server never reports a viewer count for one's own card (see
     // `member_card.rs`) — marking someone "eu" here mirrors that: their
     // `sharing` flag moves out of the members list and into the room-level
@@ -201,6 +225,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                     own_preview_hidden,
                     hide_idle,
                     connection_errors,
+                    latency_by_peer,
                 })}
             </div>
             <div
@@ -269,6 +294,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                         {
                             let (border, _) = color_hex(&member.color);
                             let peer_id_for_swatch = member.peer_id.clone();
+                            let peer_id_for_latency = member.peer_id.clone();
+                            let peer_id_for_latency_label = member.peer_id.clone();
                             let peer_id_for_self = member.peer_id.clone();
                             let peer_id_for_self_label = member.peer_id.clone();
                             let peer_id_for_share = member.peer_id.clone();
@@ -290,6 +317,19 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                                         on:click=move |_| cycle_color(peer_id_for_swatch.clone())
                                     ></button>
                                     <span class="dev-panel__nick">{member.nick.clone()}</span>
+                                    <button
+                                        type="button"
+                                        class="btn btn--ghost"
+                                        title="Alternar ping simulado"
+                                        on:click=move |_| cycle_latency(peer_id_for_latency.clone())
+                                    >
+                                        {move || {
+                                            latency_by_peer.get().get(&peer_id_for_latency_label).map_or_else(
+                                                || "Sem ping".to_string(),
+                                                |ms| format!("{ms} ms"),
+                                            )
+                                        }}
+                                    </button>
                                     <button
                                         type="button"
                                         class="btn btn--ghost"

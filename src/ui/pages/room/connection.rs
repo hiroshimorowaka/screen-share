@@ -13,6 +13,10 @@ pub(super) struct RoomConnection {
     // checks this flag so it doesn't overwrite the status already set with
     // the generic "connection lost" error.
     pub(super) expected_close: std::rc::Rc<std::cell::Cell<bool>>,
+    // `performance.now()` timestamp of the last `Ping` sent (see
+    // `latency.rs`), so the `Pong` handler in `message_handler.rs` can time
+    // the round trip. `None` once the matching `Pong` has been handled.
+    pub(super) last_ping_sent_at: std::rc::Rc<std::cell::Cell<Option<f64>>>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -24,6 +28,7 @@ impl RoomConnection {
             incoming: Default::default(),
             local_stream: Default::default(),
             expected_close: Default::default(),
+            last_ping_sent_at: Default::default(),
         }
     }
 }
@@ -61,6 +66,7 @@ pub(super) struct RoomSignals {
     pub(super) expanded: RwSignal<Option<String>>,
     pub(super) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
+    pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -149,7 +155,7 @@ pub(super) fn adopt_pending_session(
 ) {
     use crate::ui::client::session;
 
-    use super::message_handler::{apply_joined_snapshot, build_message_handler};
+    use super::message_handler::{apply_joined_snapshot, build_message_handler, JoinedSnapshot};
 
     let RoomSignals { set_status, .. } = signals;
 
@@ -170,12 +176,15 @@ pub(super) fn adopt_pending_session(
     // A pending session always comes from the home page creating a new
     // room — it never has a viewer yet.
     apply_joined_snapshot(
-        session.room,
-        session.room_name,
-        session.peer_id,
-        session.members,
-        session.active_sharers,
-        Vec::new(),
+        JoinedSnapshot {
+            room_code: session.room,
+            room_name: session.room_name,
+            peer_id: session.peer_id,
+            members: session.members,
+            active_sharers: session.active_sharers,
+            watcher_info: Vec::new(),
+            latencies: Vec::new(),
+        },
         signals,
     );
 

@@ -3,6 +3,7 @@ mod connection;
 mod dev_preview;
 mod grid;
 mod invite;
+mod latency;
 mod media_controls;
 mod member_card;
 mod message_handler;
@@ -19,6 +20,8 @@ use leptos_router::hooks::use_params_map;
 use connection::{adopt_pending_session, setup_room_connection, RoomConnection, RoomSignals};
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 use invite::invite_click_handler;
+use latency::setup_ping_loop;
+use media_controls::setup_fullscreen_autohide_controls;
 use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;
 use share::{share_supported, share_toggle_handler};
@@ -65,6 +68,7 @@ pub fn RoomPage() -> impl IntoView {
     let watching = RwSignal::new(std::collections::HashSet::<String>::new());
     let expanded = RwSignal::new(None::<String>);
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
+    let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
     let own_preview_hidden = RwSignal::new(false);
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
@@ -84,6 +88,7 @@ pub fn RoomPage() -> impl IntoView {
         expanded,
         watchers_by_sharer,
         connection_errors,
+        latency_by_peer,
     };
 
     let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
@@ -137,6 +142,8 @@ pub fn RoomPage() -> impl IntoView {
         leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id, initial_code.clone());
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
+    setup_fullscreen_autohide_controls();
+    setup_ping_loop(conn.clone());
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -214,6 +221,7 @@ pub fn RoomPage() -> impl IntoView {
                     own_preview_hidden,
                     hide_idle,
                     connection_errors,
+                    latency_by_peer,
                 })}
             </div>
             <div

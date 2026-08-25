@@ -42,6 +42,7 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
                     members: snapshot.members,
                     active_sharers: snapshot.active_sharers,
                     watcher_info: snapshot.watcher_info,
+                    latencies: snapshot.latencies,
                 });
                 room_code = Some(code);
                 peer_id = Some(snapshot.peer_id);
@@ -56,6 +57,7 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
                             members: snapshot.members,
                             active_sharers: snapshot.active_sharers,
                             watcher_info: snapshot.watcher_info,
+                            latencies: snapshot.latencies,
                         });
                         peer_id = Some(snapshot.peer_id);
                         room_code = Some(room);
@@ -89,6 +91,14 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
             ClientMessage::StopWatching { sharer_id } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
                     registry.remove_watcher(room, &sharer_id, from);
+                }
+            }
+            ClientMessage::Ping => {
+                let _ = tx.send(ServerMessage::Pong);
+            }
+            ClientMessage::ReportLatency { ms } => {
+                if let (Some(room), Some(id)) = (&room_code, &peer_id) {
+                    registry.report_latency(room, id, ms);
                 }
             }
             ClientMessage::Offer { to, sdp } => {

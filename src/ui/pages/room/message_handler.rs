@@ -5,23 +5,38 @@ use super::connection::RoomSignals;
 #[cfg(feature = "hydrate")]
 use super::RoomMember;
 
+/// Everything the `Joined` snapshot carries, bundled so `apply_joined_snapshot`
+/// takes one argument for it instead of seven — same idea as `RoomSignals`.
 #[cfg(feature = "hydrate")]
-pub(super) fn apply_joined_snapshot(
-    room_code: String,
-    room_name: String,
-    peer_id: String,
-    joined_members: Vec<crate::signaling::protocol::MemberInfo>,
-    active_sharers: Vec<String>,
-    watcher_info: Vec<crate::signaling::protocol::WatcherInfo>,
-    signals: RoomSignals,
-) {
+pub(super) struct JoinedSnapshot {
+    pub(super) room_code: String,
+    pub(super) room_name: String,
+    pub(super) peer_id: String,
+    pub(super) members: Vec<crate::signaling::protocol::MemberInfo>,
+    pub(super) active_sharers: Vec<String>,
+    pub(super) watcher_info: Vec<crate::signaling::protocol::WatcherInfo>,
+    pub(super) latencies: Vec<crate::signaling::protocol::LatencyInfo>,
+}
+
+#[cfg(feature = "hydrate")]
+pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSignals) {
     use std::collections::HashSet;
 
     use crate::ui::client::storage::save_recent_room;
     use crate::ui::profile::RecentRoom;
 
-    let RoomSignals { set_my_peer_id, set_members, set_room_name, set_authenticated, set_status, watchers_by_sharer, .. } =
-        signals;
+    let JoinedSnapshot { room_code, room_name, peer_id, members: joined_members, active_sharers, watcher_info, latencies } =
+        snapshot;
+    let RoomSignals {
+        set_my_peer_id,
+        set_members,
+        set_room_name,
+        set_authenticated,
+        set_status,
+        watchers_by_sharer,
+        latency_by_peer,
+        ..
+    } = signals;
 
     let sharer_set: HashSet<String> = active_sharers.into_iter().collect();
     let members: Vec<RoomMember> = joined_members
@@ -29,6 +44,7 @@ pub(super) fn apply_joined_snapshot(
         .map(|m| RoomMember { sharing: sharer_set.contains(&m.peer_id), peer_id: m.peer_id, nick: m.nick, color: m.color })
         .collect();
     watchers_by_sharer.set(watcher_info.into_iter().map(|w| (w.sharer_id, w.watchers)).collect());
+    latency_by_peer.set(latencies.into_iter().map(|l| (l.peer_id, l.ms)).collect());
     save_recent_room(RecentRoom { code: room_code, name: room_name.clone() });
     set_my_peer_id.set(Some(peer_id));
     set_members.set(members);
@@ -59,12 +75,24 @@ pub(super) fn build_message_handler(
         expanded,
         watchers_by_sharer,
         connection_errors,
+        latency_by_peer,
         ..
     } = signals;
 
     move |msg: ServerMessage| match msg {
-        ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers, watcher_info } => {
-            apply_joined_snapshot(room, room_name, peer_id, joined_members, active_sharers, watcher_info, signals);
+        ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers, watcher_info, latencies } => {
+            apply_joined_snapshot(
+                JoinedSnapshot {
+                    room_code: room,
+                    room_name,
+                    peer_id,
+                    members: joined_members,
+                    active_sharers,
+                    watcher_info,
+                    latencies,
+                },
+                signals,
+            );
         }
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
         ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
@@ -94,8 +122,9 @@ pub(super) fn build_message_handler(
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            let was_fullscreen = super::media_controls::exit_fullscreen_if_showing(&peer_id);
             expanded.update(|current| {
-                if current.as_deref() == Some(peer_id.as_str()) {
+                if current.as_deref() == Some(peer_id.as_str()) || was_fullscreen {
                     *current = None;
                 }
             });
@@ -114,8 +143,9 @@ pub(super) fn build_message_handler(
                 }
             });
             watching.update(|w| { w.remove(&peer_id); });
+            let was_fullscreen = super::media_controls::exit_fullscreen_if_showing(&peer_id);
             expanded.update(|current| {
-                if current.as_deref() == Some(peer_id.as_str()) {
+                if current.as_deref() == Some(peer_id.as_str()) || was_fullscreen {
                     *current = None;
                 }
             });
@@ -126,6 +156,21 @@ pub(super) fn build_message_handler(
         }
         ServerMessage::WatchersChanged { sharer_id, watchers } => {
             watchers_by_sharer.update(|w| { w.insert(sharer_id, watchers); });
+        }
+        ServerMessage::Pong => {
+            // `take()`, not `get()`: an unmatched `Pong` (e.g. one arriving
+            // after a fresh `Ping` overwrote the timestamp) must not be
+            // timed against the wrong send.
+            if let Some(sent_at) = conn.last_ping_sent_at.take() {
+                if let Some(rtt_ms) = super::latency::round_trip_ms_since(sent_at) {
+                    if let Some(ws) = conn.ws.borrow().as_ref() {
+                        ws.send(&ClientMessage::ReportLatency { ms: rtt_ms });
+                    }
+                }
+            }
+        }
+        ServerMessage::PeerLatency { peer_id, ms } => {
+            latency_by_peer.update(|l| { l.insert(peer_id, ms); });
         }
         ServerMessage::Offer { from, sdp } => {
             let conn = conn.clone();
