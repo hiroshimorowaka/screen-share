@@ -20,8 +20,10 @@ pub struct WatcherInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    CreateRoom { nick: String, password: String, room_name: String, color: String, device_id: String },
-    JoinRoom { room: String, nick: String, password: String, color: String, device_id: String },
+    /// `password: None` creates a room anyone with the link can join.
+    CreateRoom { nick: String, password: Option<String>, room_name: String, color: String, device_id: String },
+    /// `password: None` is only accepted if the room itself has none set.
+    JoinRoom { room: String, nick: String, password: Option<String>, color: String, device_id: String },
     StartShare,
     StopShare,
     WatchShare { sharer_id: String },
@@ -74,8 +76,8 @@ pub enum ServerMessage {
     },
 }
 
-/// Response for `GET /api/rooms/:code`. `name`/`member_count` are omitted
-/// from the JSON when `exists` is `false`.
+/// Response for `GET /api/rooms/:code`. `name`/`member_count`/
+/// `requires_password` are omitted from the JSON when `exists` is `false`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoomStatus {
     pub exists: bool,
@@ -83,6 +85,8 @@ pub struct RoomStatus {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub member_count: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_password: Option<bool>,
 }
 
 #[cfg(test)]
@@ -93,7 +97,7 @@ mod tests {
     fn create_room_message_round_trips_through_json() {
         let msg = ClientMessage::CreateRoom {
             nick: "Ana".to_string(),
-            password: "abacate".to_string(),
+            password: Some("abacate".to_string()),
             room_name: "Sala dos lindos".to_string(),
             color: "coral".to_string(),
             device_id: "device-1".to_string(),
@@ -109,11 +113,30 @@ mod tests {
     }
 
     #[test]
+    fn create_room_message_without_password_round_trips_through_json() {
+        let msg = ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala dos lindos".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-1".to_string(),
+        };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(
+            json,
+            r#"{"type":"create_room","nick":"Ana","password":null,"room_name":"Sala dos lindos","color":"coral","device_id":"device-1"}"#
+        );
+
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
     fn join_room_message_round_trips_through_json() {
         let msg = ClientMessage::JoinRoom {
             room: "ABCD1234".to_string(),
             nick: "Bia".to_string(),
-            password: "abacate".to_string(),
+            password: Some("abacate".to_string()),
             color: "sky".to_string(),
             device_id: "device-2".to_string(),
         };
@@ -179,7 +202,7 @@ mod tests {
 
     #[test]
     fn room_status_omits_absent_fields_when_room_does_not_exist() {
-        let status = RoomStatus { exists: false, name: None, member_count: None };
+        let status = RoomStatus { exists: false, name: None, member_count: None, requires_password: None };
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#"{"exists":false}"#);
 

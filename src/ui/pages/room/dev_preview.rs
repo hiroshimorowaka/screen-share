@@ -171,7 +171,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
         }
     };
 
-    let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
+    let leave_or_stop_watching =
+        leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id, "dev-preview".to_string());
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
 

@@ -47,7 +47,7 @@ pub fn HomePage() -> impl IntoView {
         <div class="home-layout">
         <div class="panel">
             <h1>"Criar sala"</h1>
-            <p class="subtext">"Escolha um nick, uma cor, um nome e uma senha. Compartilhe o link e a senha com quem você quiser na sala."</p>
+            <p class="subtext">"Escolha um nick, uma cor e um nome. A senha é opcional — sem ela, qualquer pessoa com o link pode entrar na sala."</p>
 
             <form on:submit=create_room>
                 <label class="field">
@@ -72,11 +72,10 @@ pub fn HomePage() -> impl IntoView {
                     />
                 </label>
                 <label class="field">
-                    <span class="field__label">"Senha da sala"</span>
+                    <span class="field__label">"Senha da sala (opcional)"</span>
                     <input
                         class="field__input"
                         type="password"
-                        required
                         prop:value=password
                         on:input:target=move |ev| set_password.set(ev.target().value())
                     />

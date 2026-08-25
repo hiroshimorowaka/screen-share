@@ -34,7 +34,7 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
 
         match client_msg {
             ClientMessage::CreateRoom { nick, password, room_name, color, device_id } => {
-                let (code, snapshot) = registry.create_room(nick, color, room_name, &password, device_id, tx.clone());
+                let (code, snapshot) = registry.create_room(nick, color, room_name, password, device_id, tx.clone());
                 let _ = tx.send(ServerMessage::Joined {
                     peer_id: snapshot.peer_id.clone(),
                     room: code.clone(),
@@ -47,7 +47,7 @@ async fn handle_socket(socket: WebSocket, registry: Registry) {
                 peer_id = Some(snapshot.peer_id);
             }
             ClientMessage::JoinRoom { room, nick, password, color, device_id } => {
-                match registry.join_room(&room, nick, color, &password, device_id, tx.clone()) {
+                match registry.join_room(&room, nick, color, password, device_id, tx.clone()) {
                     Ok(snapshot) => {
                         let _ = tx.send(ServerMessage::Joined {
                             peer_id: snapshot.peer_id.clone(),

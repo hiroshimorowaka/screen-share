@@ -42,7 +42,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
     let (mut creator_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     send_json(&mut creator_ws, &ClientMessage::CreateRoom {
         nick: "Ana".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
         device_id: "device-ana".to_string(),
@@ -61,7 +61,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
     send_json(&mut viewer_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
         nick: "Bia".to_string(),
-        password: "senha-errada".to_string(),
+        password: Some("senha-errada".to_string()),
         color: "sky".to_string(),
         device_id: "device-bia".to_string(),
     })
@@ -71,7 +71,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
     send_json(&mut viewer_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
         nick: "Bia".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         color: "sky".to_string(),
         device_id: "device-bia".to_string(),
     })
@@ -97,7 +97,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
     let (mut sharer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     send_json(&mut sharer_ws, &ClientMessage::CreateRoom {
         nick: "Ana".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
         device_id: "device-ana".to_string(),
@@ -112,7 +112,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
     send_json(&mut viewer_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
         nick: "Bia".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         color: "sky".to_string(),
         device_id: "device-bia".to_string(),
     })
@@ -137,7 +137,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     let (mut sharer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     send_json(&mut sharer_ws, &ClientMessage::CreateRoom {
         nick: "Ana".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
         device_id: "device-ana".to_string(),
@@ -152,7 +152,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     send_json(&mut viewer_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
         nick: "Bia".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         color: "sky".to_string(),
         device_id: "device-bia".to_string(),
     })
@@ -193,7 +193,7 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     let (mut creator_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     send_json(&mut creator_ws, &ClientMessage::CreateRoom {
         nick: "Ana".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         room_name: "Sala da Ana".to_string(),
         color: "coral".to_string(),
         device_id: "device-ana".to_string(),
@@ -208,7 +208,7 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     send_json(&mut viewer_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
         nick: "Bia".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         color: "sky".to_string(),
         device_id: "device-bia".to_string(),
     })
@@ -220,7 +220,7 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     send_json(&mut second_ana_ws, &ClientMessage::JoinRoom {
         room: room.clone(),
         nick: "AnaCelular".to_string(),
-        password: "senha123".to_string(),
+        password: Some("senha123".to_string()),
         color: "coral".to_string(),
         device_id: "device-ana".to_string(),
     })
@@ -251,6 +251,6 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
 async fn room_not_found_for_unknown_code() {
     let url = spawn_test_server().await;
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
-    send_json(&mut ws, &ClientMessage::JoinRoom { room: "NOPE0000".to_string(), nick: "Bia".to_string(), password: "x".to_string(), color: "sky".to_string(), device_id: "device-bia".to_string() }).await;
+    send_json(&mut ws, &ClientMessage::JoinRoom { room: "NOPE0000".to_string(), nick: "Bia".to_string(), password: Some("x".to_string()), color: "sky".to_string(), device_id: "device-bia".to_string() }).await;
     assert_eq!(recv_json(&mut ws).await, ServerMessage::RoomNotFound);
 }

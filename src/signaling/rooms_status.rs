@@ -10,7 +10,8 @@ pub async fn room_status_handler(State(registry): State<Registry>, Path(code): P
             exists: true,
             name: Some(summary.name),
             member_count: Some(summary.member_count),
+            requires_password: Some(summary.requires_password),
         }),
-        None => Json(RoomStatus { exists: false, name: None, member_count: None }),
+        None => Json(RoomStatus { exists: false, name: None, member_count: None, requires_password: None }),
     }
 }

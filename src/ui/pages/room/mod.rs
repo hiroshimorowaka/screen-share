@@ -50,10 +50,14 @@ pub fn RoomPage() -> impl IntoView {
     let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
     crate::ui::profile::load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
-    let (status, set_status) = signal("Informe o nick e a senha da sala.".to_string());
+    let (status, set_status) = signal("Informe o nick da sala.".to_string());
     let (authenticated, set_authenticated) = signal(false);
     let (room_exists, set_room_exists) = signal(None::<bool>);
     let (room_name, set_room_name) = signal(None::<String>);
+    // Assume a password may be required until the room check resolves — the
+    // join panel that reads this stays hidden the whole time anyway (see
+    // `room_exists` above), so there's no flash of the wrong state.
+    let (requires_password, set_requires_password) = signal(true);
     let (members, set_members) = signal(Vec::<RoomMember>::new());
     let (my_peer_id, set_my_peer_id) = signal(None::<String>);
     let (is_sharing, set_is_sharing) = signal(false);
@@ -84,27 +88,53 @@ pub fn RoomPage() -> impl IntoView {
 
     let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
 
-    adopt_pending_session(initial_code.clone(), conn.clone(), room_signals);
+    adopt_pending_session(initial_code.clone(), conn.clone(), room_signals, set_requires_password);
 
-    start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name);
+    // Reloading the page while still in a room shouldn't drop back to the
+    // nick/password gate — rejoin silently with whatever this same tab used
+    // last time, same as `adopt_pending_session` does for the creator's own
+    // first load. Only runs if that didn't already authenticate us.
+    #[cfg(feature = "hydrate")]
+    if !authenticated.get_untracked() {
+        if let Some(stored) = crate::ui::client::storage::load_room_session(&initial_code) {
+            join_room(stored.nick, stored.color, stored.password);
+        }
+    }
+
+    start_room_check(initial_code.clone(), authenticated, set_room_exists, set_room_name, set_requires_password);
 
     let manual_join = {
         let join_room = join_room.clone();
+        // Only read from `#[cfg(feature = "hydrate")]` code below — an
+        // `ssr`-only compile sees no reads and would otherwise flag it.
+        #[cfg_attr(not(feature = "hydrate"), allow(unused_variables))]
+        let room_code = initial_code.clone();
         move |ev: leptos::ev::SubmitEvent| {
             ev.prevent_default();
             let nick_value = nick.get_untracked().trim().to_string();
             let password_value = password.get_untracked();
-            if nick_value.is_empty() || password_value.is_empty() {
+            if nick_value.is_empty() || (requires_password.get_untracked() && password_value.is_empty()) {
                 set_status.set("Preencha nick e senha.".to_string());
                 return;
             }
+            let password_value = (!password_value.is_empty()).then_some(password_value);
+            #[cfg(feature = "hydrate")]
+            crate::ui::client::storage::save_room_session(
+                &room_code,
+                &crate::ui::client::storage::RoomSession {
+                    nick: nick_value.clone(),
+                    color: color.get_untracked(),
+                    password: password_value.clone(),
+                },
+            );
             join_room(nick_value, color.get_untracked(), password_value);
         }
     };
 
     let toggle_share = share_toggle_handler(conn.clone(), is_sharing, set_is_sharing, own_preview_hidden, set_status, my_peer_id, expanded);
     let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
-    let leave_or_stop_watching = leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id);
+    let leave_or_stop_watching =
+        leave_or_stop_watching_handler(conn.clone(), watching, expanded, my_peer_id, initial_code.clone());
     let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
 
@@ -144,9 +174,9 @@ pub fn RoomPage() -> impl IntoView {
                         on:input:target=move |ev| set_nick.set(ev.target().value())/>
                 </label>
                 <ColorPicker selected=color on_select=set_color/>
-                <label class="field">
+                <label class="field" class:hidden=move || !requires_password.get()>
                     <span class="field__label">"Senha da sala"</span>
-                    <input class="field__input" type="password" required prop:value=password
+                    <input class="field__input" type="password" prop:value=password
                         on:input:target=move |ev| set_password.set(ev.target().value())/>
                 </label>
                 <button class="btn btn--primary" type="submit">"Entrar"</button>
