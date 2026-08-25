@@ -2,11 +2,15 @@
 
 Salas persistentes e protegidas por senha para compartilhar tela com um
 grupo pequeno (até 10 pessoas), direto do navegador (Windows e Linux) — sem
-instalar nada, sem contas, sem áudio. Qualquer pessoa na sala pode
-compartilhar a própria tela a qualquer momento; assistir é uma escolha
-individual de cada um, sem afetar quem mais está assistindo. O vídeo
-trafega direto entre os navegadores via WebRTC — o servidor só cuida da
-sinalização.
+instalar nada, sem contas. Qualquer pessoa na sala pode compartilhar a
+própria tela a qualquer momento; assistir é uma escolha individual de cada
+um, sem afetar quem mais está assistindo. O vídeo trafega direto entre os
+navegadores via WebRTC — o servidor só cuida da sinalização.
+
+Pelo navegador, o compartilhamento é só de vídeo. Quem instalar o
+[app desktop](#app-desktop-compartilhamento-de-áudio) (hoje só Linux) pode
+compartilhar o áudio do sistema junto com a tela — de um app específico
+automaticamente, ou da tela inteira excluindo os apps que quiser.
 
 ## Rodando localmente
 
@@ -20,6 +24,41 @@ cargo leptos watch
 ```
 
 Abra `http://127.0.0.1:3000/`.
+
+## App desktop (compartilhamento de áudio)
+
+`desktop/` é um wrapper Electron do mesmo site — hoje é a única forma de
+compartilhar áudio junto com a tela (o navegador sozinho não dá acesso ao
+áudio do sistema). Roda por cima da mesma sala/protocolo, sem servidor
+próprio. **Só Linux com X11 por enquanto** — sem suporte a Wayland nem
+Windows.
+
+Pré-requisitos (além dos da seção anterior):
+
+- Node.js + [`pnpm`](https://pnpm.io)
+- PipeWire com `pw-loopback`, `pw-link` e `pw-dump` no `PATH` (padrão em
+  distros atuais)
+- `xprop` (pacote `x11-utils`/`xorg-xprop`, conforme a distro)
+
+Rodando:
+
+```bash
+cd desktop
+pnpm install
+pnpm exec tsc && pnpm exec electron .
+```
+
+Por padrão o app aponta para o site publicado
+(`https://screen-share-h0rb5w.fly.dev/`) — para testar contra um
+`cargo leptos watch` local, troque `PROD_URL` em `desktop/src/main.ts`
+temporariamente para `http://127.0.0.1:3000/`.
+
+No picker de compartilhamento, marque "Compartilhar áudio": escolhendo um
+app específico ("Aplicativos"), só o áudio dele vai junto, automaticamente;
+escolhendo "Tela inteira", vai o áudio do sistema todo, exceto os processos
+marcados no dropdown de exclusão. Um app que começa a tocar som só depois
+de já estar compartilhando ainda é pego (checagem contínua, não só no
+início).
 
 ## Testes automatizados
 
