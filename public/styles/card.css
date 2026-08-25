@@ -146,44 +146,78 @@
   height: 0.7rem;
 }
 
-/* Discord style: instead of a discreet button among others in the footer,
-   the invitation to watch takes over the whole banner while the person
-   isn't being watched yet — it disappears as soon as someone clicks it (or
-   as soon as the share ends). */
-.card__watch-overlay {
+/* Mirrors `.watcher-badge` on the opposite corner: small and out of the way
+   of the video, colored rather than sized/labeled for attention, so a
+   glance at the dot answers "is this person's connection fine" without
+   competing with the eye-count badge or the video itself. */
+.ping-badge {
+  position: absolute;
+  top: 0.5rem;
+  left: 0.5rem;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: var(--text);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.ping-badge__dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.grid--focused .card:not(.card--focus) .ping-badge {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.6rem;
+  top: 0.25rem;
+  left: 0.25rem;
+}
+
+.grid--focused .card:not(.card--focus) .ping-badge__dot {
+  width: 0.4rem;
+  height: 0.4rem;
+}
+
+/* Discord style: the avatar tile stays visible, just dimmed a touch (like
+   Discord dims a frozen thumbnail of the share), with a bold call-to-action
+   label floating over it — not a full opaque modal-like overlay, which read
+   as a heavy interruption sitting on top of every idle card. The whole card
+   is the click target (`card_click` above), so these two layers are purely
+   visual — `pointer-events: none` lets the click always land on `.card`. */
+.card__watch-scrim {
   position: absolute;
   inset: 0;
+  z-index: 1;
+  background: rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.card__watch-pill {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
   z-index: 2;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0;
-  border: none;
-  background: rgba(0, 0, 0, 0.45);
+  max-width: calc(100% - 2rem);
+  padding: 0.9rem 1.6rem;
+  border-radius: 0.85rem;
+  background: rgba(52, 52, 58, 0.85);
   color: var(--text);
-  font-size: 0.9rem;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-.card__watch-overlay:hover {
-  background: rgba(0, 0, 0, 0.6);
-}
-
-.card__watch-overlay-icon {
-  width: 3rem;
-  height: 3rem;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--accent);
-  color: var(--accent-ink);
   font-size: 1.1rem;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
 }
 
 .card__footer {
@@ -233,6 +267,16 @@
   opacity: 1;
 }
 
+/* In fullscreen, the pointer never truly "leaves" a card that fills the
+   whole screen, so `.card:hover` alone would keep the actions visible
+   forever. `card--controls-idle` is toggled by `setup_fullscreen_autohide_controls`
+   (see media_controls.rs) a few seconds after the last mouse move, the same
+   convention native video players use. `!important` overrides the `:hover`/
+   `:focus-within` rule above, which stays true throughout. */
+.card:fullscreen.card--controls-idle .card__actions {
+  opacity: 0 !important;
+}
+
 /* Stop watching and fullscreen are a card's most used actions — a bit
    bigger than the other icon-btns (e.g. leave room) to make them easier to
    click accurately. */
@@ -269,13 +313,11 @@
   display: none;
 }
 
-.grid--focused .card:not(.card--focus) .card__watch-overlay {
-  gap: 0.15rem;
-  font-size: 0;
-}
-
-.grid--focused .card:not(.card--focus) .card__watch-overlay-icon {
-  width: 1.6rem;
-  height: 1.6rem;
-  font-size: 0.7rem;
+/* Filmstrip tiles are too small for the full-size label — scaled down to
+   fit; `text-overflow: ellipsis` on `.card__watch-pill` handles anything
+   still too wide for even the tiniest tile. */
+.grid--focused .card:not(.card--focus) .card__watch-pill {
+  padding: 0.3rem 0.5rem;
+  border-radius: 0.4rem;
+  font-size: 0.65rem;
 }

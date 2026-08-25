@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 use super::connection::RoomConnection;
-use super::media_controls::{toggle_fullscreen, toggle_picture_in_picture, VideoSlot};
+use super::media_controls::{exit_fullscreen_if_active, toggle_fullscreen, toggle_picture_in_picture, VideoSlot};
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use super::RoomMember;
 use crate::signaling::protocol::MAX_MEMBERS;
@@ -23,6 +23,24 @@ pub(super) struct MemberCardSignals {
     pub(super) own_preview_hidden: RwSignal<bool>,
     pub(super) hide_idle: RwSignal<bool>,
     pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
+    pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
+}
+
+/// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"
+/// (yellow); at or above it, "bad" (red) — the same three-tier read as a
+/// signal-strength icon, just as a color instead of bars.
+const PING_GOOD_MS: u32 = 60;
+const PING_WARN_MS: u32 = 150;
+
+/// Pure so it's unit-testable without a browser — see `mod tests` below.
+fn ping_color_var(ms: u32) -> &'static str {
+    if ms < PING_GOOD_MS {
+        "--success"
+    } else if ms < PING_WARN_MS {
+        "--warning"
+    } else {
+        "--error"
+    }
 }
 
 /// `MAX_MEMBERS` fixed, static cards, not a reactive `<For>` — the buttons
@@ -40,6 +58,7 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
         own_preview_hidden,
         hide_idle,
         connection_errors,
+        latency_by_peer,
     } = signals;
 
     (0..MAX_MEMBERS)
@@ -67,6 +86,7 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
             let border_color = move || {
                 member_at().map_or(EMPTY_SLOT_COLORS, |m| color_hex(&m.color))
             };
+            let member_ping = move || member_at().and_then(|m| latency_by_peer.get().get(&m.peer_id).copied());
             let watcher_ids = move || {
                 member_at().and_then(|m| watchers_by_sharer.get().get(&m.peer_id).cloned()).unwrap_or_default()
             };
@@ -96,7 +116,20 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                 let peer_id = member_at().map_or(String::new(), |m| m.peer_id);
                 toggle_picture_in_picture(video_slot(), &peer_id);
             };
-            let toggle_focus_click = move |_: leptos::ev::MouseEvent| {
+            let card_click = move |ev: leptos::ev::MouseEvent| {
+                // Clicking a fullscreen card should just back out of
+                // fullscreen and leave the expanded/normal state untouched —
+                // not fall through and toggle it too (see
+                // `exit_fullscreen_if_active`'s doc comment).
+                if exit_fullscreen_if_active() {
+                    return;
+                }
+                // Discord-style: the whole tile is the "watch" affordance,
+                // not just the small pill sitting on top of it.
+                if can_watch() {
+                    watch(ev);
+                    return;
+                }
                 if !showing_video() {
                     return;
                 }
@@ -110,6 +143,7 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
 
             view! {
                 <div
+                    id=move || member_at().map_or_else(String::new, |m| format!("card-{}", m.peer_id))
                     class="card"
                     class:hidden=move || {
                         let filtered_out_of_main_grid = expanded.get().is_none()
@@ -118,12 +152,12 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                         member_at().is_none() || filtered_out_of_main_grid
                     }
                     class:card--focus=is_expanded
-                    class:card--clickable=showing_video
+                    class:card--clickable=move || showing_video() || can_watch()
                     style=move || {
                         let border = border_color().0;
                         format!("border-color: {border}; --member-accent: {border};")
                     }
-                    on:click=toggle_focus_click
+                    on:click=card_click
                 >
                     <div
                         class="watcher-badge"
@@ -134,6 +168,17 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                         <div class="watcher-badge__tooltip" class:hidden=move || watcher_names().is_empty()>
                             {move || watcher_names().join(", ")}
                         </div>
+                    </div>
+                    <div
+                        class="ping-badge"
+                        class:hidden=move || member_ping().is_none()
+                        title="Ping até o servidor"
+                    >
+                        <span
+                            class="ping-badge__dot"
+                            style=move || format!("background-color: var({});", member_ping().map_or("--text-dim", ping_color_var))
+                        ></span>
+                        <span>{move || member_ping().map_or_else(String::new, |ms| format!("{ms} ms"))}</span>
                     </div>
                     <div
                         class="card__avatar"
@@ -168,17 +213,10 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                     >
                         "Não foi possível conectar."
                     </div>
-                    <button
-                        class="card__watch-overlay"
-                        class:hidden=move || !can_watch()
-                        on:click=move |ev: leptos::ev::MouseEvent| {
-                            ev.stop_propagation();
-                            watch(ev);
-                        }
-                    >
-                        <span class="card__watch-overlay-icon">"▶"</span>
-                        <span>"Assistir compartilhamento"</span>
-                    </button>
+                    <div class="card__watch-scrim" class:hidden=move || !can_watch()></div>
+                    <div class="card__watch-pill" class:hidden=move || !can_watch()>
+                        "Assistir transmissão"
+                    </div>
                     <div class="card__footer">
                         <span class="card__nick">{move || member_at().map(|m| m.nick).unwrap_or_default()}</span>
                         <div class="card__actions">
@@ -218,4 +256,19 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
             }
         })
         .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn ping_color_var_classifies_into_three_tiers() {
+        assert_eq!(ping_color_var(0), "--success");
+        assert_eq!(ping_color_var(PING_GOOD_MS - 1), "--success");
+        assert_eq!(ping_color_var(PING_GOOD_MS), "--warning");
+        assert_eq!(ping_color_var(PING_WARN_MS - 1), "--warning");
+        assert_eq!(ping_color_var(PING_WARN_MS), "--error");
+        assert_eq!(ping_color_var(9999), "--error");
+    }
 }

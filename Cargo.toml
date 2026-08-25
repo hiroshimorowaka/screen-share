@@ -52,6 +52,7 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "Storage",
     "Response",
     "Crypto",
+    "Performance",
 ] }
 argon2 = { version = "0.5.3", optional = true, features = ["std"] }
 
