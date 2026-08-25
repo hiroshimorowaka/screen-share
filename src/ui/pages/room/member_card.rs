@@ -274,6 +274,30 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                                 class:hidden=move || !is_watching_this()
                                 on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()
                             >
+                                <div class="volume-control__popup">
+                                    <input
+                                        class="volume-control__slider"
+                                        type="range"
+                                        min="0"
+                                        max="100"
+                                        prop:value=move || if is_muted() { 0.0 } else { current_volume_pct() }
+                                        on:input:target=move |ev| {
+                                            let Some(member) = member_at() else { return };
+                                            let value = ev.target().value();
+                                            let volume = value.parse::<f64>().unwrap_or(100.0) / 100.0;
+                                            volume_by_peer.update(|m| {
+                                                m.insert(member.peer_id.clone(), volume);
+                                            });
+                                            set_volume(video_slot(), &member.peer_id, volume);
+                                            if volume > 0.0 && is_muted() {
+                                                muted_by_peer.update(|set| {
+                                                    set.remove(&member.peer_id);
+                                                });
+                                                set_muted(video_slot(), &member.peer_id, false);
+                                            }
+                                        }
+                                    />
+                                </div>
                                 <button
                                     class="icon-btn icon-btn--neutral"
                                     title=move || if is_muted() { "Ativar som" } else { "Silenciar" }
@@ -282,28 +306,6 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                                 >
                                     {move || if is_muted() { icon_volume_off().into_any() } else { icon_volume().into_any() }}
                                 </button>
-                                <input
-                                    class="volume-control__slider"
-                                    type="range"
-                                    min="0"
-                                    max="100"
-                                    prop:value=move || if is_muted() { 0.0 } else { current_volume_pct() }
-                                    on:input:target=move |ev| {
-                                        let Some(member) = member_at() else { return };
-                                        let value = ev.target().value();
-                                        let volume = value.parse::<f64>().unwrap_or(100.0) / 100.0;
-                                        volume_by_peer.update(|m| {
-                                            m.insert(member.peer_id.clone(), volume);
-                                        });
-                                        set_volume(video_slot(), &member.peer_id, volume);
-                                        if volume > 0.0 && is_muted() {
-                                            muted_by_peer.update(|set| {
-                                                set.remove(&member.peer_id);
-                                            });
-                                            set_muted(video_slot(), &member.peer_id, false);
-                                        }
-                                    }
-                                />
                             </div>
                             <button
                                 class="icon-btn icon-btn--danger"

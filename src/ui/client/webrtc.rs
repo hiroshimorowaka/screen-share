@@ -12,7 +12,7 @@ pub fn is_desktop_app() -> bool {
     js_sys::Reflect::has(&window, &JsValue::from_str("desktopAudio")).unwrap_or(false)
 }
 
-pub async fn capture_display(share_audio: bool) -> Result<MediaStream, JsValue> {
+pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
     let media_devices = window.navigator().media_devices()?;
 
@@ -23,28 +23,14 @@ pub async fn capture_display(share_audio: bool) -> Result<MediaStream, JsValue> 
     let stream = JsFuture::from(promise).await?;
     let video_stream = stream.dyn_into::<MediaStream>()?;
 
-    if !share_audio {
-        return Ok(video_stream);
-    }
-
-    start_desktop_audio_loopback().await?;
+    // Whether to also attach audio was already decided inside the
+    // desktop app's own share picker, before this call was even made —
+    // this just tries, and a missing device means audio wasn't
+    // requested (not an error) rather than something to report.
     match capture_loopback_audio(&media_devices).await {
         Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
-        Err(err) => {
-            let _ = stop_desktop_audio_loopback().await;
-            Err(err)
-        }
+        Err(_) => Ok(video_stream),
     }
-}
-
-async fn start_desktop_audio_loopback() -> Result<(), JsValue> {
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
-    let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
-    let start_fn: js_sys::Function =
-        js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("start"))?.dyn_into()?;
-    let promise: js_sys::Promise = start_fn.call0(&desktop_audio)?.dyn_into()?;
-    JsFuture::from(promise).await?;
-    Ok(())
 }
 
 pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
@@ -65,13 +51,13 @@ async fn capture_loopback_audio(media_devices: &web_sys::MediaDevices) -> Result
     for device in devices.iter() {
         let info: web_sys::MediaDeviceInfo = device.dyn_into()?;
         if info.kind() == web_sys::MediaDeviceKind::Audioinput
-            && info.label().contains("Screen Share Audio")
+            && info.label().contains("Screen Share Mix")
         {
             device_id = Some(info.device_id());
         }
     }
     let device_id =
-        device_id.ok_or_else(|| JsValue::from_str("Screen Share Audio device not found"))?;
+        device_id.ok_or_else(|| JsValue::from_str("Screen Share Mix device not found"))?;
 
     // `exact` (not `ideal`): if this specific device isn't available for
     // any reason, getUserMedia must reject instead of silently falling
