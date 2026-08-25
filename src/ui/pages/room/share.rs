@@ -70,7 +70,6 @@ pub(super) fn share_toggle_handler(
                     }
                 }
             }
-            *conn.local_stream.borrow_mut() = Some(stream.clone());
             set_is_sharing.set(true);
 
             // The browser's own native "Stop sharing" button fires `onended`
@@ -87,6 +86,13 @@ pub(super) fn share_toggle_handler(
             if let Some(ws) = conn.ws.borrow().as_ref() {
                 ws.send(&ClientMessage::StartShare);
             }
+
+            // Store the same `stream` handle used above, not a `.clone()` of
+            // it — cloning here and letting this original drop at the end of
+            // the block was enough, on its own, to keep Chrome's native
+            // "sharing" indicator from ever releasing later, even though the
+            // clone kept working fine for playback and `stop()`.
+            *conn.local_stream.borrow_mut() = Some(stream);
         });
     }
 }
@@ -101,10 +107,27 @@ pub(super) fn stop_sharing(
 ) {
     use wasm_bindgen::JsCast;
 
+    // Chrome keeps its native "sharing" indicator alive as long as any
+    // RTCRtpSender still references the track, even after the track itself
+    // is stopped — detach it from every viewer's connection first, or the
+    // indicator survives `track.stop()` and stacks with the next share.
+    for pc in conn.outgoing.borrow().values() {
+        for sender in pc.get_senders().iter() {
+            let sender: web_sys::RtcRtpSender = sender.unchecked_into();
+            pc.remove_track(&sender);
+        }
+    }
+
     if let Some(stream) = conn.local_stream.borrow_mut().take() {
+        // `stop()` alone marks the track "ended" but leaves it attached to
+        // the `MediaStream` object; several Chromium builds only drop the
+        // native "sharing" indicator once the track is also detached from
+        // the stream via `removeTrack` (this is how Google Meet's own
+        // "Stop presenting" avoids the stuck-indicator bug).
         for track in stream.get_tracks().iter() {
             let track: web_sys::MediaStreamTrack = track.unchecked_into();
             track.stop();
+            stream.remove_track(&track);
         }
     }
     // The preview `<video>` keeps its `srcObject` pointing at this stream
