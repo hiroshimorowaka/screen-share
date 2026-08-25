@@ -102,6 +102,7 @@
   color: var(--text);
   font-size: 0.75rem;
   font-weight: 600;
+  transition: opacity 0.15s ease;
 }
 
 .watcher-badge .icon {
@@ -164,6 +165,7 @@
   color: var(--text);
   font-size: 0.7rem;
   font-weight: 600;
+  transition: opacity 0.15s ease;
 }
 
 .ping-badge__dot {
@@ -248,6 +250,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  transition: opacity 0.15s ease;
 }
 
 /* Discord style: per-card controls only appear on mouse hover (or keyboard
@@ -272,9 +275,23 @@
    forever. `card--controls-idle` is toggled by `setup_fullscreen_autohide_controls`
    (see media_controls.rs) a few seconds after the last mouse move, the same
    convention native video players use. `!important` overrides the `:hover`/
-   `:focus-within` rule above, which stays true throughout. */
-.card:fullscreen.card--controls-idle .card__actions {
+   `:focus-within` rule above, which stays true throughout. The ping/watcher
+   badges and the nick pill aren't hover-gated at all normally (they're
+   meant to stay visible at a glance), but in fullscreen they should fade
+   out together with the actions rather than linger on their own. */
+.card:fullscreen.card--controls-idle .card__actions,
+.card:fullscreen.card--controls-idle .watcher-badge,
+.card:fullscreen.card--controls-idle .ping-badge,
+.card:fullscreen.card--controls-idle .card__nick {
   opacity: 0 !important;
+}
+
+/* The cursor itself should disappear alongside everything else once idle —
+   otherwise it just sits there, motionless, over an otherwise-clean video,
+   which reads as more distracting than the (still visible) native OS
+   cursor normally is while actively moving. */
+.card:fullscreen.card--controls-idle {
+  cursor: none;
 }
 
 /* Stop watching and fullscreen are a card's most used actions — a bit

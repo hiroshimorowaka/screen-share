@@ -55,8 +55,14 @@ pub(super) fn stop_watching_click_handler(
     move |_| {
         let Some(member) = members.get_untracked().get(slot).cloned() else { return };
         watching.update(|w| { w.remove(&member.peer_id); });
+        // The fullscreen API has no idea the video feeding it is about to
+        // disappear — back out of it ourselves, the same way a peer
+        // stopping their share or leaving the room already does (see
+        // `message_handler.rs`), instead of leaving the browser stuck
+        // showing a fullscreen card with nothing to watch anymore.
+        let was_fullscreen = super::media_controls::exit_fullscreen_if_showing(&member.peer_id);
         expanded.update(|current| {
-            if current.as_deref() == Some(member.peer_id.as_str()) {
+            if current.as_deref() == Some(member.peer_id.as_str()) || was_fullscreen {
                 *current = None;
             }
         });
@@ -106,6 +112,7 @@ pub(super) fn leave_or_stop_watching_handler(
             return;
         };
 
+        super::media_controls::exit_fullscreen_if_showing(&focused_peer_id);
         expanded.set(None);
         if my_peer_id.get_untracked().as_deref() == Some(focused_peer_id.as_str()) {
             return;
