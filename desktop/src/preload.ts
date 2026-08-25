@@ -1,17 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-interface PickerSource {
-  id: string;
-  name: string;
-  thumbnailDataUrl: string;
-  iconDataUrl: string | null;
-}
-
-interface PickerChoice {
-  sourceId: string;
-  shareAudio: boolean;
-  excludedBinaries: string[];
-}
+import type { AudioShareTarget, PickerChoice, PickerSource } from './shared-types.js';
 
 contextBridge.exposeInMainWorld('picker', {
   onSources: (callback: (sources: PickerSource[]) => void) => {
@@ -24,12 +13,6 @@ contextBridge.exposeInMainWorld('picker', {
   },
   listAudioApps: () => ipcRenderer.invoke('list-audio-apps'),
 });
-
-interface AudioShareTarget {
-  mode: 'window' | 'screen';
-  binary?: string;
-  excludedBinaries?: string[];
-}
 
 contextBridge.exposeInMainWorld('desktopAudio', {
   start: (target: AudioShareTarget) => ipcRenderer.invoke('start-audio-loopback', target),
