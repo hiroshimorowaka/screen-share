@@ -41,11 +41,11 @@
     "linux": {
       "target": ["AppImage", "deb"],
       "category": "Network",
-      "icon": "icons/tray-icon.png"
+      "icon": "icons/app-icon.png"
     },
     "win": {
       "target": ["nsis", "portable"],
-      "icon": "icons/tray-icon.png"
+      "icon": "icons/app-icon.png"
     },
     "nsis": {
       "oneClick": false,
