@@ -19,6 +19,32 @@ pub fn is_desktop_app() -> bool {
     js_sys::Reflect::has(&window, &JsValue::from_str("desktopAudio")).unwrap_or(false)
 }
 
+/// Hands the invite link for a just-started share to the desktop shell's
+/// `window.desktopShare.linkReady` bridge, so it can copy it to the
+/// clipboard on the sharer's behalf. Only the desktop app's preload script
+/// ever defines that bridge, so this is a no-op in a plain browser tab —
+/// and it has to go through the shell rather than the page's own Clipboard
+/// API, since the quick-share flow's window stays hidden throughout,
+/// and that API requires document focus.
+pub fn notify_desktop_share_ready(link: &str) {
+    if !is_desktop_app() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
+        return;
+    };
+    let Ok(link_ready) = js_sys::Reflect::get(&bridge, &JsValue::from_str("linkReady")) else {
+        return;
+    };
+    let Ok(link_ready) = link_ready.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = link_ready.call1(&bridge, &JsValue::from_str(link));
+}
+
 pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let window = web_sys::window()
         .ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;

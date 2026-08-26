@@ -4,6 +4,7 @@ import { registerAudioIpcHandlers, stopAudioLoopbackNow } from './audio/ipc-hand
 import { registerDisplayMediaHandler } from './display-media-handler.js';
 import { markQuitting } from './lifecycle.js';
 import { createMainWindow } from './main-window.js';
+import { registerQuickShareIpcHandlers } from './share.js';
 import { createTray } from './tray.js';
 
 app.on('before-quit', () => {
@@ -20,6 +21,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   createMainWindow();
   createTray();
+  registerQuickShareIpcHandlers();
   await registerAudioIpcHandlers();
   await registerDisplayMediaHandler();
 });

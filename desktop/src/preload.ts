@@ -2,6 +2,14 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 import type { AudioShareTarget, PickerChoice, PickerSource } from './shared-types.js';
 
+// Must match `SHARE_LINK_READY_CHANNEL` in `share.ts` exactly — kept as a
+// literal, not a shared import, because the sandboxed preload script can't
+// `require()` local project files (only `import type`, erased at compile
+// time, survives here).
+contextBridge.exposeInMainWorld('desktopShare', {
+  linkReady: (link: string) => ipcRenderer.send('desktop-share:link-ready', link),
+});
+
 contextBridge.exposeInMainWorld('picker', {
   onSources: (callback: (sources: PickerSource[]) => void) => {
     ipcRenderer.on('picker:sources', (_event, sources: PickerSource[]) => {

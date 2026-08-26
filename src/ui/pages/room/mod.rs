@@ -20,12 +20,18 @@ use leptos_router::hooks::use_params_map;
 use connection::{adopt_pending_session, setup_room_connection, RoomConnection, RoomSignals};
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 use invite::invite_click_handler;
+#[cfg(feature = "hydrate")]
+use invite::build_invite_link;
 use latency::setup_ping_loop;
 use media_controls::setup_fullscreen_autohide_controls;
 use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;
 use share::{share_supported, share_toggle_handler};
+#[cfg(feature = "hydrate")]
+use share::start_sharing;
 use watch::leave_or_stop_watching_handler;
+#[cfg(feature = "hydrate")]
+use watch::leave_room;
 
 use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
@@ -114,6 +120,52 @@ pub fn RoomPage() -> impl IntoView {
         if let Some(stored) = crate::ui::client::storage::load_room_session(&initial_code) {
             join_room(stored.nick, stored.color, stored.password);
         }
+    }
+
+    // The desktop tray's quick-share flow: once the room-creation join
+    // above authenticates, start sharing immediately with no click, then
+    // hand the invite link to the desktop shell as soon as the share goes
+    // live. Each effect has its own "already done" latch — `authenticated`
+    // and `is_sharing` can each change more than once over the page's
+    // life, but this must only ever fire once.
+    #[cfg(feature = "hydrate")]
+    {
+        let quick_share_active = crate::ui::quick_share::requested();
+        let auto_share_started = RwSignal::new(false);
+        let auto_share_notified = RwSignal::new(false);
+        let room_code_for_notify = initial_code.clone();
+        let room_code_for_cancel = initial_code.clone();
+        let conn_for_auto_share = conn.clone();
+        let conn_for_cancel = conn.clone();
+
+        Effect::new(move |_| {
+            if quick_share_active && authenticated.get() && !auto_share_started.get_untracked() {
+                auto_share_started.set(true);
+                // Nobody's watching this hidden window to pick a screen a
+                // second time — cancelling the picker here means leaving,
+                // not sitting in the room unshared forever.
+                let conn_for_cancel = conn_for_cancel.clone();
+                let room_code_for_cancel = room_code_for_cancel.clone();
+                start_sharing(
+                    conn_for_auto_share.clone(),
+                    set_is_sharing,
+                    own_preview_hidden,
+                    set_status,
+                    my_peer_id,
+                    expanded,
+                    move || leave_room(&conn_for_cancel, &room_code_for_cancel),
+                );
+            }
+        });
+
+        Effect::new(move |_| {
+            if quick_share_active && is_sharing.get() && !auto_share_notified.get_untracked() {
+                auto_share_notified.set(true);
+                if let Some(link) = build_invite_link(&room_code_for_notify) {
+                    crate::ui::client::webrtc::notify_desktop_share_ready(&link);
+                }
+            }
+        });
     }
 
     start_room_check(

@@ -35,13 +35,6 @@ pub(super) fn share_toggle_handler(
     my_peer_id: ReadSignal<Option<String>>,
     expanded: RwSignal<Option<String>>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    use leptos::task::spawn_local;
-    use wasm_bindgen::JsCast;
-    use web_sys::MediaStreamTrack;
-
-    use crate::signaling::protocol::ClientMessage;
-    use crate::ui::client::webrtc::capture_display;
-
     move |_| {
         if is_sharing.get_untracked() {
             stop_sharing(
@@ -51,71 +44,108 @@ pub(super) fn share_toggle_handler(
                 expanded,
                 my_peer_id,
             );
-            return;
+        } else {
+            // A manual click that gets cancelled just leaves the member
+            // sitting in the room unshared, same as before — only the
+            // quick-share auto-trigger needs to react to a cancelled pick.
+            start_sharing(
+                conn.clone(),
+                set_is_sharing,
+                own_preview_hidden,
+                set_status,
+                my_peer_id,
+                expanded,
+                || {},
+            );
+        }
+    }
+}
+
+/// Requests the display picker and, once a stream comes back, wires it up
+/// as this member's outgoing share. Split out of `share_toggle_handler` so
+/// the quick-share auto-trigger (`RoomPage`'s `quick_share`-driven effect)
+/// can start a share without a real click event to hang a handler off of.
+/// `on_cancelled` runs if the user closes the picker without choosing
+/// anything — the quick-share flow uses it to leave the room instead of
+/// sitting in it, hidden and unshared, forever.
+#[cfg(feature = "hydrate")]
+pub(super) fn start_sharing(
+    conn: RoomConnection,
+    set_is_sharing: WriteSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
+    set_status: WriteSignal<String>,
+    my_peer_id: ReadSignal<Option<String>>,
+    expanded: RwSignal<Option<String>>,
+    on_cancelled: impl Fn() + 'static,
+) {
+    use leptos::task::spawn_local;
+    use wasm_bindgen::JsCast;
+    use web_sys::MediaStreamTrack;
+
+    use crate::signaling::protocol::ClientMessage;
+    use crate::ui::client::webrtc::capture_display;
+
+    let my_peer_id_value = my_peer_id.get_untracked();
+    set_status.set("Selecione a tela para compartilhar...".to_string());
+
+    spawn_local(async move {
+        let stream = match capture_display().await {
+            Ok(stream) => stream,
+            Err(_) => {
+                set_status.set("Conectado.".to_string());
+                on_cancelled();
+                return;
+            }
+        };
+
+        if let Some(peer_id) = my_peer_id_value.as_deref() {
+            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
+                if let Some(video) =
+                    document.get_element_by_id(&format!("video-self-{peer_id}"))
+                {
+                    let video: web_sys::HtmlVideoElement = video.unchecked_into();
+                    video.set_src_object(Some(&stream));
+                    // The `muted` attribute only sets the element's
+                    // *default* muted state at parse time — it doesn't
+                    // reflect the live `.muted` property, so a stream
+                    // with an audio track attached later can still play
+                    // out loud unless this is set explicitly. The
+                    // sharer must never hear their own shared audio.
+                    video.set_muted(true);
+                    let _ = video.play();
+                }
+            }
+        }
+        set_is_sharing.set(true);
+
+        // The browser's own native "Stop sharing" button fires `onended`
+        // directly on the track, without going through our `toggle_share`.
+        if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
+            let conn_for_end = conn.clone();
+            let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                stop_sharing(
+                    &conn_for_end,
+                    set_is_sharing,
+                    own_preview_hidden,
+                    expanded,
+                    my_peer_id,
+                );
+            });
+            track.set_onended(Some(onended.as_ref().unchecked_ref()));
+            onended.forget();
         }
 
-        let conn = conn.clone();
-        let my_peer_id_value = my_peer_id.get_untracked();
-        set_status.set("Selecione a tela para compartilhar...".to_string());
+        if let Some(ws) = conn.ws.borrow().as_ref() {
+            ws.send(&ClientMessage::StartShare);
+        }
 
-        spawn_local(async move {
-            let stream = match capture_display().await {
-                Ok(stream) => stream,
-                Err(_) => {
-                    set_status.set("Conectado.".to_string());
-                    return;
-                }
-            };
-
-            if let Some(peer_id) = my_peer_id_value.as_deref() {
-                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    if let Some(video) =
-                        document.get_element_by_id(&format!("video-self-{peer_id}"))
-                    {
-                        let video: web_sys::HtmlVideoElement = video.unchecked_into();
-                        video.set_src_object(Some(&stream));
-                        // The `muted` attribute only sets the element's
-                        // *default* muted state at parse time — it doesn't
-                        // reflect the live `.muted` property, so a stream
-                        // with an audio track attached later can still play
-                        // out loud unless this is set explicitly. The
-                        // sharer must never hear their own shared audio.
-                        video.set_muted(true);
-                        let _ = video.play();
-                    }
-                }
-            }
-            set_is_sharing.set(true);
-
-            // The browser's own native "Stop sharing" button fires `onended`
-            // directly on the track, without going through our `toggle_share`.
-            if let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() {
-                let conn_for_end = conn.clone();
-                let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                    stop_sharing(
-                        &conn_for_end,
-                        set_is_sharing,
-                        own_preview_hidden,
-                        expanded,
-                        my_peer_id,
-                    );
-                });
-                track.set_onended(Some(onended.as_ref().unchecked_ref()));
-                onended.forget();
-            }
-
-            if let Some(ws) = conn.ws.borrow().as_ref() {
-                ws.send(&ClientMessage::StartShare);
-            }
-
-            // Store the same `stream` handle used above, not a `.clone()` of
-            // it — cloning here and letting this original drop at the end of
-            // the block was enough, on its own, to keep Chrome's native
-            // "sharing" indicator from ever releasing later, even though the
-            // clone kept working fine for playback and `stop()`.
-            *conn.local_stream.borrow_mut() = Some(stream);
-        });
-    }
+        // Store the same `stream` handle used above, not a `.clone()` of
+        // it — cloning here and letting this original drop at the end of
+        // the block was enough, on its own, to keep Chrome's native
+        // "sharing" indicator from ever releasing later, even though the
+        // clone kept working fine for playback and `stop()`.
+        *conn.local_stream.borrow_mut() = Some(stream);
+    });
 }
 
 #[cfg(feature = "hydrate")]

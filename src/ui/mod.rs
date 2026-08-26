@@ -5,3 +5,5 @@ pub mod profile;
 
 #[cfg(feature = "hydrate")]
 pub mod client;
+#[cfg(feature = "hydrate")]
+pub mod quick_share;
