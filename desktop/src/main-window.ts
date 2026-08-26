@@ -17,10 +17,6 @@ export function createMainWindow(): void {
     },
   });
   mainWindow.loadURL(PROD_URL);
-  // TODO: remove once the Windows audio bridge is debugged — Ctrl+Shift+I
-  // doesn't work here since `Menu.setApplicationMenu(null)` in main.ts
-  // also removes the default menu's DevTools accelerator binding.
-  mainWindow.webContents.openDevTools();
 
   mainWindow.on('close', (event) => {
     if (!isQuitting()) {
