@@ -40,13 +40,27 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
     if has_pcm_bridge() {
         return match build_track_from_pcm_bridge().await {
             Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
-            Err(_) => Ok(video_stream),
+            Err(err) => {
+                web_sys::console::error_2(
+                    &JsValue::from_str(
+                        "build_track_from_pcm_bridge failed, falling back to video-only:",
+                    ),
+                    &err,
+                );
+                Ok(video_stream)
+            }
         };
     }
 
     match capture_loopback_audio(&media_devices).await {
         Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
-        Err(_) => Ok(video_stream),
+        Err(err) => {
+            web_sys::console::error_2(
+                &JsValue::from_str("capture_loopback_audio failed, falling back to video-only:"),
+                &err,
+            );
+            Ok(video_stream)
+        }
     }
 }
 
@@ -90,9 +104,22 @@ async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
     // works. `Cell`, not `AtomicU64`: this closure only ever runs on the
     // single-threaded JS event loop.
     let frames_written = Rc::new(Cell::new(0u64));
+    // A per-chunk failure here would otherwise be completely invisible —
+    // the closure has no return value the caller ever inspects, unlike
+    // the one-time setup above this — so it's logged, but only once per
+    // failure kind, since this runs roughly every 20ms and would
+    // otherwise flood the console.
+    let logged_array_buffer_failure = Rc::new(Cell::new(false));
+    let logged_audio_data_failure = Rc::new(Cell::new(false));
+    let logged_write_failure = Rc::new(Cell::new(false));
 
     let on_chunk = Closure::<dyn FnMut(JsValue)>::new(move |chunk: JsValue| {
         let Ok(array_buffer) = chunk.dyn_into::<js_sys::ArrayBuffer>() else {
+            if !logged_array_buffer_failure.replace(true) {
+                web_sys::console::error_1(&JsValue::from_str(
+                    "PCM bridge chunk wasn't an ArrayBuffer; further occurrences won't be logged",
+                ));
+            }
             return;
         };
         let frames =
@@ -121,16 +148,30 @@ async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
         frames_written.set(frames_written.get() + frames as u64);
 
         let Ok(audio_data) = AudioData::new(&audio_data_init) else {
+            if !logged_audio_data_failure.replace(true) {
+                web_sys::console::error_1(&JsValue::from_str(
+                    "AudioData::new failed for a PCM bridge chunk; further occurrences won't be logged",
+                ));
+            }
             return;
         };
-        // Only ever rejects once the generator's track has ended (e.g.
-        // after a later share was stopped) — not awaiting synchronously
-        // would leave that rejection unobserved (a console warning on
-        // every subsequent chunk), so it's spawned and swallowed instead
-        // of being fire-and-forgotten outright.
+        // Should only ever reject once the generator's track has ended
+        // (e.g. after a later share was stopped); a rejection from the
+        // very first chunks would point at something more fundamental,
+        // so the first one (only) is logged rather than blanket-swallowed.
         let write_promise = writer.write_with_chunk(&audio_data.into());
+        let logged_write_failure = logged_write_failure.clone();
         wasm_bindgen_futures::spawn_local(async move {
-            let _ = JsFuture::from(write_promise).await;
+            if let Err(err) = JsFuture::from(write_promise).await {
+                if !logged_write_failure.replace(true) {
+                    web_sys::console::error_2(
+                        &JsValue::from_str(
+                            "writer.write_with_chunk rejected for a PCM bridge chunk; further occurrences won't be logged:",
+                        ),
+                        &err,
+                    );
+                }
+            }
         });
     });
 
