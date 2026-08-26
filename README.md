@@ -45,10 +45,9 @@ Disponível pra **Linux (X11)** e **Windows**.
 ### Instaladores prontos
 
 Toda mudança em `desktop/` publicada em `main` gera instaladores novos
-automaticamente (veja [CI/CD](#cicd) abaixo). Baixe a versão mais recente
-na [release `desktop-latest`](https://github.com/hiroshimorowaka/screen-share/releases/tag/desktop-latest):
-`.AppImage`/`.deb` pra Linux, instalador ou versão portátil (`.exe`) pra
-Windows.
+automaticamente (veja [CI/CD](#cicd) abaixo) e os publica na aba
+**Releases** deste repositório, na tag `desktop-latest`: `.AppImage`/`.deb`
+pra Linux, instalador ou versão portátil (`.exe`) pra Windows.
 
 ### Rodando a partir do código
 
@@ -72,10 +71,9 @@ pnpm install
 pnpm start
 ```
 
-Por padrão o app aponta para o site publicado
-(`https://screen-share-h0rb5w.fly.dev/`) — para testar contra um
-`cargo leptos watch` local, troque `PROD_URL` em
-`desktop/src/main-window.ts` temporariamente para
+Por padrão o app aponta pra URL de produção configurada em `PROD_URL`,
+`desktop/src/main-window.ts` — para testar contra um `cargo leptos watch`
+local, troque essa constante temporariamente para
 `http://127.0.0.1:3000/`.
 
 No picker de compartilhamento, marque "Compartilhar áudio": escolhendo um
@@ -147,55 +145,13 @@ servidor apaga a sala assim que ela fica sem membros — por isso o passo 2
 pede pra manter a primeira aba aberta, e o passo 10 pede pra manter a sala
 nova aberta numa aba enquanto confere a outra.
 
-## Deploy no Fly.io
-
-O projeto já vem pronto pra isso: `Dockerfile` e `fly.toml` configurados
-(porta 8080, região `gru` — São Paulo).
-
-1. Instale o `flyctl` (se ainda não tiver):
-   ```bash
-   curl -L https://fly.io/install.sh | sh
-   ```
-2. Faça login (abre o navegador):
-   ```bash
-   fly auth login
-   ```
-3. Na raiz do projeto, suba o app (a primeira vez cria o app no Fly com o
-   nome do `fly.toml`; se `screen-share-h0rb5w` já estiver em uso por outra
-   conta, troque o campo `app` no `fly.toml` antes):
-   ```bash
-   fly deploy
-   ```
-4. Pronto — o Fly te dá uma URL tipo `https://screen-share-h0rb5w.fly.dev`,
-   já com HTTPS. É esse link que você manda pros seus amigos.
-
-Pra rodar de novo depois de qualquer mudança no código, é só `fly deploy`
-outra vez. Deploys depois do primeiro são bem mais rápidos, graças ao cache
-de build do Fly.
-
 ## CI/CD
 
-Todo push (ou merge de PR) na `main` roda uma pipeline no GitHub Actions
-(`.github/workflows/ci-cd.yml`) que só mexe no que realmente mudou:
-
-- Mudou algo em `src/`, `Cargo.toml`/`Cargo.lock`, `Dockerfile`,
-  `fly.toml`, `.cargo/`, `public/` ou `tests/`? Roda `clippy` + os testes
-  nos dois alvos (`ssr` e `hydrate`) e faz `fly deploy` de verdade.
-- Mudou algo em `desktop/`? Builda os instaladores de Linux e Windows em
-  paralelo e publica tudo na release rolante `desktop-latest` (ela é
-  atualizada a cada push, não acumula uma release por commit).
-
-Um PR que só mexe num lado nunca aciona o outro. Precisa do secret
-`FLY_API_TOKEN` configurado no repositório pra o deploy funcionar:
-
-```bash
-fly tokens create deploy -x 999999h | gh secret set FLY_API_TOKEN
-```
-
-Dá pra rodar a pipeline inteira manualmente (os dois lados, ignorando o
-que mudou de fato) pela aba Actions do GitHub ou com
-`gh workflow run "CI/CD"` — útil pra redeployar sem precisar de um commit
-qualquer só pra isso.
+Todo push (ou merge de PR) na `main` roda uma pipeline que só mexe no que
+realmente mudou: mudanças no servidor rodam `clippy` + os testes nos dois
+alvos (`ssr` e `hydrate`) e fazem o deploy; mudanças no app desktop geram
+instaladores novos pra Linux e Windows e os publicam na aba **Releases**
+deste repositório. Um PR que só mexe num lado nunca aciona o outro.
 
 ## Deploy (geral)
 
