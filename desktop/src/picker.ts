@@ -7,12 +7,19 @@ import type { PickerChoice, PickerSource, ShareChoice } from './shared-types.js'
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {
     void (async () => {
-      const sources = await desktopCapturer.getSources({
-        types: ['screen', 'window'],
-        thumbnailSize: { width: 300, height: 200 },
-        fetchWindowIcons: true,
-      });
-
+      let sources: Electron.DesktopCapturerSource[];
+      try {
+        sources = await desktopCapturer.getSources({
+          types: ['screen', 'window'],
+          thumbnailSize: { width: 300, height: 200 },
+          fetchWindowIcons: true,
+        });
+      } catch (err) {
+        // Previously swallowed silently — the picker would just open
+        // empty with no indication anything had gone wrong.
+        console.error('desktopCapturer.getSources failed:', err);
+        sources = [];
+      }
       const pickerSources: PickerSource[] = sources.map((s) => ({
         id: s.id,
         name: s.name,
@@ -20,10 +27,16 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         iconDataUrl: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : null,
       }));
 
+      // Skip anchoring to a hidden main window (the tray's quick share
+      // flow) — several window managers won't surface a child window
+      // whose parent isn't visible, and the picker must always show up.
+      const owner = getMainWindow();
+      const parent = owner?.isVisible() ? owner : undefined;
+
       const pickerWindow = new BrowserWindow({
         width: 1000,
         height: 720,
-        parent: getMainWindow() ?? undefined,
+        parent,
         frame: false,
         transparent: true,
         resizable: true,

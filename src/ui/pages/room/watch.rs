@@ -75,6 +75,28 @@ pub(super) fn stop_watching_click_handler(
     }
 }
 
+/// Disconnects and sends this member home — a real, deliberate leave,
+/// unlike a dropped connection (reload, closed tab), which is why it also
+/// clears the saved room session so the nick/password gate shows again on
+/// the next visit. Shared by the "leave" button
+/// (`leave_or_stop_watching_handler`) and the quick-share flow's
+/// cancelled-picker path (`share::start_sharing`'s `on_cancelled`).
+#[cfg(not(feature = "hydrate"))]
+#[allow(dead_code)]
+pub(super) fn leave_room(_conn: &RoomConnection, _room_code: &str) {}
+
+#[cfg(feature = "hydrate")]
+pub(super) fn leave_room(conn: &RoomConnection, room_code: &str) {
+    use leptos_router::hooks::use_navigate;
+
+    crate::ui::client::storage::clear_room_session(room_code);
+    if let Some(ws) = conn.ws.borrow().as_ref() {
+        ws.close();
+    }
+    let navigate = use_navigate();
+    navigate("/", Default::default());
+}
+
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn leave_or_stop_watching_handler(
     _conn: RoomConnection,
@@ -94,21 +116,11 @@ pub(super) fn leave_or_stop_watching_handler(
     my_peer_id: ReadSignal<Option<String>>,
     room_code: String,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    use leptos_router::hooks::use_navigate;
-
     use crate::signaling::protocol::ClientMessage;
 
     move |_| {
         let Some(focused_peer_id) = expanded.get_untracked() else {
-            // An active, deliberate leave — unlike a dropped connection
-            // (reload, closed tab), this one should require the nick/
-            // password gate again on the next visit.
-            crate::ui::client::storage::clear_room_session(&room_code);
-            if let Some(ws) = conn.ws.borrow().as_ref() {
-                ws.close();
-            }
-            let navigate = use_navigate();
-            navigate("/", Default::default());
+            leave_room(&conn, &room_code);
             return;
         };
 

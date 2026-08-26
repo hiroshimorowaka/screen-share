@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use leptos::prelude::*;
 
-use create_room::{create_room_handler, load_last_room_name_after_mount};
+use create_room::{create_room_handler, load_last_room_name_after_mount, start_quick_share_after_mount};
 use join_room::join_room_handler;
 use recent_rooms::{load_recent_rooms_after_mount, prune_recent_rooms};
 
@@ -38,6 +38,7 @@ pub fn HomePage() -> impl IntoView {
     prune_recent_rooms(set_recent_rooms, set_member_counts);
 
     let create_room = create_room_handler(nick, color, room_name, password, set_status, set_submitting);
+    start_quick_share_after_mount(set_status, set_submitting);
 
     let (join_input, set_join_input) = signal(String::new());
     let (join_status, set_join_status) = signal(String::new());
