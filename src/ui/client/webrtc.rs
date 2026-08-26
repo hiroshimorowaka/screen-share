@@ -1,19 +1,27 @@
+use std::cell::Cell;
+use std::rc::Rc;
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::{
-    ConstrainDomStringParameters, DisplayMediaStreamConstraints, MediaStream,
-    MediaStreamConstraints, MediaTrackConstraints, RtcConfiguration, RtcIceCandidateInit,
+    AudioData, AudioDataInit, AudioSampleFormat, ConstrainDomStringParameters,
+    DisplayMediaStreamConstraints, MediaStream, MediaStreamConstraints, MediaStreamTrackGenerator,
+    MediaStreamTrackGeneratorInit, MediaTrackConstraints, RtcConfiguration, RtcIceCandidateInit,
     RtcIceServer, RtcPeerConnection, RtcSdpType, RtcSessionDescriptionInit,
+    WritableStreamDefaultWriter,
 };
 
 pub fn is_desktop_app() -> bool {
-    let Some(window) = web_sys::window() else { return false };
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
     js_sys::Reflect::has(&window, &JsValue::from_str("desktopAudio")).unwrap_or(false)
 }
 
 pub async fn capture_display() -> Result<MediaStream, JsValue> {
-    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
+    let window = web_sys::window()
+        .ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
     let media_devices = window.navigator().media_devices()?;
 
     let constraints = DisplayMediaStreamConstraints::new();
@@ -23,14 +31,119 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let stream = JsFuture::from(promise).await?;
     let video_stream = stream.dyn_into::<MediaStream>()?;
 
-    // Whether to also attach audio was already decided inside the
-    // desktop app's own share picker, before this call was even made —
-    // this just tries, and a missing device means audio wasn't
-    // requested (not an error) rather than something to report.
+    // The Windows desktop app bridges captured PCM over IPC instead of
+    // exposing a capturable device — same intent as the Linux path below
+    // (audio was already decided inside the share picker; a missing
+    // bridge/device just means audio wasn't requested), different
+    // mechanism. `has_pcm_bridge()` is the one signal that distinguishes
+    // them, since it's never true outside the Windows desktop app.
+    if has_pcm_bridge() {
+        return match build_track_from_pcm_bridge().await {
+            Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
+            Err(_) => Ok(video_stream),
+        };
+    }
+
     match capture_loopback_audio(&media_devices).await {
         Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
         Err(_) => Ok(video_stream),
     }
+}
+
+fn has_pcm_bridge() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(desktop_audio) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))
+    else {
+        return false;
+    };
+    js_sys::Reflect::has(&desktop_audio, &JsValue::from_str("onPcmChunk")).unwrap_or(false)
+}
+
+// The mix the native Windows module (`desktop/native/windows-audio`)
+// produces and sends over IPC — interleaved stereo f32 PCM, matching
+// exactly what its `capture.rs` mixer emits.
+const PCM_BRIDGE_CHANNELS: u32 = 2;
+const PCM_BRIDGE_SAMPLE_RATE: f32 = 48_000.0;
+const PCM_BRIDGE_BYTES_PER_SAMPLE: u32 = 4;
+
+/// Turns the desktop app's `window.desktopAudio.onPcmChunk` PCM stream
+/// into a real `MediaStreamTrack` via `MediaStreamTrackGenerator` +
+/// `AudioData` — see Task 1 in the Windows audio sharing plan for how
+/// this was proven to work (format `'f32'`, a monotonically increasing
+/// microsecond timestamp derived from cumulative frames written, no
+/// backpressure at the 20ms/960-frame chunk cadence the native mixer
+/// uses).
+async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
+    let on_pcm_chunk: js_sys::Function =
+        js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("onPcmChunk"))?.dyn_into()?;
+
+    let init = MediaStreamTrackGeneratorInit::new("audio");
+    let generator = MediaStreamTrackGenerator::new(&init)?;
+    let writer: WritableStreamDefaultWriter = generator.writable().get_writer()?;
+
+    // Cumulative frames written, so each chunk's timestamp is
+    // monotonically increasing — matches what Task 1 confirmed actually
+    // works. `Cell`, not `AtomicU64`: this closure only ever runs on the
+    // single-threaded JS event loop.
+    let frames_written = Rc::new(Cell::new(0u64));
+
+    let on_chunk = Closure::<dyn FnMut(JsValue)>::new(move |chunk: JsValue| {
+        let Ok(array_buffer) = chunk.dyn_into::<js_sys::ArrayBuffer>() else {
+            return;
+        };
+        let frames =
+            array_buffer.byte_length() / (PCM_BRIDGE_CHANNELS * PCM_BRIDGE_BYTES_PER_SAMPLE);
+        if frames == 0 {
+            return;
+        }
+
+        let data = js_sys::Uint8Array::new(&array_buffer);
+        // `AudioDataInit::new(..)` takes an `i32` timestamp, which would
+        // overflow (wrapping the timestamp backwards) after ~35 minutes
+        // of continuous sharing at this chunk cadence — built by hand
+        // instead, the same way `AudioDataInit::new` itself is
+        // implemented internally, so `set_timestamp_f64` (the `f64`
+        // setter) can be used instead.
+        let audio_data_init: AudioDataInit =
+            wasm_bindgen::JsCast::unchecked_into(js_sys::Object::new());
+        audio_data_init.set_data_u8_array(&data);
+        audio_data_init.set_format(AudioSampleFormat::F32);
+        audio_data_init.set_number_of_channels(PCM_BRIDGE_CHANNELS);
+        audio_data_init.set_number_of_frames(frames);
+        audio_data_init.set_sample_rate(PCM_BRIDGE_SAMPLE_RATE);
+        let timestamp_us =
+            frames_written.get() as f64 / PCM_BRIDGE_SAMPLE_RATE as f64 * 1_000_000.0;
+        audio_data_init.set_timestamp_f64(timestamp_us);
+        frames_written.set(frames_written.get() + frames as u64);
+
+        let Ok(audio_data) = AudioData::new(&audio_data_init) else {
+            return;
+        };
+        // Only ever rejects once the generator's track has ended (e.g.
+        // after a later share was stopped) — not awaiting synchronously
+        // would leave that rejection unobserved (a console warning on
+        // every subsequent chunk), so it's spawned and swallowed instead
+        // of being fire-and-forgotten outright.
+        let write_promise = writer.write_with_chunk(&audio_data.into());
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = JsFuture::from(write_promise).await;
+        });
+    });
+
+    on_pcm_chunk.call1(&desktop_audio, on_chunk.as_ref().unchecked_ref())?;
+    // Leaked deliberately — this closure, and the writer it holds by
+    // move, need to outlive this function call for the rest of the
+    // share. Standard wasm-bindgen practice for a listener with no
+    // natural single owner to drop it later.
+    on_chunk.forget();
+
+    let tracks = js_sys::Array::new();
+    tracks.push(generator.as_ref());
+    MediaStream::new_with_tracks(&tracks)
 }
 
 pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
@@ -43,7 +156,9 @@ pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
     Ok(())
 }
 
-async fn capture_loopback_audio(media_devices: &web_sys::MediaDevices) -> Result<MediaStream, JsValue> {
+async fn capture_loopback_audio(
+    media_devices: &web_sys::MediaDevices,
+) -> Result<MediaStream, JsValue> {
     let promise = media_devices.enumerate_devices()?;
     let devices: js_sys::Array = JsFuture::from(promise).await?.dyn_into()?;
 
@@ -79,7 +194,10 @@ async fn capture_loopback_audio(media_devices: &web_sys::MediaDevices) -> Result
     JsFuture::from(promise).await?.dyn_into::<MediaStream>()
 }
 
-fn combine_video_and_audio(video: &MediaStream, audio: &MediaStream) -> Result<MediaStream, JsValue> {
+fn combine_video_and_audio(
+    video: &MediaStream,
+    audio: &MediaStream,
+) -> Result<MediaStream, JsValue> {
     let tracks = js_sys::Array::new();
     for track in video.get_tracks().iter() {
         tracks.push(&track);
@@ -160,7 +278,11 @@ pub fn add_ice_candidate(
 }
 
 pub fn is_display_media_supported() -> bool {
-    let Some(window) = web_sys::window() else { return false };
-    let Ok(media_devices) = window.navigator().media_devices() else { return false };
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(media_devices) = window.navigator().media_devices() else {
+        return false;
+    };
     js_sys::Reflect::has(&media_devices, &JsValue::from_str("getDisplayMedia")).unwrap_or(false)
 }

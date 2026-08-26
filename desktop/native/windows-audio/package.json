@@ -1,0 +1,27 @@
+{
+  "name": "@screen-share/windows-audio",
+  "version": "0.1.0",
+  "private": true,
+  "license": "MIT",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "napi": {
+    "binaryName": "windows-audio",
+    "targets": [
+      "x86_64-pc-windows-msvc"
+    ]
+  },
+  "engines": {
+    "node": ">= 10"
+  },
+  "optionalDependencies": {
+    "@screen-share/windows-audio-win32-x64-msvc": "0.1.0"
+  },
+  "scripts": {
+    "build": "napi build --platform --release",
+    "build:debug": "napi build --platform"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "^3.8.6"
+  }
+}
