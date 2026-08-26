@@ -1,11 +1,10 @@
 import { session } from 'electron';
 
-import { startAudioLoopback } from './audio/loopback-session.js';
 import { parseX11WindowId, resolveProcessBinary, resolveWindowPid } from './audio/process-identity.js';
 import { showSourcePicker } from './picker.js';
 import type { AudioShareTarget, ShareChoice } from './shared-types.js';
 
-async function resolveAudioTarget(chosen: ShareChoice): Promise<AudioShareTarget | null> {
+async function resolveLinuxAudioTarget(chosen: ShareChoice): Promise<AudioShareTarget | null> {
   if (chosen.source.id.startsWith('window:')) {
     const x11Id = parseX11WindowId(chosen.source.id);
     if (x11Id === null) return null;
@@ -18,7 +17,35 @@ async function resolveAudioTarget(chosen: ShareChoice): Promise<AudioShareTarget
   return { mode: 'screen', excludedBinaries: chosen.excludedBinaries };
 }
 
-export function registerDisplayMediaHandler(): void {
+export async function registerDisplayMediaHandler(): Promise<void> {
+  const isWindows = process.platform === 'win32';
+
+  // Both dynamic — never statically imported — so a Linux process never
+  // even evaluates `native/windows-audio/index.js`, which throws at
+  // load time on any platform other than win32/x64.
+  const { startAudioLoopback } = isWindows
+    ? await import('./audio/windows/loopback-session.js')
+    : await import('./audio/loopback-session.js');
+  const windowsIdentity = isWindows ? await import('./audio/windows/process-identity.js') : null;
+
+  function resolveWindowsAudioTarget(chosen: ShareChoice): AudioShareTarget | null {
+    if (!windowsIdentity) return null;
+    if (chosen.source.id.startsWith('window:')) {
+      const hwnd = windowsIdentity.parseWindowsWindowId(chosen.source.id);
+      if (hwnd === null) return null;
+      const pid = windowsIdentity.resolveWindowPid(hwnd);
+      if (pid === null) return null;
+      const binary = windowsIdentity.resolveExeNameForPid(pid);
+      if (binary === null) return null;
+      return { mode: 'window', binary };
+    }
+    return { mode: 'screen', excludedBinaries: chosen.excludedBinaries };
+  }
+
+  const resolveAudioTarget = isWindows
+    ? (chosen: ShareChoice) => Promise.resolve(resolveWindowsAudioTarget(chosen))
+    : resolveLinuxAudioTarget;
+
   session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
     const chosen = await showSourcePicker();
     if (!chosen) {
