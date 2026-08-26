@@ -4,10 +4,13 @@ name: CI/CD
 # files that actually changed, whether the web server needs a new Fly.io
 # deploy, whether the desktop app needs new installers published, both, or
 # neither. A PR that only touches `desktop/` never triggers a web deploy,
-# and vice versa — see the `changes` job below.
+# and vice versa — see the `changes` job below. A manual run (Actions tab
+# or `gh workflow run`) skips path detection entirely and runs both sides
+# in full — useful for re-deploying without a throwaway commit.
 on:
   push:
     branches: [main]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
@@ -17,12 +20,13 @@ jobs:
     name: Detect what changed
     runs-on: ubuntu-latest
     outputs:
-      web: ${{ steps.filter.outputs.web }}
-      desktop: ${{ steps.filter.outputs.desktop }}
+      web: ${{ steps.decide.outputs.web }}
+      desktop: ${{ steps.decide.outputs.desktop }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
+        if: github.event_name == 'push'
         with:
           filters: |
             web:
@@ -37,6 +41,16 @@ jobs:
               - 'tests/**'
             desktop:
               - 'desktop/**'
+      - name: Decide outputs
+        id: decide
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "web=true" >> "$GITHUB_OUTPUT"
+            echo "desktop=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "web=${{ steps.filter.outputs.web }}" >> "$GITHUB_OUTPUT"
+            echo "desktop=${{ steps.filter.outputs.desktop }}" >> "$GITHUB_OUTPUT"
+          fi
 
   # --- Web server (Rust/Leptos, deployed to Fly.io) ---
 
