@@ -8,9 +8,10 @@ um, sem afetar quem mais está assistindo. O vídeo trafega direto entre os
 navegadores via WebRTC — o servidor só cuida da sinalização.
 
 Pelo navegador, o compartilhamento é só de vídeo. Quem instalar o
-[app desktop](#app-desktop-compartilhamento-de-áudio) (hoje só Linux) pode
-compartilhar o áudio do sistema junto com a tela — de um app específico
-automaticamente, ou da tela inteira excluindo os apps que quiser.
+[app desktop](#app-desktop) (Linux ou Windows) pode compartilhar o áudio do
+sistema junto com a tela — de um app específico automaticamente, ou da
+tela inteira excluindo os apps que quiser — e também compartilhar direto
+pela bandeja do sistema, sem precisar abrir a janela do app.
 
 ## Rodando localmente
 
@@ -25,40 +26,69 @@ cargo leptos watch
 
 Abra `http://127.0.0.1:3000/`.
 
-## App desktop (compartilhamento de áudio)
+## App desktop
 
-`desktop/` é um wrapper Electron do mesmo site — hoje é a única forma de
-compartilhar áudio junto com a tela (o navegador sozinho não dá acesso ao
-áudio do sistema). Roda por cima da mesma sala/protocolo, sem servidor
-próprio. **Só Linux com X11 por enquanto** — sem suporte a Wayland nem
+`desktop/` é um wrapper Electron do mesmo site. Além de dar acesso ao
+áudio do sistema (impossível só pelo navegador), ele abre escondido na
+bandeja assim que inicia — clique com o botão direito no ícone pra "Abrir"
+a janela normal, ou pra "Compartilhar tela": isso cria uma sala com nome
+aleatório, entra nela com o nick salvo (ou um aleatório, se você nunca
+definiu um), abre o seletor de tela, e assim que você escolher o que
+compartilhar, copia o link da sala pra sua área de transferência — tudo
+sem a janela do app aparecer em nenhum momento. Cancelar o seletor de tela
+nesse fluxo sai da sala automaticamente, em vez de deixar ela pendurada
+sem ninguém olhando.
+
+Roda por cima da mesma sala/protocolo do site, sem servidor próprio.
+Disponível pra **Linux (X11)** e **Windows**.
+
+### Instaladores prontos
+
+Toda mudança em `desktop/` publicada em `main` gera instaladores novos
+automaticamente (veja [CI/CD](#cicd) abaixo). Baixe a versão mais recente
+na [release `desktop-latest`](https://github.com/hiroshimorowaka/screen-share/releases/tag/desktop-latest):
+`.AppImage`/`.deb` pra Linux, instalador ou versão portátil (`.exe`) pra
 Windows.
+
+### Rodando a partir do código
 
 Pré-requisitos (além dos da seção anterior):
 
 - Node.js + [`pnpm`](https://pnpm.io)
-- PipeWire com `pw-loopback`, `pw-link` e `pw-dump` no `PATH` (padrão em
-  distros atuais)
-- `xprop` (pacote `x11-utils`/`xorg-xprop`, conforme a distro)
+- **Linux**: PipeWire com `pw-loopback`, `pw-link` e `pw-dump` no `PATH`
+  (padrão em distros atuais) e `xprop` (pacote `x11-utils`/`xorg-xprop`,
+  conforme a distro) — usados pro compartilhamento de áudio por app/tela.
+- **Windows**: nada além de Node/pnpm pra rodar o app. Pra recompilar o
+  addon nativo de áudio (WASAPI, em `desktop/native/windows-audio/`)
+  depois de mexer nele, precisa de Rust com o alvo
+  `x86_64-pc-windows-msvc` e das Visual Studio Build Tools — veja
+  `npm install && npm run build` dentro daquela pasta.
 
 Rodando:
 
 ```bash
 cd desktop
 pnpm install
-pnpm exec tsc && pnpm exec electron .
+pnpm start
 ```
 
 Por padrão o app aponta para o site publicado
 (`https://screen-share-h0rb5w.fly.dev/`) — para testar contra um
-`cargo leptos watch` local, troque `PROD_URL` em `desktop/src/main.ts`
-temporariamente para `http://127.0.0.1:3000/`.
+`cargo leptos watch` local, troque `PROD_URL` em
+`desktop/src/main-window.ts` temporariamente para
+`http://127.0.0.1:3000/`.
 
 No picker de compartilhamento, marque "Compartilhar áudio": escolhendo um
 app específico ("Aplicativos"), só o áudio dele vai junto, automaticamente;
 escolhendo "Tela inteira", vai o áudio do sistema todo, exceto os processos
-marcados no dropdown de exclusão. Um app que começa a tocar som só depois
-de já estar compartilhando ainda é pego (checagem contínua, não só no
-início).
+marcados no dropdown de exclusão (no Windows, a exclusão funciona do mesmo
+jeito, só que via WASAPI em vez de PipeWire). Um app que começa a tocar som
+só depois de já estar compartilhando ainda é pego (checagem contínua, não
+só no início).
+
+Pra gerar os instaladores localmente em vez de baixar os da CI:
+`pnpm run dist:linux` ou `pnpm run dist:win` (dentro de `desktop/`) — saem
+em `desktop/release/`.
 
 ## Testes automatizados
 
@@ -131,17 +161,41 @@ O projeto já vem pronto pra isso: `Dockerfile` e `fly.toml` configurados
    fly auth login
    ```
 3. Na raiz do projeto, suba o app (a primeira vez cria o app no Fly com o
-   nome do `fly.toml`; se `hiroshi-screen-share` já estiver em uso por outra
+   nome do `fly.toml`; se `screen-share-h0rb5w` já estiver em uso por outra
    conta, troque o campo `app` no `fly.toml` antes):
    ```bash
    fly deploy
    ```
-4. Pronto — o Fly te dá uma URL tipo `https://hiroshi-screen-share.fly.dev`,
+4. Pronto — o Fly te dá uma URL tipo `https://screen-share-h0rb5w.fly.dev`,
    já com HTTPS. É esse link que você manda pros seus amigos.
 
 Pra rodar de novo depois de qualquer mudança no código, é só `fly deploy`
 outra vez. Deploys depois do primeiro são bem mais rápidos, graças ao cache
 de build do Fly.
+
+## CI/CD
+
+Todo push (ou merge de PR) na `main` roda uma pipeline no GitHub Actions
+(`.github/workflows/ci-cd.yml`) que só mexe no que realmente mudou:
+
+- Mudou algo em `src/`, `Cargo.toml`/`Cargo.lock`, `Dockerfile`,
+  `fly.toml`, `.cargo/`, `public/` ou `tests/`? Roda `clippy` + os testes
+  nos dois alvos (`ssr` e `hydrate`) e faz `fly deploy` de verdade.
+- Mudou algo em `desktop/`? Builda os instaladores de Linux e Windows em
+  paralelo e publica tudo na release rolante `desktop-latest` (ela é
+  atualizada a cada push, não acumula uma release por commit).
+
+Um PR que só mexe num lado nunca aciona o outro. Precisa do secret
+`FLY_API_TOKEN` configurado no repositório pra o deploy funcionar:
+
+```bash
+fly tokens create deploy -x 999999h | gh secret set FLY_API_TOKEN
+```
+
+Dá pra rodar a pipeline inteira manualmente (os dois lados, ignorando o
+que mudou de fato) pela aba Actions do GitHub ou com
+`gh workflow run "CI/CD"` — útil pra redeployar sem precisar de um commit
+qualquer só pra isso.
 
 ## Deploy (geral)
 
