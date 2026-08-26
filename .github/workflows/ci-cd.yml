@@ -1,0 +1,166 @@
+name: CI/CD
+
+# Every push to main is one pipeline that independently decides, from the
+# files that actually changed, whether the web server needs a new Fly.io
+# deploy, whether the desktop app needs new installers published, both, or
+# neither. A PR that only touches `desktop/` never triggers a web deploy,
+# and vice versa — see the `changes` job below.
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    name: Detect what changed
+    runs-on: ubuntu-latest
+    outputs:
+      web: ${{ steps.filter.outputs.web }}
+      desktop: ${{ steps.filter.outputs.desktop }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            web:
+              - 'src/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'Dockerfile'
+              - '.dockerignore'
+              - 'fly.toml'
+              - '.cargo/**'
+              - 'public/**'
+              - 'tests/**'
+            desktop:
+              - 'desktop/**'
+
+  # --- Web server (Rust/Leptos, deployed to Fly.io) ---
+
+  test-web:
+    name: Test web server
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --features ssr -- -D warnings
+      - run: cargo clippy --target wasm32-unknown-unknown --features hydrate -- -D warnings
+      - run: cargo test --features ssr
+
+  deploy-web:
+    name: Deploy web server to Fly.io
+    needs: [changes, test-web]
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+  # --- Desktop app (Electron, packaged for Linux + Windows) ---
+
+  build-desktop-linux:
+    name: Build desktop app (Linux)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      # electron-builder runs appimagetool (itself shipped as an AppImage)
+      # to produce the .AppImage target — that needs FUSE to run at all.
+      - run: sudo apt-get update && sudo apt-get install -y libfuse2
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: desktop
+      - run: pnpm run dist:linux
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            desktop/release/*.AppImage
+            desktop/release/*.deb
+          if-no-files-found: error
+
+  build-desktop-windows:
+    name: Build desktop app (Windows)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/native/windows-audio
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+      # The Windows system-audio bridge is a native napi-rs addon — its
+      # compiled `.node` is gitignored, so it has to be rebuilt from source
+      # before packaging can bundle it (see the windows-audio-sharing plan
+      # under docs/superpowers/plans/).
+      - run: npm install
+        working-directory: desktop/native/windows-audio
+      - run: npm run build
+        working-directory: desktop/native/windows-audio
+      - run: pnpm install --frozen-lockfile
+        working-directory: desktop
+      - run: pnpm run dist:win
+        working-directory: desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows
+          path: desktop/release/*.exe
+          if-no-files-found: error
+
+  publish-desktop-release:
+    name: Publish desktop installers
+    needs: [changes, build-desktop-linux, build-desktop-windows]
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*
+          path: dist-artifacts
+          merge-multiple: true
+      # One rolling release, not a new one per push — re-publishing the
+      # same tag updates its assets in place instead of piling up a release
+      # per commit that happens to touch `desktop/`.
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: desktop-latest
+          name: Screen Share Desktop (latest)
+          body: >-
+            Instaladores gerados automaticamente a partir do commit
+            ${{ github.sha }} em `main`. Sempre reflete a última alteração
+            enviada ao app desktop.
+          prerelease: false
+          files: dist-artifacts/*
