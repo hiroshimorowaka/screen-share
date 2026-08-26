@@ -1,15 +1,57 @@
 {
   "name": "screen-share-desktop",
   "version": "0.1.0",
+  "description": "Desktop app for Screen Share — persistent, password-protected screen sharing rooms with system audio.",
+  "author": {
+    "name": "hiroshimorowaka",
+    "email": "guilhermecabral1204@gmail.com"
+  },
+  "homepage": "https://github.com/hiroshimorowaka/screen-share",
   "private": true,
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
-    "start": "tsc && electron ."
+    "start": "tsc && electron .",
+    "dist": "tsc && electron-builder",
+    "dist:linux": "tsc && electron-builder --linux",
+    "dist:win": "tsc && electron-builder --win"
   },
   "devDependencies": {
     "@types/node": "^26.2.0",
     "electron": "^43.4.1",
+    "electron-builder": "26.15.3",
     "typescript": "^7.0.2"
+  },
+  "build": {
+    "appId": "com.hiroshimorowaka.screenshare",
+    "productName": "Screen Share",
+    "asar": false,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "static/**/*",
+      "icons/**/*",
+      "native/windows-audio/index.js",
+      "native/windows-audio/index.d.ts",
+      "native/windows-audio/*.node",
+      "package.json"
+    ],
+    "linux": {
+      "target": ["AppImage", "deb"],
+      "category": "Network",
+      "icon": "icons/tray-icon.png"
+    },
+    "win": {
+      "target": ["nsis", "portable"],
+      "icon": "icons/tray-icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
   }
 }
