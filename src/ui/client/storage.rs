@@ -47,7 +47,9 @@ pub fn load_room_session(_room_code: &str) -> Option<RoomSession> {
 
 #[cfg(feature = "hydrate")]
 pub fn load_room_session(room_code: &str) -> Option<RoomSession> {
-    let json = session_storage()?.get_item(&room_session_key(room_code)).ok()??;
+    let json = session_storage()?
+        .get_item(&room_session_key(room_code))
+        .ok()??;
     serde_json::from_str(&json).ok()
 }
 
@@ -186,14 +188,20 @@ pub fn ensure_device_id() -> String {
 
 #[cfg(feature = "hydrate")]
 pub fn ensure_device_id() -> String {
-    let Some(storage) = local_storage() else { return String::new() };
+    let Some(storage) = local_storage() else {
+        return String::new();
+    };
 
     if let Ok(Some(existing)) = storage.get_item(DEVICE_ID_KEY) {
         return existing;
     }
 
-    let Some(window) = web_sys::window() else { return String::new() };
-    let Ok(crypto) = window.crypto() else { return String::new() };
+    let Some(window) = web_sys::window() else {
+        return String::new();
+    };
+    let Ok(crypto) = window.crypto() else {
+        return String::new();
+    };
     let id = crypto.random_uuid();
     let _ = storage.set_item(DEVICE_ID_KEY, &id);
     id

@@ -17,7 +17,11 @@ fn extract_room_code(input: &str) -> Option<String> {
         Some(idx) => &trimmed[idx + "/r/".len()..],
         None => trimmed,
     };
-    let code = after_marker.split(['/', '?', '#']).next().unwrap_or("").trim();
+    let code = after_marker
+        .split(['/', '?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim();
     if code.is_empty() {
         None
     } else {
@@ -26,21 +30,28 @@ fn extract_room_code(input: &str) -> Option<String> {
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub fn join_room_handler(_join_input: ReadSignal<String>, _set_join_status: WriteSignal<String>) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
+pub fn join_room_handler(
+    _join_input: ReadSignal<String>,
+    _set_join_status: WriteSignal<String>,
+) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
     move |ev: leptos::ev::SubmitEvent| ev.prevent_default()
 }
 
 /// Only resolves the code and navigates to `/r/{code}` — nick, color, and
 /// password are left for the room page's own entry gate.
 #[cfg(feature = "hydrate")]
-pub fn join_room_handler(join_input: ReadSignal<String>, set_join_status: WriteSignal<String>) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
+pub fn join_room_handler(
+    join_input: ReadSignal<String>,
+    set_join_status: WriteSignal<String>,
+) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
     use leptos_router::hooks::use_navigate;
 
     move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
 
         let Some(code) = extract_room_code(&join_input.get_untracked()) else {
-            set_join_status.set("Informe o código da sala ou o link completo do convite.".to_string());
+            set_join_status
+                .set("Informe o código da sala ou o link completo do convite.".to_string());
             return;
         };
 
@@ -60,17 +71,26 @@ mod tests {
 
     #[test]
     fn extract_room_code_accepts_a_full_link() {
-        assert_eq!(extract_room_code("https://example.com/r/AB3D9F2K"), Some("AB3D9F2K".to_string()));
+        assert_eq!(
+            extract_room_code("https://example.com/r/AB3D9F2K"),
+            Some("AB3D9F2K".to_string())
+        );
     }
 
     #[test]
     fn extract_room_code_strips_trailing_slash_and_query_string() {
-        assert_eq!(extract_room_code("https://example.com/r/AB3D9F2K/?x=1"), Some("AB3D9F2K".to_string()));
+        assert_eq!(
+            extract_room_code("https://example.com/r/AB3D9F2K/?x=1"),
+            Some("AB3D9F2K".to_string())
+        );
     }
 
     #[test]
     fn extract_room_code_trims_surrounding_whitespace() {
-        assert_eq!(extract_room_code("  AB3D9F2K  "), Some("AB3D9F2K".to_string()));
+        assert_eq!(
+            extract_room_code("  AB3D9F2K  "),
+            Some("AB3D9F2K".to_string())
+        );
     }
 
     #[test]

@@ -33,7 +33,12 @@ pub async fn ws_handler(
     ws.on_upgrade(move |socket| handle_socket(socket, registry, turn, client_key))
 }
 
-async fn handle_socket(socket: WebSocket, registry: Registry, turn: Option<TurnConfig>, client_key: String) {
+async fn handle_socket(
+    socket: WebSocket,
+    registry: Registry,
+    turn: Option<TurnConfig>,
+    client_key: String,
+) {
     let (mut ws_sender, mut ws_receiver) = socket.split();
     let (tx, mut rx) = mpsc::unbounded_channel::<ServerMessage>();
 
@@ -56,11 +61,20 @@ async fn handle_socket(socket: WebSocket, registry: Registry, turn: Option<TurnC
 
     while let Some(Ok(msg)) = ws_receiver.next().await {
         let Message::Text(text) = msg else { continue };
-        let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) else { continue };
+        let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) else {
+            continue;
+        };
 
         match client_msg {
-            ClientMessage::CreateRoom { nick, password, room_name, color, device_id } => {
-                let (code, snapshot) = registry.create_room(nick, color, room_name, password, device_id, tx.clone());
+            ClientMessage::CreateRoom {
+                nick,
+                password,
+                room_name,
+                color,
+                device_id,
+            } => {
+                let (code, snapshot) =
+                    registry.create_room(nick, color, room_name, password, device_id, tx.clone());
                 let _ = tx.send(ServerMessage::Joined {
                     peer_id: snapshot.peer_id.clone(),
                     room: code.clone(),
@@ -74,7 +88,13 @@ async fn handle_socket(socket: WebSocket, registry: Registry, turn: Option<TurnC
                 room_code = Some(code);
                 peer_id = Some(snapshot.peer_id);
             }
-            ClientMessage::JoinRoom { room, nick, password, color, device_id } => {
+            ClientMessage::JoinRoom {
+                room,
+                nick,
+                password,
+                color,
+                device_id,
+            } => {
                 let request = JoinRequest {
                     nick,
                     color,
@@ -142,26 +162,59 @@ async fn handle_socket(socket: WebSocket, registry: Registry, turn: Option<TurnC
             }
             ClientMessage::Offer { to, sdp } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(room, &to, ServerMessage::Offer { from: from.clone(), sdp });
+                    registry.relay(
+                        room,
+                        &to,
+                        ServerMessage::Offer {
+                            from: from.clone(),
+                            sdp,
+                        },
+                    );
                 }
             }
             ClientMessage::Answer { to, sdp } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(room, &to, ServerMessage::Answer { from: from.clone(), sdp });
+                    registry.relay(
+                        room,
+                        &to,
+                        ServerMessage::Answer {
+                            from: from.clone(),
+                            sdp,
+                        },
+                    );
                 }
             }
-            ClientMessage::IceCandidate { to, stream_owner, candidate, sdp_mid, sdp_m_line_index } => {
+            ClientMessage::IceCandidate {
+                to,
+                stream_owner,
+                candidate,
+                sdp_mid,
+                sdp_m_line_index,
+            } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
                     registry.relay(
                         room,
                         &to,
-                        ServerMessage::IceCandidate { from: from.clone(), stream_owner, candidate, sdp_mid, sdp_m_line_index },
+                        ServerMessage::IceCandidate {
+                            from: from.clone(),
+                            stream_owner,
+                            candidate,
+                            sdp_mid,
+                            sdp_m_line_index,
+                        },
                     );
                 }
             }
             ClientMessage::SetQuality { to, quality } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(room, &to, ServerMessage::QualityRequested { from: from.clone(), quality });
+                    registry.relay(
+                        room,
+                        &to,
+                        ServerMessage::QualityRequested {
+                            from: from.clone(),
+                            quality,
+                        },
+                    );
                 }
             }
         }

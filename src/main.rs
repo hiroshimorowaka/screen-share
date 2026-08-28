@@ -19,8 +19,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let routes = generate_route_list(App);
 
     let turn = TurnConfig::from_env();
-    log!("TURN server: {}", if turn.is_some() { "configured" } else { "not configured (STUN-only ICE)" });
-    let signaling_state = SignalingState { registry: Registry::new(), turn };
+    log!(
+        "TURN server: {}",
+        if turn.is_some() {
+            "configured"
+        } else {
+            "not configured (STUN-only ICE)"
+        }
+    );
+    let signaling_state = SignalingState {
+        registry: Registry::new(),
+        turn,
+    };
     let signaling_router = Router::new()
         .route("/ws", get(ws_handler))
         .route("/api/rooms/{code}", get(room_status_handler))

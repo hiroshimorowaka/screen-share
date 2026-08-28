@@ -20,16 +20,16 @@ use leptos_router::hooks::use_params_map;
 
 use connection::{adopt_pending_session, setup_room_connection, RoomConnection, RoomSignals};
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
-use invite::invite_click_handler;
 #[cfg(feature = "hydrate")]
 use invite::build_invite_link;
+use invite::invite_click_handler;
 use latency::setup_ping_loop;
 use media_controls::setup_fullscreen_autohide_controls;
 use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;
-use share::{share_supported, share_toggle_handler};
 #[cfg(feature = "hydrate")]
 use share::start_sharing;
+use share::{share_supported, share_toggle_handler};
 use watch::leave_or_stop_watching_handler;
 #[cfg(feature = "hydrate")]
 use watch::leave_room;
@@ -83,8 +83,10 @@ pub fn RoomPage() -> impl IntoView {
     let own_preview_hidden = RwSignal::new(false);
     let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
-    let quality_by_peer =
-        RwSignal::new(std::collections::HashMap::<String, crate::signaling::protocol::QualityLevel>::new());
+    let quality_by_peer = RwSignal::new(std::collections::HashMap::<
+        String,
+        crate::signaling::protocol::QualityLevel,
+    >::new());
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
     let invite_copied = RwSignal::new(false);

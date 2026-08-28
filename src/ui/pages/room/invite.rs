@@ -1,7 +1,10 @@
 use leptos::prelude::*;
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn invite_click_handler(_room_code: String, _invite_copied: RwSignal<bool>) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+pub(super) fn invite_click_handler(
+    _room_code: String,
+    _invite_copied: RwSignal<bool>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
 
@@ -22,14 +25,21 @@ pub(super) fn build_invite_link(room_code: &str) -> Option<String> {
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn invite_click_handler(room_code: String, invite_copied: RwSignal<bool>) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
+pub(super) fn invite_click_handler(
+    room_code: String,
+    invite_copied: RwSignal<bool>,
+) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
     move |_| {
-        let Some(window) = web_sys::window() else { return };
-        let Some(link) = build_invite_link(&room_code) else { return };
+        let Some(window) = web_sys::window() else {
+            return;
+        };
+        let Some(link) = build_invite_link(&room_code) else {
+            return;
+        };
         let promise = window.navigator().clipboard().write_text(&link);
 
         spawn_local(async move {
@@ -37,10 +47,15 @@ pub(super) fn invite_click_handler(room_code: String, invite_copied: RwSignal<bo
                 return;
             }
             invite_copied.set(true);
-            let Some(window) = web_sys::window() else { return };
-            let reset = wasm_bindgen::prelude::Closure::once_into_js(move || invite_copied.set(false));
-            let _ = window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(reset.as_ref().unchecked_ref(), COPIED_INDICATOR_MS);
+            let Some(window) = web_sys::window() else {
+                return;
+            };
+            let reset =
+                wasm_bindgen::prelude::Closure::once_into_js(move || invite_copied.set(false));
+            let _ = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                reset.as_ref().unchecked_ref(),
+                COPIED_INDICATOR_MS,
+            );
         });
     }
 }

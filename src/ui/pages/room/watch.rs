@@ -23,10 +23,16 @@ pub(super) fn watch_click_handler(
     use crate::signaling::protocol::ClientMessage;
 
     move |_| {
-        let Some(member) = members.get_untracked().get(slot).cloned() else { return };
-        watching.update(|w| { w.insert(member.peer_id.clone()); });
+        let Some(member) = members.get_untracked().get(slot).cloned() else {
+            return;
+        };
+        watching.update(|w| {
+            w.insert(member.peer_id.clone());
+        });
         if let Some(ws) = conn.ws.borrow().as_ref() {
-            ws.send(&ClientMessage::WatchShare { sharer_id: member.peer_id });
+            ws.send(&ClientMessage::WatchShare {
+                sharer_id: member.peer_id,
+            });
         }
     }
 }
@@ -53,8 +59,12 @@ pub(super) fn stop_watching_click_handler(
     use crate::signaling::protocol::ClientMessage;
 
     move |_| {
-        let Some(member) = members.get_untracked().get(slot).cloned() else { return };
-        watching.update(|w| { w.remove(&member.peer_id); });
+        let Some(member) = members.get_untracked().get(slot).cloned() else {
+            return;
+        };
+        watching.update(|w| {
+            w.remove(&member.peer_id);
+        });
         // The fullscreen API has no idea the video feeding it is about to
         // disappear — back out of it ourselves, the same way a peer
         // stopping their share or leaving the room already does (see
@@ -70,7 +80,9 @@ pub(super) fn stop_watching_click_handler(
             pc.close();
         }
         if let Some(ws) = conn.ws.borrow().as_ref() {
-            ws.send(&ClientMessage::StopWatching { sharer_id: member.peer_id });
+            ws.send(&ClientMessage::StopWatching {
+                sharer_id: member.peer_id,
+            });
         }
     }
 }
@@ -137,7 +149,9 @@ pub(super) fn leave_or_stop_watching_handler(
             pc.close();
         }
         if let Some(ws) = conn.ws.borrow().as_ref() {
-            ws.send(&ClientMessage::StopWatching { sharer_id: focused_peer_id });
+            ws.send(&ClientMessage::StopWatching {
+                sharer_id: focused_peer_id,
+            });
         }
     }
 }

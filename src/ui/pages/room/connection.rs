@@ -6,8 +6,12 @@ use super::RoomMember;
 #[derive(Clone)]
 pub(super) struct RoomConnection {
     pub(super) ws: std::rc::Rc<std::cell::RefCell<Option<crate::ui::client::socket::WsClient>>>,
-    pub(super) outgoing: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
-    pub(super) incoming: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>>,
+    pub(super) outgoing: std::rc::Rc<
+        std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
+    >,
+    pub(super) incoming: std::rc::Rc<
+        std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
+    >,
     pub(super) local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
     // Set before an intentional close; `on_close` (async, runs afterwards)
     // checks this flag so it doesn't overwrite the status already set with
@@ -21,7 +25,8 @@ pub(super) struct RoomConnection {
     // poll (see `quality.rs`), so switching them to a fixed tier — or them
     // leaving — can `clearInterval` it instead of leaving it running
     // against a sender that's gone.
-    pub(super) quality_auto_intervals: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, i32>>>,
+    pub(super) quality_auto_intervals:
+        std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, i32>>>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -136,7 +141,10 @@ pub(super) fn setup_room_connection(
                     let conn = conn.clone();
                     move || {
                         if !conn.expected_close.get() {
-                            set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+                            set_status.set(
+                                "Conexão perdida. Recarregue a página para tentar de novo."
+                                    .to_string(),
+                            );
                         }
                     }
                 });
@@ -170,7 +178,9 @@ pub(super) fn adopt_pending_session(
 
     let RoomSignals { set_status, .. } = signals;
 
-    let Some(mut session) = session::take(&room_code) else { return };
+    let Some(mut session) = session::take(&room_code) else {
+        return;
+    };
     set_requires_password.set(session.requires_password);
 
     let on_message = build_message_handler(conn.clone(), signals);
@@ -179,7 +189,8 @@ pub(super) fn adopt_pending_session(
         let conn = conn.clone();
         move || {
             if !conn.expected_close.get() {
-                set_status.set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
+                set_status
+                    .set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
             }
         }
     });

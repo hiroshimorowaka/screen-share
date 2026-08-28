@@ -58,7 +58,15 @@ pub fn create_room_handler(
         }
         let password_value = (!is_public && !password_value.is_empty()).then_some(password_value);
 
-        submit_create_room(nick_value, color_value, room_name_value, password_value, set_status, set_submitting, false);
+        submit_create_room(
+            nick_value,
+            color_value,
+            room_name_value,
+            password_value,
+            set_status,
+            set_submitting,
+            false,
+        );
     }
 }
 
@@ -87,7 +95,8 @@ pub fn submit_create_room(
     use crate::ui::client::session::{self, PendingSession};
     use crate::ui::client::socket::WsClient;
     use crate::ui::client::storage::{
-        ensure_device_id, save_last_room_name, save_profile, save_recent_room, save_room_session, RoomSession,
+        ensure_device_id, save_last_room_name, save_profile, save_recent_room, save_room_session,
+        RoomSession,
     };
     use crate::ui::profile::{Profile, RecentRoom};
 
@@ -104,13 +113,32 @@ pub fn submit_create_room(
         let color_value = color_value.clone();
         let password_value = password_value.clone();
         move |msg: ServerMessage| {
-            if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers, turn, .. } = msg {
-                save_profile(&Profile { nick: nick_value.clone(), color: color_value.clone() });
-                save_recent_room(RecentRoom { code: room.clone(), name: room_name.clone() });
+            if let ServerMessage::Joined {
+                peer_id,
+                room,
+                room_name,
+                members,
+                active_sharers,
+                turn,
+                ..
+            } = msg
+            {
+                save_profile(&Profile {
+                    nick: nick_value.clone(),
+                    color: color_value.clone(),
+                });
+                save_recent_room(RecentRoom {
+                    code: room.clone(),
+                    name: room_name.clone(),
+                });
                 save_last_room_name(&room_name);
                 save_room_session(
                     &room,
-                    &RoomSession { nick: nick_value.clone(), color: color_value.clone(), password: password_value.clone() },
+                    &RoomSession {
+                        nick: nick_value.clone(),
+                        color: color_value.clone(),
+                        password: password_value.clone(),
+                    },
                 );
                 if let Some(ws) = ws_slot.borrow_mut().take() {
                     session::stash(PendingSession {
@@ -171,10 +199,17 @@ pub fn submit_create_room(
 /// rendered output, so mutating them during the initial hydration pass
 /// risks a hydration mismatch.
 #[cfg(not(feature = "hydrate"))]
-pub fn start_quick_share_after_mount(_set_status: WriteSignal<String>, _set_submitting: WriteSignal<bool>) {}
+pub fn start_quick_share_after_mount(
+    _set_status: WriteSignal<String>,
+    _set_submitting: WriteSignal<bool>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-pub fn start_quick_share_after_mount(set_status: WriteSignal<String>, set_submitting: WriteSignal<bool>) {
+pub fn start_quick_share_after_mount(
+    set_status: WriteSignal<String>,
+    set_submitting: WriteSignal<bool>,
+) {
     use leptos::task::spawn_local;
 
     if !crate::ui::quick_share::requested() {
@@ -183,8 +218,20 @@ pub fn start_quick_share_after_mount(set_status: WriteSignal<String>, set_submit
 
     spawn_local(async move {
         let profile = crate::ui::client::storage::load_profile();
-        let nick_value = if profile.nick.trim().is_empty() { crate::ui::quick_share::random_nick() } else { profile.nick };
+        let nick_value = if profile.nick.trim().is_empty() {
+            crate::ui::quick_share::random_nick()
+        } else {
+            profile.nick
+        };
         let room_name_value = crate::ui::quick_share::random_room_name();
-        submit_create_room(nick_value, profile.color, room_name_value, None, set_status, set_submitting, true);
+        submit_create_room(
+            nick_value,
+            profile.color,
+            room_name_value,
+            None,
+            set_status,
+            set_submitting,
+            true,
+        );
     });
 }

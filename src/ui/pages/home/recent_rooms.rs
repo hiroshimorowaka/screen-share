@@ -3,10 +3,15 @@ use std::collections::HashMap;
 use leptos::prelude::*;
 
 #[cfg(not(feature = "hydrate"))]
-pub fn load_recent_rooms_after_mount(_set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>) {}
+pub fn load_recent_rooms_after_mount(
+    _set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-pub fn load_recent_rooms_after_mount(set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>) {
+pub fn load_recent_rooms_after_mount(
+    set_recent_rooms: WriteSignal<Vec<crate::ui::profile::RecentRoom>>,
+) {
     use leptos::task::spawn_local;
 
     spawn_local(async move {

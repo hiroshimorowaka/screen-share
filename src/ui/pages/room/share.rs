@@ -100,9 +100,7 @@ pub(super) fn start_sharing(
 
         if let Some(peer_id) = my_peer_id_value.as_deref() {
             if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                if let Some(video) =
-                    document.get_element_by_id(&format!("video-self-{peer_id}"))
-                {
+                if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
                     let video: web_sys::HtmlVideoElement = video.unchecked_into();
                     video.set_src_object(Some(&stream));
                     // The `muted` attribute only sets the element's
@@ -208,7 +206,13 @@ pub(super) fn stop_sharing(
     }
     // Each viewer's Auto poll (if any) would otherwise keep firing against
     // a connection that's already closed.
-    for viewer_peer_id in conn.quality_auto_intervals.borrow().keys().cloned().collect::<Vec<_>>() {
+    for viewer_peer_id in conn
+        .quality_auto_intervals
+        .borrow()
+        .keys()
+        .cloned()
+        .collect::<Vec<_>>()
+    {
         super::quality::stop_auto_polling(conn, &viewer_peer_id);
     }
     if let Some(ws) = conn.ws.borrow().as_ref() {

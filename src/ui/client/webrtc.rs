@@ -60,7 +60,8 @@ pub fn notify_desktop_member_joined(nick: &str) {
     let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
         return;
     };
-    let Ok(member_joined) = js_sys::Reflect::get(&bridge, &JsValue::from_str("memberJoined")) else {
+    let Ok(member_joined) = js_sys::Reflect::get(&bridge, &JsValue::from_str("memberJoined"))
+    else {
         return;
     };
     let Ok(member_joined) = member_joined.dyn_into::<js_sys::Function>() else {

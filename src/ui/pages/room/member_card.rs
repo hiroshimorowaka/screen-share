@@ -31,7 +31,8 @@ pub(super) struct MemberCardSignals {
     pub(super) volume_by_peer: RwSignal<std::collections::HashMap<String, f64>>,
     pub(super) muted_by_peer: RwSignal<std::collections::HashSet<String>>,
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
-    pub(super) quality_by_peer: RwSignal<std::collections::HashMap<String, crate::signaling::protocol::QualityLevel>>,
+    pub(super) quality_by_peer:
+        RwSignal<std::collections::HashMap<String, crate::signaling::protocol::QualityLevel>>,
 }
 
 /// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"

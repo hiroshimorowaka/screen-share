@@ -6,9 +6,9 @@ use leptos_router::{
 };
 
 use crate::ui::pages::home::HomePage;
-use crate::ui::pages::room::RoomPage;
 #[cfg(debug_assertions)]
 use crate::ui::pages::room::DevRoomPreviewPage;
+use crate::ui::pages::room::RoomPage;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {

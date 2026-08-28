@@ -17,8 +17,12 @@ pub(super) fn setup_ping_loop(_conn: super::connection::RoomConnection) {}
 fn send_ping(conn: &super::connection::RoomConnection) {
     use crate::signaling::protocol::ClientMessage;
 
-    let Some(window) = web_sys::window() else { return };
-    let Some(performance) = window.performance() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Some(performance) = window.performance() else {
+        return;
+    };
     let ws_borrow = conn.ws.borrow();
     let Some(ws) = ws_borrow.as_ref() else { return };
     conn.last_ping_sent_at.set(Some(performance.now()));
@@ -43,12 +47,16 @@ pub(super) fn setup_ping_loop(conn: super::connection::RoomConnection) {
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::JsCast;
 
-    let Some(window) = web_sys::window() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
 
     send_ping(&conn); // first reading without waiting a full interval
 
     let on_tick = Closure::<dyn FnMut()>::new(move || send_ping(&conn));
-    let _ = window
-        .set_interval_with_callback_and_timeout_and_arguments_0(on_tick.as_ref().unchecked_ref(), PING_INTERVAL_MS);
+    let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
+        on_tick.as_ref().unchecked_ref(),
+        PING_INTERVAL_MS,
+    );
     on_tick.forget();
 }

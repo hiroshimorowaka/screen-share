@@ -11,7 +11,10 @@ pub struct Profile {
 
 impl Default for Profile {
     fn default() -> Self {
-        Self { nick: String::new(), color: crate::ui::components::palette::DEFAULT_COLOR.to_string() }
+        Self {
+            nick: String::new(),
+            color: crate::ui::components::palette::DEFAULT_COLOR.to_string(),
+        }
     }
 }
 

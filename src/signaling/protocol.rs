@@ -57,22 +57,46 @@ pub enum QualityLevel {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
     /// `password: None` creates a room anyone with the link can join.
-    CreateRoom { nick: String, password: Option<String>, room_name: String, color: String, device_id: String },
+    CreateRoom {
+        nick: String,
+        password: Option<String>,
+        room_name: String,
+        color: String,
+        device_id: String,
+    },
     /// `password: None` is only accepted if the room itself has none set.
-    JoinRoom { room: String, nick: String, password: Option<String>, color: String, device_id: String },
+    JoinRoom {
+        room: String,
+        nick: String,
+        password: Option<String>,
+        color: String,
+        device_id: String,
+    },
     StartShare,
     StopShare,
-    WatchShare { sharer_id: String },
-    StopWatching { sharer_id: String },
+    WatchShare {
+        sharer_id: String,
+    },
+    StopWatching {
+        sharer_id: String,
+    },
     /// Answered immediately with `Pong`, so the client can time the round
     /// trip itself — see `ReportLatency`.
     Ping,
     /// The client's own measurement of the `Ping`/`Pong` round trip it just
     /// timed, handed back so the server can broadcast it to the room as
     /// that peer's ping (see `ServerMessage::PeerLatency`).
-    ReportLatency { ms: u32 },
-    Offer { to: String, sdp: String },
-    Answer { to: String, sdp: String },
+    ReportLatency {
+        ms: u32,
+    },
+    Offer {
+        to: String,
+        sdp: String,
+    },
+    Answer {
+        to: String,
+        sdp: String,
+    },
     IceCandidate {
         to: String,
         stream_owner: String,
@@ -84,7 +108,10 @@ pub enum ClientMessage {
     /// watching — only the sharer's `RTCRtpSender` for that one connection
     /// can actually apply it, so this is relayed to them rather than
     /// handled server-side (same shape as `Offer`/`Answer`).
-    SetQuality { to: String, quality: QualityLevel },
+    SetQuality {
+        to: String,
+        quality: QualityLevel,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -110,24 +137,50 @@ pub enum ServerMessage {
     /// `AuthFailed` even if the password given this time was correct, so a
     /// successful guess after brute-forcing gains nothing.
     TooManyAttempts,
-    PeerJoined { peer_id: String, nick: String, color: String },
-    PeerLeft { peer_id: String },
+    PeerJoined {
+        peer_id: String,
+        nick: String,
+        color: String,
+    },
+    PeerLeft {
+        peer_id: String,
+    },
     /// Sent only to whoever was disconnected by a same-device re-join — never
     /// broadcast; the rest of the room already gets a normal `PeerLeft`.
     Kicked,
-    PeerStartedSharing { peer_id: String },
-    PeerStoppedSharing { peer_id: String },
-    WatchRequested { from: String },
-    WatchStopped { from: String },
+    PeerStartedSharing {
+        peer_id: String,
+    },
+    PeerStoppedSharing {
+        peer_id: String,
+    },
+    WatchRequested {
+        from: String,
+    },
+    WatchStopped {
+        from: String,
+    },
     /// Broadcast to the whole room, not just the sharer — any card shows
     /// "N watching" from any member's point of view.
-    WatchersChanged { sharer_id: String, watchers: Vec<String> },
+    WatchersChanged {
+        sharer_id: String,
+        watchers: Vec<String>,
+    },
     Pong,
     /// Broadcast to the whole room — any card can show that peer's ping,
     /// not just the peer who measured it.
-    PeerLatency { peer_id: String, ms: u32 },
-    Offer { from: String, sdp: String },
-    Answer { from: String, sdp: String },
+    PeerLatency {
+        peer_id: String,
+        ms: u32,
+    },
+    Offer {
+        from: String,
+        sdp: String,
+    },
+    Answer {
+        from: String,
+        sdp: String,
+    },
     IceCandidate {
         from: String,
         stream_owner: String,
@@ -135,7 +188,10 @@ pub enum ServerMessage {
         sdp_mid: Option<String>,
         sdp_m_line_index: Option<u16>,
     },
-    QualityRequested { from: String, quality: QualityLevel },
+    QualityRequested {
+        from: String,
+        quality: QualityLevel,
+    },
 }
 
 /// Response for `GET /api/rooms/:code`. `name`/`member_count`/
@@ -219,8 +275,14 @@ mod tests {
                 color: "coral".to_string(),
             }],
             active_sharers: vec![],
-            watcher_info: vec![WatcherInfo { sharer_id: "peer-1".to_string(), watchers: vec!["peer-2".to_string()] }],
-            latencies: vec![LatencyInfo { peer_id: "peer-1".to_string(), ms: 42 }],
+            watcher_info: vec![WatcherInfo {
+                sharer_id: "peer-1".to_string(),
+                watchers: vec!["peer-2".to_string()],
+            }],
+            latencies: vec![LatencyInfo {
+                peer_id: "peer-1".to_string(),
+                ms: 42,
+            }],
             turn: Some(TurnCredentials {
                 urls: vec!["turn:example.com:3478".to_string()],
                 username: "1234567890".to_string(),
@@ -254,9 +316,15 @@ mod tests {
 
     #[test]
     fn peer_latency_message_round_trips_through_json() {
-        let msg = ServerMessage::PeerLatency { peer_id: "peer-1".to_string(), ms: 87 };
+        let msg = ServerMessage::PeerLatency {
+            peer_id: "peer-1".to_string(),
+            ms: 87,
+        };
         let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"peer_latency","peer_id":"peer-1","ms":87}"#);
+        assert_eq!(
+            json,
+            r#"{"type":"peer_latency","peer_id":"peer-1","ms":87}"#
+        );
 
         let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);
@@ -290,7 +358,9 @@ mod tests {
 
     #[test]
     fn watch_share_message_round_trips_through_json() {
-        let msg = ClientMessage::WatchShare { sharer_id: "peer-1".to_string() };
+        let msg = ClientMessage::WatchShare {
+            sharer_id: "peer-1".to_string(),
+        };
         let json = serde_json::to_string(&msg).unwrap();
         assert_eq!(json, r#"{"type":"watch_share","sharer_id":"peer-1"}"#);
 
@@ -300,7 +370,12 @@ mod tests {
 
     #[test]
     fn room_status_omits_absent_fields_when_room_does_not_exist() {
-        let status = RoomStatus { exists: false, name: None, member_count: None, requires_password: None };
+        let status = RoomStatus {
+            exists: false,
+            name: None,
+            member_count: None,
+            requires_password: None,
+        };
         let json = serde_json::to_string(&status).unwrap();
         assert_eq!(json, r#"{"exists":false}"#);
 
@@ -326,9 +401,15 @@ mod tests {
 
     #[test]
     fn set_quality_message_round_trips_through_json() {
-        let msg = ClientMessage::SetQuality { to: "peer-1".to_string(), quality: QualityLevel::Medium };
+        let msg = ClientMessage::SetQuality {
+            to: "peer-1".to_string(),
+            quality: QualityLevel::Medium,
+        };
         let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"set_quality","to":"peer-1","quality":"medium"}"#);
+        assert_eq!(
+            json,
+            r#"{"type":"set_quality","to":"peer-1","quality":"medium"}"#
+        );
 
         let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);
@@ -336,9 +417,15 @@ mod tests {
 
     #[test]
     fn quality_requested_message_round_trips_through_json() {
-        let msg = ServerMessage::QualityRequested { from: "peer-2".to_string(), quality: QualityLevel::Auto };
+        let msg = ServerMessage::QualityRequested {
+            from: "peer-2".to_string(),
+            quality: QualityLevel::Auto,
+        };
         let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"quality_requested","from":"peer-2","quality":"auto"}"#);
+        assert_eq!(
+            json,
+            r#"{"type":"quality_requested","from":"peer-2","quality":"auto"}"#
+        );
 
         let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);

@@ -41,9 +41,10 @@ pub(super) fn setup_auto_hide_controls(
         move || {
             cancel_pending();
             let hide = Closure::once_into_js(move || controls_visible.set(false));
-            if let Ok(id) = window
-                .set_timeout_with_callback_and_timeout_and_arguments_0(hide.as_ref().unchecked_ref(), HIDE_AFTER_MS)
-            {
+            if let Ok(id) = window.set_timeout_with_callback_and_timeout_and_arguments_0(
+                hide.as_ref().unchecked_ref(),
+                HIDE_AFTER_MS,
+            ) {
                 timeout_id.set(Some(id));
             }
         }
@@ -123,7 +124,8 @@ pub(super) fn setup_adaptive_grid(
 
     let on_resize = Closure::<dyn FnMut()>::new(schedule_recompute);
     if let Some(window) = web_sys::window() {
-        let _ = window.add_event_listener_with_callback("resize", on_resize.as_ref().unchecked_ref());
+        let _ =
+            window.add_event_listener_with_callback("resize", on_resize.as_ref().unchecked_ref());
     }
     on_resize.forget();
 }
@@ -159,8 +161,12 @@ fn best_column_count(visible: usize, width: f64, height: f64) -> usize {
 fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
     use wasm_bindgen::JsCast;
 
-    let Some(document) = web_sys::window().and_then(|w| w.document()) else { return };
-    let Some(grid) = document.get_element_by_id("member-grid") else { return };
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return;
+    };
+    let Some(grid) = document.get_element_by_id("member-grid") else {
+        return;
+    };
     let grid: web_sys::HtmlElement = grid.unchecked_into();
     let style = grid.style();
 
@@ -176,7 +182,10 @@ fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
         let _ = style.remove_property("grid-template-rows");
         if let Ok(cards) = grid.query_selector_all(".card") {
             for i in 0..cards.length() {
-                let Some(card) = cards.item(i).and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok()) else {
+                let Some(card) = cards
+                    .item(i)
+                    .and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok())
+                else {
                     continue;
                 };
                 let _ = card.style().remove_property("grid-column");
@@ -186,7 +195,9 @@ fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
         return;
     }
 
-    let Ok(list) = grid.query_selector_all(".card:not(.hidden)") else { return };
+    let Ok(list) = grid.query_selector_all(".card:not(.hidden)") else {
+        return;
+    };
     let visible = list.length() as usize;
     if visible == 0 {
         return;
@@ -209,15 +220,24 @@ fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
     // auto-placement for the rest: mixing an explicit offset for some cards
     // with auto-placed siblings isn't guaranteed to land them in the same
     // row.
-    let _ = style.set_property("grid-template-columns", &format!("repeat({}, minmax(0, 1fr))", cols * 2));
-    let _ = style.set_property("grid-template-rows", &format!("repeat({rows}, minmax(0, 1fr))"));
+    let _ = style.set_property(
+        "grid-template-columns",
+        &format!("repeat({}, minmax(0, 1fr))", cols * 2),
+    );
+    let _ = style.set_property(
+        "grid-template-rows",
+        &format!("repeat({rows}, minmax(0, 1fr))"),
+    );
 
     let remainder = visible % cols;
     let last_row_start = visible - remainder;
     let center_offset = cols - remainder;
 
     for i in 0..visible {
-        let Some(card) = list.item(i as u32).and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok()) else {
+        let Some(card) = list
+            .item(i as u32)
+            .and_then(|node| node.dyn_into::<web_sys::HtmlElement>().ok())
+        else {
             continue;
         };
 

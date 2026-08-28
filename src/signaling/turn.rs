@@ -29,9 +29,14 @@ impl TurnConfig {
     /// `TURN_SECRET` and `TURN_URLS` (comma-separated `turn:`/`turns:` URLs)
     /// must both be set and non-empty, or this deployment runs STUN-only.
     pub fn from_env() -> Option<Self> {
-        let secret = std::env::var("TURN_SECRET").ok().filter(|s| !s.is_empty())?;
+        let secret = std::env::var("TURN_SECRET")
+            .ok()
+            .filter(|s| !s.is_empty())?;
         let urls_raw = std::env::var("TURN_URLS").ok().filter(|s| !s.is_empty())?;
-        let urls: Vec<String> = urls_raw.split(',').map(|url| url.trim().to_string()).collect();
+        let urls: Vec<String> = urls_raw
+            .split(',')
+            .map(|url| url.trim().to_string())
+            .collect();
         Some(Self { secret, urls })
     }
 
@@ -53,7 +58,11 @@ impl TurnConfig {
         mac.update(username.as_bytes());
         let password = BASE64.encode(mac.finalize().into_bytes());
 
-        TurnCredentials { urls: self.urls.clone(), username, password }
+        TurnCredentials {
+            urls: self.urls.clone(),
+            username,
+            password,
+        }
     }
 }
 
@@ -62,7 +71,10 @@ mod tests {
     use super::*;
 
     fn config() -> TurnConfig {
-        TurnConfig { secret: "s3cr3t".to_string(), urls: vec!["turn:example.com:3478".to_string()] }
+        TurnConfig {
+            secret: "s3cr3t".to_string(),
+            urls: vec!["turn:example.com:3478".to_string()],
+        }
     }
 
     #[test]
@@ -74,10 +86,19 @@ mod tests {
     #[test]
     fn mint_credentials_username_is_a_future_unix_timestamp() {
         let creds = config().mint_credentials();
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        let expiry: u64 = creds.username.parse().expect("username should be a Unix timestamp");
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let expiry: u64 = creds
+            .username
+            .parse()
+            .expect("username should be a Unix timestamp");
         assert!(expiry > now, "expiry should be in the future");
-        assert!(expiry <= now + CREDENTIAL_TTL.as_secs() + 1, "expiry shouldn't exceed the configured TTL");
+        assert!(
+            expiry <= now + CREDENTIAL_TTL.as_secs() + 1,
+            "expiry shouldn't exceed the configured TTL"
+        );
     }
 
     #[test]

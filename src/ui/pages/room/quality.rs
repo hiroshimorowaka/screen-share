@@ -127,7 +127,12 @@ pub struct AdaptiveQuality {
 #[cfg(any(test, feature = "hydrate"))]
 impl AdaptiveQuality {
     pub fn new() -> Self {
-        Self { tier: Tier::High, bad_streak: 0, good_streak: 0, previous_reading: None }
+        Self {
+            tier: Tier::High,
+            bad_streak: 0,
+            good_streak: 0,
+            previous_reading: None,
+        }
     }
 
     pub fn tier(&self) -> Tier {
@@ -145,10 +150,16 @@ impl AdaptiveQuality {
 
     /// `None` (first poll, nothing to compare against) reads as `Neutral`.
     fn classify(&self, reading: RawReading) -> Signal {
-        let Some(prev) = self.previous_reading else { return Signal::Neutral };
+        let Some(prev) = self.previous_reading else {
+            return Signal::Neutral;
+        };
         let sent_delta = (reading.packets_sent_total - prev.packets_sent_total).max(0.0);
         let lost_delta = (reading.packets_lost_total - prev.packets_lost_total).max(0.0);
-        let loss_ratio = if sent_delta > 0.0 { lost_delta / sent_delta } else { 0.0 };
+        let loss_ratio = if sent_delta > 0.0 {
+            lost_delta / sent_delta
+        } else {
+            0.0
+        };
 
         if reading.limitation_is_bad || loss_ratio > BAD_LOSS_RATIO {
             Signal::Bad
@@ -216,7 +227,10 @@ const AUTO_POLL_INTERVAL_MS: i32 = 3_000;
 /// yet (no sender), which can happen if a quality change races the initial
 /// track being added.
 #[cfg(feature = "hydrate")]
-pub(super) async fn apply_tier(pc: &web_sys::RtcPeerConnection, tier: Tier) -> Result<(), wasm_bindgen::JsValue> {
+pub(super) async fn apply_tier(
+    pc: &web_sys::RtcPeerConnection,
+    tier: Tier,
+) -> Result<(), wasm_bindgen::JsValue> {
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;
 
@@ -267,8 +281,11 @@ async fn read_reading(pc: &web_sys::RtcPeerConnection) -> Option<RawReading> {
     let mut packets_lost_total = None;
 
     report.for_each(&mut |value, _key| {
-        let field = |name: &str| js_sys::Reflect::get(&value, &wasm_bindgen::JsValue::from_str(name)).ok();
-        let Some(stat_type) = field("type").and_then(|v| v.as_string()) else { return };
+        let field =
+            |name: &str| js_sys::Reflect::get(&value, &wasm_bindgen::JsValue::from_str(name)).ok();
+        let Some(stat_type) = field("type").and_then(|v| v.as_string()) else {
+            return;
+        };
         let kind = field("kind").and_then(|v| v.as_string());
 
         match stat_type.as_str() {
@@ -311,11 +328,15 @@ pub(super) fn start_auto_polling(conn: super::connection::RoomConnection, viewer
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::JsCast;
 
-    let Some(window) = web_sys::window() else { return };
+    let Some(window) = web_sys::window() else {
+        return;
+    };
 
     let monitor = Rc::new(RefCell::new(AdaptiveQuality::new()));
 
-    let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() else { return };
+    let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() else {
+        return;
+    };
     let starting_tier = monitor.borrow().tier();
     spawn_local(async move {
         let _ = apply_tier(&pc, starting_tier).await;
@@ -328,29 +349,44 @@ pub(super) fn start_auto_polling(conn: super::connection::RoomConnection, viewer
             let viewer_peer_id = viewer_peer_id.clone();
             let monitor = monitor.clone();
             spawn_local(async move {
-                let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() else { return };
-                let Some(reading) = read_reading(&pc).await else { return };
-                let Some(new_tier) = monitor.borrow_mut().record_reading(reading) else { return };
+                let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() else {
+                    return;
+                };
+                let Some(reading) = read_reading(&pc).await else {
+                    return;
+                };
+                let Some(new_tier) = monitor.borrow_mut().record_reading(reading) else {
+                    return;
+                };
                 let _ = apply_tier(&pc, new_tier).await;
             });
         }
     });
 
-    let Ok(interval_id) =
-        window.set_interval_with_callback_and_timeout_and_arguments_0(on_tick.as_ref().unchecked_ref(), AUTO_POLL_INTERVAL_MS)
-    else {
+    let Ok(interval_id) = window.set_interval_with_callback_and_timeout_and_arguments_0(
+        on_tick.as_ref().unchecked_ref(),
+        AUTO_POLL_INTERVAL_MS,
+    ) else {
         return;
     };
     on_tick.forget();
 
-    conn.quality_auto_intervals.borrow_mut().insert(viewer_peer_id, interval_id);
+    conn.quality_auto_intervals
+        .borrow_mut()
+        .insert(viewer_peer_id, interval_id);
 }
 
 /// Stops `viewer_peer_id`'s Auto poll if one is running — safe to call even
 /// if there isn't one (switching between two fixed tiers, e.g.).
 #[cfg(feature = "hydrate")]
 pub(super) fn stop_auto_polling(conn: &super::connection::RoomConnection, viewer_peer_id: &str) {
-    let Some(interval_id) = conn.quality_auto_intervals.borrow_mut().remove(viewer_peer_id) else { return };
+    let Some(interval_id) = conn
+        .quality_auto_intervals
+        .borrow_mut()
+        .remove(viewer_peer_id)
+    else {
+        return;
+    };
     if let Some(window) = web_sys::window() {
         window.clear_interval_with_handle(interval_id);
     }
@@ -385,12 +421,17 @@ pub(super) fn set_quality_handler(
     use leptos::prelude::*;
 
     move |quality| {
-        let Some(member) = members.get_untracked().get(slot).cloned() else { return };
+        let Some(member) = members.get_untracked().get(slot).cloned() else {
+            return;
+        };
         quality_by_peer.update(|m| {
             m.insert(member.peer_id.clone(), quality);
         });
         if let Some(ws) = conn.ws.borrow().as_ref() {
-            ws.send(&crate::signaling::protocol::ClientMessage::SetQuality { to: member.peer_id, quality });
+            ws.send(&crate::signaling::protocol::ClientMessage::SetQuality {
+                to: member.peer_id,
+                quality,
+            });
         }
     }
 }
@@ -400,7 +441,11 @@ mod tests {
     use super::*;
 
     fn reading(limitation_is_bad: bool, sent_total: f64, lost_total: f64) -> RawReading {
-        RawReading { limitation_is_bad, packets_sent_total: sent_total, packets_lost_total: lost_total }
+        RawReading {
+            limitation_is_bad,
+            packets_sent_total: sent_total,
+            packets_lost_total: lost_total,
+        }
     }
 
     #[test]
@@ -444,8 +489,15 @@ mod tests {
     fn steps_down_after_two_consecutive_bad_readings_via_limitation_reason() {
         let mut q = AdaptiveQuality::new();
         q.record_reading(reading(false, 0.0, 0.0));
-        assert_eq!(q.record_reading(reading(true, 100.0, 0.0)), None, "one bad reading alone shouldn't step");
-        assert_eq!(q.record_reading(reading(true, 200.0, 0.0)), Some(Tier::Medium));
+        assert_eq!(
+            q.record_reading(reading(true, 100.0, 0.0)),
+            None,
+            "one bad reading alone shouldn't step"
+        );
+        assert_eq!(
+            q.record_reading(reading(true, 200.0, 0.0)),
+            Some(Tier::Medium)
+        );
     }
 
     #[test]
@@ -454,7 +506,10 @@ mod tests {
         q.record_reading(reading(false, 0.0, 0.0));
         // 10% loss this interval (10/100), well above BAD_LOSS_RATIO.
         q.record_reading(reading(false, 100.0, 10.0));
-        assert_eq!(q.record_reading(reading(false, 200.0, 20.0)), Some(Tier::Medium));
+        assert_eq!(
+            q.record_reading(reading(false, 200.0, 20.0)),
+            Some(Tier::Medium)
+        );
     }
 
     #[test]
@@ -465,7 +520,11 @@ mod tests {
         // Clean interval: 0% loss, no limitation — counts as Good, not just
         // "not bad", and must zero the bad streak so far.
         q.record_reading(reading(false, 200.0, 0.0));
-        assert_eq!(q.record_reading(reading(true, 300.0, 0.0)), None, "the earlier bad streak must not have carried over");
+        assert_eq!(
+            q.record_reading(reading(true, 300.0, 0.0)),
+            None,
+            "the earlier bad streak must not have carried over"
+        );
     }
 
     #[test]
@@ -473,7 +532,10 @@ mod tests {
         let mut q = AdaptiveQuality::new();
         q.record_reading(reading(false, 0.0, 0.0));
         q.record_reading(reading(true, 100.0, 0.0));
-        assert_eq!(q.record_reading(reading(true, 200.0, 0.0)), Some(Tier::Medium));
+        assert_eq!(
+            q.record_reading(reading(true, 200.0, 0.0)),
+            Some(Tier::Medium)
+        );
         q.record_reading(reading(true, 300.0, 0.0));
         assert_eq!(q.record_reading(reading(true, 400.0, 0.0)), Some(Tier::Low));
         // A third drop has nowhere to go.
@@ -491,8 +553,15 @@ mod tests {
         assert_eq!(q.tier(), Tier::Medium);
 
         q.record_reading(reading(false, 300.0, 0.0));
-        assert_eq!(q.record_reading(reading(false, 400.0, 0.0)), None, "two good readings alone shouldn't step up yet");
-        assert_eq!(q.record_reading(reading(false, 500.0, 0.0)), Some(Tier::High));
+        assert_eq!(
+            q.record_reading(reading(false, 400.0, 0.0)),
+            None,
+            "two good readings alone shouldn't step up yet"
+        );
+        assert_eq!(
+            q.record_reading(reading(false, 500.0, 0.0)),
+            Some(Tier::High)
+        );
     }
 
     #[test]
@@ -504,6 +573,10 @@ mod tests {
             let sent = (i as f64) * 100.0;
             assert_eq!(q.record_reading(reading(false, sent, sent * 0.01)), None);
         }
-        assert_eq!(q.tier(), Tier::High, "sustained neutral readings should never move the tier");
+        assert_eq!(
+            q.tier(),
+            Tier::High,
+            "sustained neutral readings should never move the tier"
+        );
     }
 }
