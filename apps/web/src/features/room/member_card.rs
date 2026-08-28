@@ -162,7 +162,7 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                     .and_then(|m| quality_by_peer.get().get(&m.peer_id).copied())
                     .unwrap_or(QualityLevel::Auto)
             };
-            let set_quality = super::quality::set_quality_handler(conn.clone(), members, quality_by_peer, i);
+            let set_quality = crate::session::quality::set_quality_handler(conn.clone(), members, quality_by_peer, i);
             let quality_change = move |ev: leptos::ev::Event| {
                 let target = event_target::<leptos::web_sys::HtmlSelectElement>(&ev);
                 set_quality(quality_from_option_value(&target.value()));

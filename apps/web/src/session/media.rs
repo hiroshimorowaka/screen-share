@@ -213,7 +213,7 @@ pub(crate) fn stop_sharing(
         .cloned()
         .collect::<Vec<_>>()
     {
-        crate::features::room::quality::stop_auto_polling(conn, &viewer_peer_id);
+        super::quality::stop_auto_polling(conn, &viewer_peer_id);
     }
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);

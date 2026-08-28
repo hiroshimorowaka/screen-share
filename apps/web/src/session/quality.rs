@@ -398,7 +398,7 @@ pub(crate) fn stop_auto_polling(conn: &crate::session::RoomSession, viewer_peer_
 /// `members`/`slot` at call time rather than closing over a fixed peer_id,
 /// same as `watch_click_handler`, since a slot's occupant can change.
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn set_quality_handler(
+pub(crate) fn set_quality_handler(
     _conn: crate::session::RoomSession,
     _members: leptos::prelude::ReadSignal<Vec<crate::session::RoomMember>>,
     _quality_by_peer: leptos::prelude::RwSignal<
@@ -410,7 +410,7 @@ pub(super) fn set_quality_handler(
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn set_quality_handler(
+pub(crate) fn set_quality_handler(
     conn: crate::session::RoomSession,
     members: leptos::prelude::ReadSignal<Vec<crate::session::RoomMember>>,
     quality_by_peer: leptos::prelude::RwSignal<

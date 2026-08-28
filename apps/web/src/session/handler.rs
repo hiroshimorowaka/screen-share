@@ -176,7 +176,7 @@ pub(crate) fn build_message_handler(
         }
         ServerMessage::PeerLeft { peer_id } => {
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
-            crate::features::room::quality::stop_auto_polling(&conn, &peer_id);
+            super::quality::stop_auto_polling(&conn, &peer_id);
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
@@ -234,7 +234,7 @@ pub(crate) fn build_message_handler(
             // after a fresh `Ping` overwrote the timestamp) must not be
             // timed against the wrong send.
             if let Some(sent_at) = conn.last_ping_sent_at.take() {
-                if let Some(rtt_ms) = crate::features::room::latency::round_trip_ms_since(sent_at) {
+                if let Some(rtt_ms) = super::latency::round_trip_ms_since(sent_at) {
                     if let Some(ws) = conn.ws.borrow().as_ref() {
                         ws.send(&ClientMessage::ReportLatency { ms: rtt_ms });
                     }
@@ -457,22 +457,22 @@ pub(crate) fn build_message_handler(
             });
         }
         ServerMessage::WatchStopped { from } => {
-            crate::features::room::quality::stop_auto_polling(&conn, &from);
+            super::quality::stop_auto_polling(&conn, &from);
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&from) {
                 pc.close();
             }
         }
         ServerMessage::QualityRequested { from, quality } => {
-            crate::features::room::quality::stop_auto_polling(&conn, &from);
-            match crate::features::room::quality::tier_for(quality) {
+            super::quality::stop_auto_polling(&conn, &from);
+            match super::quality::tier_for(quality) {
                 Some(tier) => {
                     if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
                         spawn_local(async move {
-                            let _ = crate::features::room::quality::apply_tier(&pc, tier).await;
+                            let _ = super::quality::apply_tier(&pc, tier).await;
                         });
                     }
                 }
-                None => crate::features::room::quality::start_auto_polling(conn.clone(), from),
+                None => super::quality::start_auto_polling(conn.clone(), from),
             }
         }
     }

@@ -2,10 +2,8 @@
 mod dev_preview;
 mod grid;
 mod invite;
-pub(crate) mod latency;
 pub(crate) mod media_controls;
 mod member_card;
-pub(crate) mod quality;
 mod room_check;
 mod watch;
 
@@ -15,6 +13,7 @@ pub(crate) use dev_preview::DevRoomPreviewPage;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
+use crate::session::latency::setup_ping_loop;
 #[cfg(feature = "hydrate")]
 use crate::session::media::start_sharing;
 use crate::session::media::{share_supported, share_toggle_handler};
@@ -22,7 +21,6 @@ use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 #[cfg(feature = "hydrate")]
 use invite::build_invite_link;
 use invite::invite_click_handler;
-use latency::setup_ping_loop;
 use media_controls::setup_fullscreen_autohide_controls;
 use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;

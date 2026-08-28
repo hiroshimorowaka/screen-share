@@ -11,7 +11,7 @@
 const PING_INTERVAL_MS: i32 = 5_000;
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn setup_ping_loop(_conn: crate::session::RoomSession) {}
+pub(crate) fn setup_ping_loop(_conn: crate::session::RoomSession) {}
 
 #[cfg(feature = "hydrate")]
 fn send_ping(conn: &crate::session::RoomSession) {
@@ -43,7 +43,7 @@ pub(crate) fn round_trip_ms_since(sent_at: f64) -> Option<u32> {
 /// nothing before the room is actually joined (`conn.ws` unset yet, or the
 /// connection dropped) sends anything, `send_ping` just no-ops.
 #[cfg(feature = "hydrate")]
-pub(super) fn setup_ping_loop(conn: crate::session::RoomSession) {
+pub(crate) fn setup_ping_loop(conn: crate::session::RoomSession) {
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::JsCast;
 

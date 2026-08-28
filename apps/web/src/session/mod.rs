@@ -1,5 +1,7 @@
 pub mod handler;
+pub mod latency;
 pub mod media;
+pub mod quality;
 
 use leptos::prelude::*;
 
