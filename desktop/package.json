@@ -1,6 +1,6 @@
 {
   "name": "screen-share-desktop",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Desktop app for Screen Share — persistent, password-protected screen sharing rooms with system audio.",
   "author": {
     "name": "hiroshimorowaka",

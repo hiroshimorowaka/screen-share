@@ -41,6 +41,22 @@ describe('registerQuickShareIpcHandlers', () => {
     expect(mocks.writeText).toHaveBeenCalledWith('https://example.com/r/ABCD');
   });
 
+  it('raises an OS notification when the quick-share link is ready', () => {
+    handlers.get('desktop-share:link-ready')?.({}, 'https://example.com/r/ABCD');
+    expect(mocks.notificationCtor).toHaveBeenCalledWith({
+      title: 'Screen Share',
+      body: 'Transmissão no ar — link da sala copiado!',
+    });
+    expect(mocks.notificationShow).toHaveBeenCalledOnce();
+  });
+
+  it('still copies the link when notifications are unsupported', () => {
+    mocks.isSupported.mockReturnValue(false);
+    handlers.get('desktop-share:link-ready')?.({}, 'https://example.com/r/ABCD');
+    expect(mocks.writeText).toHaveBeenCalledWith('https://example.com/r/ABCD');
+    expect(mocks.notificationCtor).not.toHaveBeenCalled();
+  });
+
   it('raises an OS notification when a member joins', () => {
     handlers.get('desktop-share:member-joined')?.({}, 'Bia');
     expect(mocks.notificationCtor).toHaveBeenCalledWith({

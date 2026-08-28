@@ -11,6 +11,14 @@ import { clipboard, ipcMain, Notification } from 'electron';
 export function registerQuickShareIpcHandlers(): void {
   ipcMain.on('desktop-share:link-ready', (_event, link: string) => {
     clipboard.writeText(link);
+    // The room window is hidden throughout the tray's quick-share flow, so
+    // an OS notification is the only way to tell the user the share is live
+    // and the link is already on their clipboard, ready to paste.
+    if (!Notification.isSupported()) return;
+    new Notification({
+      title: 'Screen Share',
+      body: 'Transmissão no ar — link da sala copiado!',
+    }).show();
   });
 
   // Same rationale as above: the room page's window is hidden/backgrounded
