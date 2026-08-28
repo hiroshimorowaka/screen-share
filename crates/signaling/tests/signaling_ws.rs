@@ -5,9 +5,9 @@ use tokio_tungstenite::tungstenite::Message;
 async fn spawn_test_server() -> String {
     use axum::routing::get;
     use axum::Router;
-    use screen_share::signaling::registry::Registry;
-    use screen_share::signaling::state::SignalingState;
-    use screen_share::signaling::ws::ws_handler;
+    use screen_share_signaling::registry::Registry;
+    use screen_share_signaling::state::SignalingState;
+    use screen_share_signaling::ws::ws_handler;
 
     let signaling_state = SignalingState {
         registry: Registry::new(),

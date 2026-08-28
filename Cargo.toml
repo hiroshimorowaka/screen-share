@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/web", "crates/protocol"]
+members = ["apps/web", "crates/protocol", "crates/signaling"]
 resolver = "2"
 
 # Line-tables-only debug info for dev builds. With full `debug = 2`, the

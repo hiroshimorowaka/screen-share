@@ -8,6 +8,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 screen-share-protocol = { path = "../../crates/protocol" }
+screen-share-signaling = { path = "../../crates/signaling", optional = true }
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
 leptos_meta = { version = "0.8.0" }
@@ -18,9 +19,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"], optio
 wasm-bindgen = { version = "0.2.106", optional = true }
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
-uuid = { version = "1.24.1", features = ["v4"], optional = true }
-rand = { version = "0.10.2", optional = true }
-futures-util = { version = "0.3.34", optional = true }
 wasm-bindgen-futures = { version = "0.4.77", optional = true }
 js-sys = { version = "0.3.104", optional = true }
 web-sys = { version = "0.3.104", optional = true, features = [
@@ -70,10 +68,6 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "Performance",
     "console",
 ] }
-argon2 = { version = "0.5.3", optional = true, features = ["std"] }
-hmac = { version = "0.12", optional = true }
-sha1 = { version = "0.10", optional = true }
-base64 = { version = "0.22", optional = true }
 
 [features]
 hydrate = [
@@ -88,20 +82,8 @@ ssr = [
     "dep:axum",
     "dep:tokio",
     "dep:leptos_axum",
-    "dep:uuid",
-    "dep:rand",
-    "dep:futures-util",
-    "dep:argon2",
-    "dep:hmac",
-    "dep:sha1",
-    "dep:base64",
+    "dep:screen-share-signaling",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",
 ]
-argon2 = ["dep:argon2"]
-
-[dev-dependencies]
-tokio-tungstenite = "0.30.0"
-reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["test-util"] }

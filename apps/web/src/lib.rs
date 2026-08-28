@@ -1,6 +1,5 @@
 #![recursion_limit = "256"]
 
-pub mod signaling;
 pub mod ui;
 
 #[cfg(feature = "hydrate")]

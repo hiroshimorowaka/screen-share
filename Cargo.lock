@@ -2048,29 +2048,40 @@ dependencies = [
 ]
 
 [[package]]
-name = "screen_share"
+name = "screen-share-signaling"
 version = "0.1.0"
 dependencies = [
  "argon2",
  "axum",
  "base64",
- "console_error_panic_hook",
  "futures-util",
  "hmac",
- "js-sys",
- "leptos",
- "leptos_axum",
- "leptos_meta",
- "leptos_router",
  "rand 0.10.2",
  "reqwest",
  "screen-share-protocol",
- "serde",
  "serde_json",
  "sha1 0.10.7",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "uuid",
+]
+
+[[package]]
+name = "screen_share"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "console_error_panic_hook",
+ "js-sys",
+ "leptos",
+ "leptos_axum",
+ "leptos_meta",
+ "leptos_router",
+ "screen-share-protocol",
+ "screen-share-signaling",
+ "serde",
+ "serde_json",
+ "tokio",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",

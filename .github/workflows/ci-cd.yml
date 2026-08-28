@@ -30,15 +30,14 @@ jobs:
         with:
           filters: |
             web:
-              - 'src/**'
+              - 'apps/web/**'
+              - 'crates/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'Dockerfile'
               - '.dockerignore'
               - 'fly.toml'
               - '.cargo/**'
-              - 'public/**'
-              - 'tests/**'
             desktop:
               - 'desktop/**'
       - name: Decide outputs
@@ -65,9 +64,9 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets --features ssr -- -D warnings
-      - run: cargo clippy --target wasm32-unknown-unknown --features hydrate -- -D warnings
-      - run: cargo test --features ssr
+      - run: cargo clippy --workspace --all-targets --features ssr -- -D warnings
+      - run: cargo clippy -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate -- -D warnings
+      - run: cargo test --workspace --features ssr
 
   deploy-web:
     name: Deploy web server to Fly.io

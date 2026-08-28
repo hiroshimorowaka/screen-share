@@ -6,12 +6,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
-    use screen_share::signaling::registry::Registry;
-    use screen_share::signaling::rooms_status::room_status_handler;
-    use screen_share::signaling::state::SignalingState;
-    use screen_share::signaling::turn::TurnConfig;
-    use screen_share::signaling::ws::ws_handler;
     use screen_share::ui::app::{shell, App};
+    use screen_share_signaling::registry::Registry;
+    use screen_share_signaling::rooms_status::room_status_handler;
+    use screen_share_signaling::state::SignalingState;
+    use screen_share_signaling::turn::TurnConfig;
+    use screen_share_signaling::ws::ws_handler;
 
     let conf = get_configuration(None)?;
     let addr = conf.leptos_options.site_addr;
