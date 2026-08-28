@@ -5,7 +5,7 @@ use super::RoomMember;
 #[cfg(feature = "hydrate")]
 #[derive(Clone)]
 pub(super) struct RoomConnection {
-    pub(super) ws: std::rc::Rc<std::cell::RefCell<Option<crate::ui::client::socket::WsClient>>>,
+    pub(super) ws: std::rc::Rc<std::cell::RefCell<Option<crate::infra::socket::WsClient>>>,
     pub(super) outgoing: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
     >,
@@ -100,9 +100,9 @@ pub(super) fn setup_room_connection(
     conn: RoomConnection,
     signals: RoomSignals,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
-    use crate::ui::client::socket::WsClient;
-    use crate::ui::client::storage::{ensure_device_id, save_profile};
-    use crate::ui::profile::Profile;
+    use crate::features::profile::Profile;
+    use crate::infra::socket::WsClient;
+    use crate::infra::storage::{ensure_device_id, save_profile};
     use screen_share_protocol::ClientMessage;
 
     use super::message_handler::build_message_handler;
@@ -172,7 +172,7 @@ pub(super) fn adopt_pending_session(
     signals: RoomSignals,
     set_requires_password: WriteSignal<bool>,
 ) {
-    use crate::ui::client::session;
+    use crate::infra::session;
 
     use super::message_handler::{apply_joined_snapshot, build_message_handler, JoinedSnapshot};
 

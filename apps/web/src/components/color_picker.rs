@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::ui::components::palette::{color_hex, palette_ids};
+use crate::components::palette::{color_hex, palette_ids};
 
 #[component]
 pub fn ColorPicker(selected: ReadSignal<String>, on_select: WriteSignal<String>) -> impl IntoView {

@@ -9,7 +9,7 @@ pub(super) fn share_supported() -> bool {
 
 #[cfg(feature = "hydrate")]
 pub(super) fn share_supported() -> bool {
-    crate::ui::client::webrtc::is_display_media_supported()
+    crate::infra::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -82,7 +82,7 @@ pub(super) fn start_sharing(
     use wasm_bindgen::JsCast;
     use web_sys::MediaStreamTrack;
 
-    use crate::ui::client::webrtc::capture_display;
+    use crate::infra::webrtc::capture_display;
     use screen_share_protocol::ClientMessage;
 
     let my_peer_id_value = my_peer_id.get_untracked();
@@ -162,7 +162,7 @@ pub(super) fn stop_sharing(
     // browser (no `window.desktopAudio` there), where it's likewise a
     // harmless no-op inside `stop_desktop_audio_loopback` itself.
     spawn_local(async {
-        let _ = crate::ui::client::webrtc::stop_desktop_audio_loopback().await;
+        let _ = crate::infra::webrtc::stop_desktop_audio_loopback().await;
     });
 
     // Chrome keeps its native "sharing" indicator alive as long as any

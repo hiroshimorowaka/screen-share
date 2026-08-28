@@ -12,8 +12,8 @@ use create_room::{
 use join_room::join_room_handler;
 use recent_rooms::{load_recent_rooms_after_mount, prune_recent_rooms};
 
-use crate::ui::components::color_picker::ColorPicker;
-use crate::ui::components::status_message::StatusMessage;
+use crate::components::color_picker::ColorPicker;
+use crate::components::status_message::StatusMessage;
 use screen_share_protocol::MAX_MEMBERS;
 
 #[component]
@@ -23,15 +23,16 @@ pub fn HomePage() -> impl IntoView {
     // breaks (class bindings react to the wrong value, and the `recent_rooms`
     // `<For>` diverges in length from what the server rendered).
     let (nick, set_nick) = signal(String::new());
-    let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
-    crate::ui::profile::load_profile_after_mount(set_nick, set_color);
+    let (color, set_color) = signal(crate::components::palette::DEFAULT_COLOR.to_string());
+    crate::features::profile::load_profile_after_mount(set_nick, set_color);
     let (room_name, set_room_name) = signal(String::new());
     load_last_room_name_after_mount(set_room_name);
     let (password, set_password) = signal(String::new());
     let (public_room, set_public_room) = signal(false);
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
     let (submitting, set_submitting) = signal(false);
-    let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::ui::profile::RecentRoom>::new());
+    let (recent_rooms, set_recent_rooms) =
+        signal(Vec::<crate::features::profile::RecentRoom>::new());
     // Member count per room: unlike `recent_rooms`, this always comes from
     // the server — it changes on every join/leave and is never persisted in
     // the browser.

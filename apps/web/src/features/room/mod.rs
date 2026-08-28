@@ -34,13 +34,13 @@ use watch::leave_or_stop_watching_handler;
 #[cfg(feature = "hydrate")]
 use watch::leave_room;
 
-use crate::ui::components::color_picker::ColorPicker;
-use crate::ui::components::icons::{
+use crate::components::color_picker::ColorPicker;
+use crate::components::icons::{
     icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off,
     icon_video_off,
 };
-use crate::ui::components::status::status_meta;
-use crate::ui::components::status_message::StatusMessage;
+use crate::components::status::status_meta;
+use crate::components::status_message::StatusMessage;
 use screen_share_protocol::MAX_MEMBERS;
 
 #[derive(Clone, PartialEq)]
@@ -60,8 +60,8 @@ pub fn RoomPage() -> impl IntoView {
     // Starts at the SSR default value; the real one (localStorage) only
     // arrives after mount, or hydration of the selected color swatch breaks.
     let (nick, set_nick) = signal(String::new());
-    let (color, set_color) = signal(crate::ui::components::palette::DEFAULT_COLOR.to_string());
-    crate::ui::profile::load_profile_after_mount(set_nick, set_color);
+    let (color, set_color) = signal(crate::components::palette::DEFAULT_COLOR.to_string());
+    crate::features::profile::load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
     let (status, set_status) = signal("Informe o nick da sala.".to_string());
     let (authenticated, set_authenticated) = signal(false);
@@ -124,7 +124,7 @@ pub fn RoomPage() -> impl IntoView {
     // first load. Only runs if that didn't already authenticate us.
     #[cfg(feature = "hydrate")]
     if !authenticated.get_untracked() {
-        if let Some(stored) = crate::ui::client::storage::load_room_session(&initial_code) {
+        if let Some(stored) = crate::infra::storage::load_room_session(&initial_code) {
             join_room(stored.nick, stored.color, stored.password);
         }
     }
@@ -137,7 +137,7 @@ pub fn RoomPage() -> impl IntoView {
     // life, but this must only ever fire once.
     #[cfg(feature = "hydrate")]
     {
-        let quick_share_active = crate::ui::quick_share::requested();
+        let quick_share_active = crate::quick_share::requested();
         let auto_share_started = RwSignal::new(false);
         let auto_share_notified = RwSignal::new(false);
         let room_code_for_notify = initial_code.clone();
@@ -169,7 +169,7 @@ pub fn RoomPage() -> impl IntoView {
             if quick_share_active && is_sharing.get() && !auto_share_notified.get_untracked() {
                 auto_share_notified.set(true);
                 if let Some(link) = build_invite_link(&room_code_for_notify) {
-                    crate::ui::client::webrtc::notify_desktop_share_ready(&link);
+                    crate::infra::webrtc::notify_desktop_share_ready(&link);
                 }
             }
         });
@@ -201,9 +201,9 @@ pub fn RoomPage() -> impl IntoView {
             }
             let password_value = (!password_value.is_empty()).then_some(password_value);
             #[cfg(feature = "hydrate")]
-            crate::ui::client::storage::save_room_session(
+            crate::infra::storage::save_room_session(
                 &room_code,
-                &crate::ui::client::storage::RoomSession {
+                &crate::infra::storage::RoomSession {
                     nick: nick_value.clone(),
                     color: color.get_untracked(),
                     password: password_value.clone(),

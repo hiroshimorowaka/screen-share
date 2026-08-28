@@ -23,8 +23,8 @@ pub(super) struct JoinedSnapshot {
 pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSignals) {
     use std::collections::HashSet;
 
-    use crate::ui::client::storage::save_recent_room;
-    use crate::ui::profile::RecentRoom;
+    use crate::features::profile::RecentRoom;
+    use crate::infra::storage::save_recent_room;
 
     let JoinedSnapshot {
         room_code,
@@ -86,7 +86,7 @@ pub(super) fn build_message_handler(
     use wasm_bindgen::JsCast;
     use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
-    use crate::ui::client::webrtc::{
+    use crate::infra::webrtc::{
         accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection,
     };
     use screen_share_protocol::{ClientMessage, ServerMessage};
@@ -164,7 +164,7 @@ pub(super) fn build_message_handler(
             nick,
             color,
         } => {
-            crate::ui::client::webrtc::notify_desktop_member_joined(&nick);
+            crate::infra::webrtc::notify_desktop_member_joined(&nick);
             set_members.update(|members| {
                 members.push(RoomMember {
                     peer_id,

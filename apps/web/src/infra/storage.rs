@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::ui::profile::{Profile, RecentRoom};
+use crate::features::profile::{Profile, RecentRoom};
 
 const NICK_KEY: &str = "screen_share_nick";
 const PROFILE_KEY: &str = "screen_share_profile";

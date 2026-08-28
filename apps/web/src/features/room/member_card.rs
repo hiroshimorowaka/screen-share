@@ -7,10 +7,10 @@ use super::media_controls::{
 };
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use super::RoomMember;
-use crate::ui::components::icons::{
+use crate::components::icons::{
     icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume, icon_volume_off,
 };
-use crate::ui::components::palette::{avatar_letter, color_hex};
+use crate::components::palette::{avatar_letter, color_hex};
 use screen_share_protocol::{QualityLevel, MAX_MEMBERS};
 
 /// Border/background used for a card slot that currently holds no member.

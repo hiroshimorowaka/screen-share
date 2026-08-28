@@ -20,7 +20,7 @@ pub(super) fn start_room_check(
 ) {
     use leptos::task::spawn_local;
 
-    use crate::ui::client::rooms_api::check_room;
+    use crate::infra::rooms_api::check_room;
 
     spawn_local(async move {
         let result = check_room(&room_code).await;

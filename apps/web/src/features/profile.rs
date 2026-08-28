@@ -13,7 +13,7 @@ impl Default for Profile {
     fn default() -> Self {
         Self {
             nick: String::new(),
-            color: crate::ui::components::palette::DEFAULT_COLOR.to_string(),
+            color: crate::components::palette::DEFAULT_COLOR.to_string(),
         }
     }
 }
@@ -36,7 +36,7 @@ pub fn load_profile_after_mount(set_nick: WriteSignal<String>, set_color: WriteS
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        let profile = crate::ui::client::storage::load_profile();
+        let profile = crate::infra::storage::load_profile();
         set_nick.set(profile.nick);
         set_color.set(profile.color);
     });

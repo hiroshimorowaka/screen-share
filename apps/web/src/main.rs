@@ -6,7 +6,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use leptos::logging::log;
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
-    use screen_share::ui::app::{shell, App};
+    use screen_share::app::{shell, App};
     use screen_share_signaling::registry::Registry;
     use screen_share_signaling::rooms_status::room_status_handler;
     use screen_share_signaling::state::SignalingState;

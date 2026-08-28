@@ -101,7 +101,7 @@ pub(super) fn leave_room(_conn: &RoomConnection, _room_code: &str) {}
 pub(super) fn leave_room(conn: &RoomConnection, room_code: &str) {
     use leptos_router::hooks::use_navigate;
 
-    crate::ui::client::storage::clear_room_session(room_code);
+    crate::infra::storage::clear_room_session(room_code);
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.close();
     }

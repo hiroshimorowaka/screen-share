@@ -5,10 +5,10 @@ use leptos_router::{
     ParamSegment, StaticSegment,
 };
 
-use crate::ui::pages::home::HomePage;
+use crate::features::home::HomePage;
 #[cfg(debug_assertions)]
-use crate::ui::pages::room::DevRoomPreviewPage;
-use crate::ui::pages::room::RoomPage;
+use crate::features::room::DevRoomPreviewPage;
+use crate::features::room::RoomPage;
 
 pub fn shell(options: LeptosOptions) -> impl IntoView {
     view! {
