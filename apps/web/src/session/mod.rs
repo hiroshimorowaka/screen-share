@@ -1,37 +1,45 @@
 use leptos::prelude::*;
 
-use super::RoomMember;
+/// One member of a room, as the roster UI needs it. `sharing` is never
+/// `true` on the local member's own card.
+#[derive(Clone, PartialEq)]
+pub struct RoomMember {
+    pub peer_id: String,
+    pub nick: String,
+    pub color: String,
+    pub sharing: bool,
+}
 
 #[cfg(feature = "hydrate")]
 #[derive(Clone)]
-pub(super) struct RoomConnection {
-    pub(super) ws: std::rc::Rc<std::cell::RefCell<Option<crate::infra::socket::WsClient>>>,
-    pub(super) outgoing: std::rc::Rc<
+pub struct RoomSession {
+    pub(crate) ws: std::rc::Rc<std::cell::RefCell<Option<crate::infra::socket::WsClient>>>,
+    pub(crate) outgoing: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
     >,
-    pub(super) incoming: std::rc::Rc<
+    pub(crate) incoming: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
     >,
-    pub(super) local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
+    pub(crate) local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
     // Set before an intentional close; `on_close` (async, runs afterwards)
     // checks this flag so it doesn't overwrite the status already set with
     // the generic "connection lost" error.
-    pub(super) expected_close: std::rc::Rc<std::cell::Cell<bool>>,
+    pub(crate) expected_close: std::rc::Rc<std::cell::Cell<bool>>,
     // `performance.now()` timestamp of the last `Ping` sent (see
     // `latency.rs`), so the `Pong` handler in `message_handler.rs` can time
     // the round trip. `None` once the matching `Pong` has been handled.
-    pub(super) last_ping_sent_at: std::rc::Rc<std::cell::Cell<Option<f64>>>,
+    pub(crate) last_ping_sent_at: std::rc::Rc<std::cell::Cell<Option<f64>>>,
     // Viewer peer_id -> the `setInterval` id of that viewer's Auto quality
     // poll (see `quality.rs`), so switching them to a fixed tier — or them
     // leaving — can `clearInterval` it instead of leaving it running
     // against a sender that's gone.
-    pub(super) quality_auto_intervals:
+    pub(crate) quality_auto_intervals:
         std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, i32>>>,
 }
 
 #[cfg(feature = "hydrate")]
-impl RoomConnection {
-    pub(super) fn new() -> Self {
+impl RoomSession {
+    pub(crate) fn new() -> Self {
         Self {
             ws: Default::default(),
             outgoing: Default::default(),
@@ -46,11 +54,11 @@ impl RoomConnection {
 
 #[cfg(not(feature = "hydrate"))]
 #[derive(Clone)]
-pub(super) struct RoomConnection;
+pub(crate) struct RoomSession;
 
 #[cfg(not(feature = "hydrate"))]
-impl RoomConnection {
-    pub(super) fn new() -> Self {
+impl RoomSession {
+    pub(crate) fn new() -> Self {
         Self
     }
 }
@@ -65,39 +73,39 @@ impl RoomConnection {
 /// dead code.
 #[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
 #[derive(Clone, Copy)]
-pub(super) struct RoomSignals {
-    pub(super) set_status: WriteSignal<String>,
-    pub(super) set_authenticated: WriteSignal<bool>,
-    pub(super) set_room_name: WriteSignal<Option<String>>,
-    pub(super) set_members: WriteSignal<Vec<RoomMember>>,
-    pub(super) set_my_peer_id: WriteSignal<Option<String>>,
-    pub(super) my_peer_id: ReadSignal<Option<String>>,
-    pub(super) set_room_exists: WriteSignal<Option<bool>>,
-    pub(super) watching: RwSignal<std::collections::HashSet<String>>,
-    pub(super) expanded: RwSignal<Option<String>>,
-    pub(super) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
-    pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
+pub(crate) struct RoomSignals {
+    pub(crate) set_status: WriteSignal<String>,
+    pub(crate) set_authenticated: WriteSignal<bool>,
+    pub(crate) set_room_name: WriteSignal<Option<String>>,
+    pub(crate) set_members: WriteSignal<Vec<RoomMember>>,
+    pub(crate) set_my_peer_id: WriteSignal<Option<String>>,
+    pub(crate) my_peer_id: ReadSignal<Option<String>>,
+    pub(crate) set_room_exists: WriteSignal<Option<bool>>,
+    pub(crate) watching: RwSignal<std::collections::HashSet<String>>,
+    pub(crate) expanded: RwSignal<Option<String>>,
+    pub(crate) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
+    pub(crate) connection_errors: RwSignal<std::collections::HashSet<String>>,
+    pub(crate) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
     /// Set once from the join snapshot, then reused for every peer
     /// connection opened during this WebSocket session — see
     /// `signaling::turn`. `None` on a deployment with no TURN server
     /// configured.
-    pub(super) turn_credentials: RwSignal<Option<screen_share_protocol::TurnCredentials>>,
+    pub(crate) turn_credentials: RwSignal<Option<screen_share_protocol::TurnCredentials>>,
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn setup_room_connection(
+pub(crate) fn setup_room_connection(
     _room_code: String,
-    _conn: RoomConnection,
+    _conn: RoomSession,
     _signals: RoomSignals,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
     move |_nick: String, _color: String, _password: Option<String>| {}
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn setup_room_connection(
+pub(crate) fn setup_room_connection(
     room_code: String,
-    conn: RoomConnection,
+    conn: RoomSession,
     signals: RoomSignals,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
     use crate::features::profile::Profile;
@@ -105,7 +113,7 @@ pub(super) fn setup_room_connection(
     use crate::infra::storage::{ensure_device_id, save_profile};
     use screen_share_protocol::ClientMessage;
 
-    use super::message_handler::build_message_handler;
+    use crate::features::room::message_handler::build_message_handler;
 
     let RoomSignals { set_status, .. } = signals;
 
@@ -157,24 +165,26 @@ pub(super) fn setup_room_connection(
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn adopt_pending_session(
+pub(crate) fn adopt_pending_session(
     _room_code: String,
-    _conn: RoomConnection,
+    _conn: RoomSession,
     _signals: RoomSignals,
     _set_requires_password: WriteSignal<bool>,
 ) {
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn adopt_pending_session(
+pub(crate) fn adopt_pending_session(
     room_code: String,
-    conn: RoomConnection,
+    conn: RoomSession,
     signals: RoomSignals,
     set_requires_password: WriteSignal<bool>,
 ) {
     use crate::infra::session;
 
-    use super::message_handler::{apply_joined_snapshot, build_message_handler, JoinedSnapshot};
+    use crate::features::room::message_handler::{
+        apply_joined_snapshot, build_message_handler, JoinedSnapshot,
+    };
 
     let RoomSignals { set_status, .. } = signals;
 

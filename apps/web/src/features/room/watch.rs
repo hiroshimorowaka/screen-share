@@ -1,11 +1,11 @@
 use leptos::prelude::*;
 
-use super::connection::RoomConnection;
-use super::RoomMember;
+use crate::session::RoomMember;
+use crate::session::RoomSession;
 
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn watch_click_handler(
-    _conn: RoomConnection,
+    _conn: RoomSession,
     _members: ReadSignal<Vec<RoomMember>>,
     _watching: RwSignal<std::collections::HashSet<String>>,
     _slot: usize,
@@ -15,7 +15,7 @@ pub(super) fn watch_click_handler(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn watch_click_handler(
-    conn: RoomConnection,
+    conn: RoomSession,
     members: ReadSignal<Vec<RoomMember>>,
     watching: RwSignal<std::collections::HashSet<String>>,
     slot: usize,
@@ -39,7 +39,7 @@ pub(super) fn watch_click_handler(
 
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn stop_watching_click_handler(
-    _conn: RoomConnection,
+    _conn: RoomSession,
     _members: ReadSignal<Vec<RoomMember>>,
     _watching: RwSignal<std::collections::HashSet<String>>,
     _expanded: RwSignal<Option<String>>,
@@ -50,7 +50,7 @@ pub(super) fn stop_watching_click_handler(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn stop_watching_click_handler(
-    conn: RoomConnection,
+    conn: RoomSession,
     members: ReadSignal<Vec<RoomMember>>,
     watching: RwSignal<std::collections::HashSet<String>>,
     expanded: RwSignal<Option<String>>,
@@ -95,10 +95,10 @@ pub(super) fn stop_watching_click_handler(
 /// cancelled-picker path (`share::start_sharing`'s `on_cancelled`).
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
-pub(super) fn leave_room(_conn: &RoomConnection, _room_code: &str) {}
+pub(super) fn leave_room(_conn: &RoomSession, _room_code: &str) {}
 
 #[cfg(feature = "hydrate")]
-pub(super) fn leave_room(conn: &RoomConnection, room_code: &str) {
+pub(super) fn leave_room(conn: &RoomSession, room_code: &str) {
     use leptos_router::hooks::use_navigate;
 
     crate::infra::storage::clear_room_session(room_code);
@@ -111,7 +111,7 @@ pub(super) fn leave_room(conn: &RoomConnection, room_code: &str) {
 
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn leave_or_stop_watching_handler(
-    _conn: RoomConnection,
+    _conn: RoomSession,
     _watching: RwSignal<std::collections::HashSet<String>>,
     _expanded: RwSignal<Option<String>>,
     _my_peer_id: ReadSignal<Option<String>>,
@@ -122,7 +122,7 @@ pub(super) fn leave_or_stop_watching_handler(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn leave_or_stop_watching_handler(
-    conn: RoomConnection,
+    conn: RoomSession,
     watching: RwSignal<std::collections::HashSet<String>>,
     expanded: RwSignal<Option<String>>,
     my_peer_id: ReadSignal<Option<String>>,

@@ -15,15 +15,15 @@ use std::collections::{HashMap, HashSet};
 
 use leptos::prelude::*;
 
-use super::connection::RoomConnection;
 use super::grid::{setup_adaptive_grid, setup_auto_hide_controls};
 use super::media_controls::setup_fullscreen_autohide_controls;
 use super::member_card::{member_cards, MemberCardSignals};
 use super::watch::leave_or_stop_watching_handler;
-use super::RoomMember;
 use crate::components::color_picker::ColorPicker;
 use crate::components::icons::{icon_eye_off, icon_log_out, icon_screen_off, icon_video_off};
 use crate::components::palette::{color_hex, palette_ids, DEFAULT_COLOR};
+use crate::session::RoomMember;
+use crate::session::RoomSession;
 use screen_share_protocol::MAX_MEMBERS;
 
 /// Bulk-add nicknames cycle through this so "adicionar vários" gives you an
@@ -63,7 +63,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     let (new_nick, set_new_nick) = signal(String::new());
     let (new_color, set_new_color) = signal(DEFAULT_COLOR.to_string());
 
-    let conn = RoomConnection::new();
+    let conn = RoomSession::new();
 
     let take_next_id = move || {
         let id = next_id.get_untracked();

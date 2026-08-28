@@ -1,26 +1,26 @@
 #[cfg(feature = "hydrate")]
-use super::connection::RoomSignals;
+use crate::session::RoomMember;
 #[cfg(feature = "hydrate")]
-use super::RoomMember;
+use crate::session::RoomSignals;
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 
 /// Everything the `Joined` snapshot carries, bundled so `apply_joined_snapshot`
 /// takes one argument for it instead of seven — same idea as `RoomSignals`.
 #[cfg(feature = "hydrate")]
-pub(super) struct JoinedSnapshot {
-    pub(super) room_code: String,
-    pub(super) room_name: String,
-    pub(super) peer_id: String,
-    pub(super) members: Vec<screen_share_protocol::MemberInfo>,
-    pub(super) active_sharers: Vec<String>,
-    pub(super) watcher_info: Vec<screen_share_protocol::WatcherInfo>,
-    pub(super) latencies: Vec<screen_share_protocol::LatencyInfo>,
-    pub(super) turn: Option<screen_share_protocol::TurnCredentials>,
+pub(crate) struct JoinedSnapshot {
+    pub(crate) room_code: String,
+    pub(crate) room_name: String,
+    pub(crate) peer_id: String,
+    pub(crate) members: Vec<screen_share_protocol::MemberInfo>,
+    pub(crate) active_sharers: Vec<String>,
+    pub(crate) watcher_info: Vec<screen_share_protocol::WatcherInfo>,
+    pub(crate) latencies: Vec<screen_share_protocol::LatencyInfo>,
+    pub(crate) turn: Option<screen_share_protocol::TurnCredentials>,
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSignals) {
+pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSignals) {
     use std::collections::HashSet;
 
     use crate::features::profile::RecentRoom;
@@ -78,8 +78,8 @@ pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn build_message_handler(
-    conn: super::connection::RoomConnection,
+pub(crate) fn build_message_handler(
+    conn: crate::session::RoomSession,
     signals: RoomSignals,
 ) -> impl Fn(screen_share_protocol::ServerMessage) + 'static {
     use leptos::task::spawn_local;

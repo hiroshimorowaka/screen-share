@@ -1,16 +1,16 @@
 use leptos::prelude::*;
 
-use super::connection::RoomConnection;
 use super::media_controls::{
     exit_fullscreen_if_active, set_muted, set_volume, toggle_fullscreen, toggle_picture_in_picture,
     VideoSlot,
 };
 use super::watch::{stop_watching_click_handler, watch_click_handler};
-use super::RoomMember;
 use crate::components::icons::{
     icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume, icon_volume_off,
 };
 use crate::components::palette::{avatar_letter, color_hex};
+use crate::session::RoomMember;
+use crate::session::RoomSession;
 use screen_share_protocol::{QualityLevel, MAX_MEMBERS};
 
 /// Border/background used for a card slot that currently holds no member.
@@ -73,10 +73,10 @@ fn quality_from_option_value(value: &str) -> QualityLevel {
 }
 
 /// `MAX_MEMBERS` fixed, static cards, not a reactive `<For>` — the buttons
-/// capture `RoomConnection` (`Rc<RefCell<...>>`, not Send + Sync, which
+/// capture `RoomSession` (`Rc<RefCell<...>>`, not Send + Sync, which
 /// Leptos 0.8 requires of `<For>` children). Slot `i` shows whoever is in
 /// position `i` of `members`, not a fixed member.
-pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> Vec<impl IntoView> {
+pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec<impl IntoView> {
     let MemberCardSignals {
         members,
         my_peer_id,

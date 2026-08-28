@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use super::RoomMember;
+use crate::session::RoomMember;
 
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn setup_auto_hide_controls(

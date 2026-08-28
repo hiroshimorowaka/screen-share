@@ -1,4 +1,3 @@
-mod connection;
 #[cfg(debug_assertions)]
 mod dev_preview;
 mod grid;
@@ -6,7 +5,7 @@ mod invite;
 mod latency;
 mod media_controls;
 mod member_card;
-mod message_handler;
+pub(crate) mod message_handler;
 mod quality;
 mod room_check;
 mod share;
@@ -18,7 +17,6 @@ pub(crate) use dev_preview::DevRoomPreviewPage;
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
-use connection::{adopt_pending_session, setup_room_connection, RoomConnection, RoomSignals};
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 #[cfg(feature = "hydrate")]
 use invite::build_invite_link;
@@ -41,15 +39,10 @@ use crate::components::icons::{
 };
 use crate::components::status::status_meta;
 use crate::components::status_message::StatusMessage;
+use crate::session::{
+    adopt_pending_session, setup_room_connection, RoomMember, RoomSession, RoomSignals,
+};
 use screen_share_protocol::MAX_MEMBERS;
-
-#[derive(Clone, PartialEq)]
-pub struct RoomMember {
-    pub peer_id: String,
-    pub nick: String,
-    pub color: String,
-    pub sharing: bool,
-}
 
 #[component]
 pub fn RoomPage() -> impl IntoView {
@@ -92,7 +85,7 @@ pub fn RoomPage() -> impl IntoView {
     let invite_copied = RwSignal::new(false);
     let can_share = share_supported();
 
-    let conn = RoomConnection::new();
+    let conn = RoomSession::new();
     let room_signals = RoomSignals {
         set_status,
         set_authenticated,

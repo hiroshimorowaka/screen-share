@@ -320,7 +320,7 @@ async fn read_reading(pc: &web_sys::RtcPeerConnection) -> Option<RawReading> {
 /// already be running for this viewer, or two intervals end up fighting
 /// over the same sender.
 #[cfg(feature = "hydrate")]
-pub(super) fn start_auto_polling(conn: super::connection::RoomConnection, viewer_peer_id: String) {
+pub(super) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_id: String) {
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -379,7 +379,7 @@ pub(super) fn start_auto_polling(conn: super::connection::RoomConnection, viewer
 /// Stops `viewer_peer_id`'s Auto poll if one is running — safe to call even
 /// if there isn't one (switching between two fixed tiers, e.g.).
 #[cfg(feature = "hydrate")]
-pub(super) fn stop_auto_polling(conn: &super::connection::RoomConnection, viewer_peer_id: &str) {
+pub(super) fn stop_auto_polling(conn: &crate::session::RoomSession, viewer_peer_id: &str) {
     let Some(interval_id) = conn
         .quality_auto_intervals
         .borrow_mut()
@@ -399,8 +399,8 @@ pub(super) fn stop_auto_polling(conn: &super::connection::RoomConnection, viewer
 /// same as `watch_click_handler`, since a slot's occupant can change.
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn set_quality_handler(
-    _conn: super::connection::RoomConnection,
-    _members: leptos::prelude::ReadSignal<Vec<super::RoomMember>>,
+    _conn: crate::session::RoomSession,
+    _members: leptos::prelude::ReadSignal<Vec<crate::session::RoomMember>>,
     _quality_by_peer: leptos::prelude::RwSignal<
         std::collections::HashMap<String, screen_share_protocol::QualityLevel>,
     >,
@@ -411,8 +411,8 @@ pub(super) fn set_quality_handler(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn set_quality_handler(
-    conn: super::connection::RoomConnection,
-    members: leptos::prelude::ReadSignal<Vec<super::RoomMember>>,
+    conn: crate::session::RoomSession,
+    members: leptos::prelude::ReadSignal<Vec<crate::session::RoomMember>>,
     quality_by_peer: leptos::prelude::RwSignal<
         std::collections::HashMap<String, screen_share_protocol::QualityLevel>,
     >,

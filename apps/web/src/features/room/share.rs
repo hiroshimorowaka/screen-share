@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use super::connection::RoomConnection;
+use crate::session::RoomSession;
 
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn share_supported() -> bool {
@@ -14,7 +14,7 @@ pub(super) fn share_supported() -> bool {
 
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn share_toggle_handler(
-    _conn: RoomConnection,
+    _conn: RoomSession,
     _is_sharing: ReadSignal<bool>,
     _set_is_sharing: WriteSignal<bool>,
     _own_preview_hidden: RwSignal<bool>,
@@ -27,7 +27,7 @@ pub(super) fn share_toggle_handler(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn share_toggle_handler(
-    conn: RoomConnection,
+    conn: RoomSession,
     is_sharing: ReadSignal<bool>,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
@@ -70,7 +70,7 @@ pub(super) fn share_toggle_handler(
 /// sitting in it, hidden and unshared, forever.
 #[cfg(feature = "hydrate")]
 pub(super) fn start_sharing(
-    conn: RoomConnection,
+    conn: RoomSession,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
     set_status: WriteSignal<String>,
@@ -148,7 +148,7 @@ pub(super) fn start_sharing(
 
 #[cfg(feature = "hydrate")]
 pub(super) fn stop_sharing(
-    conn: &RoomConnection,
+    conn: &RoomSession,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
     expanded: RwSignal<Option<String>>,
