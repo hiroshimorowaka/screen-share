@@ -121,6 +121,52 @@ cargo leptos build
 
 ## 5b — RoomSession extraction (needs maintainer browser testing)
 
+### Status (2026-08-28)
+
+Done, each with its maintainer 2-tab browser GATE passed:
+
+| step | commit | what moved |
+|------|--------|-----------|
+| 5b.1 | `b942c13` | `features/room/connection.rs` → `session/mod.rs`; `RoomConnection` → `RoomSession`; `RoomMember` into `session/` |
+| 5b.2 | `d51def8` | `features/room/share.rs` → `session/media.rs` (byte-for-byte; Chrome stuck-indicator teardown untouched) |
+| 5b.3 | `e93c739` | `features/room/message_handler.rs` → `session/handler.rs` (byte-for-byte) |
+| 5b.4 | `d916fae` | `features/room/{quality,latency}.rs` → `session/` |
+
+`apps/web/src/session/` now owns the whole room runtime. `features/room/`
+is the Leptos components plus `media_controls.rs` (fullscreen / PiP /
+volume DOM glue, `pub(crate)` because `handler.rs` calls
+`exit_fullscreen_if_showing`). No behaviour changed in any step — every
+function body was moved verbatim; only module paths and a few
+`pub(super)` → `pub(crate)` visibilities changed.
+
+### 5b.5 — DEFERRED (do later, own session)
+
+The remaining polish, explicitly postponed:
+
+- `RoomPage` provides the `RoomSession` via Leptos context instead of
+  threading `conn` + `RoomSignals` through ~10 free functions.
+- Replace the `setup_room_connection` / `share_toggle_handler` /
+  `watch_click_handler` / `leave_or_stop_watching_handler` / … free-fn
+  shims with methods on `RoomSession` (`connect`, `start_sharing`,
+  `watch`, `unwatch`, `leave`, `set_quality`), and expose the room state
+  through read accessors instead of the `RoomSignals` write-signal
+  bundle.
+- `PeerConnectionManager` type wrapping `outgoing` / `incoming` + one
+  `teardown(peer_id)` used by stop-sharing, unwatch, leave, `PeerLeft`,
+  `PeerStoppedSharing` (currently five near-identical `pc.close()` sites
+  in `handler.rs` / `media.rs` / `watch.rs`).
+- `SharingState` enum (`Idle` / `Sharing { stream }`) replacing
+  `is_sharing: bool` (component signal) + `local_stream: Option<...>`
+  (RoomSession field) held separately.
+
+**Why deferred:** the load-bearing goal — get all WebSocket / WebRTC /
+`getDisplayMedia` I/O out of the components and into one module — is
+done as of 5b.4. 5b.5 is ergonomics and the "impossible states"
+tightening; it is invasive (touches every `features/room/*` component and
+`RoomPage`'s ~20 inline signals) for incremental gain, and each of its
+own sub-steps needs a full 2-tab browser GATE. Schedule it as a
+dedicated session.
+
 ### Current shape (what 5b consolidates)
 
 `features/room/` today already keeps the I/O out of the `RoomPage`
