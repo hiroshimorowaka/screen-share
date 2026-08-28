@@ -7,3 +7,30 @@ target/
 
 # MSVC Windows builds of rustc generate these
 *.pdb
+
+# cargo-mutants output (see .cargo/mutants.toml)
+/mutants.out
+/mutants.out.old
+
+# Local wasm-bindgen-test browser capabilities (machine-specific paths)
+/webdriver.json
+/.wasm-browser/
+
+# Node / Playwright
+node_modules/
+/apps/web/end2end/test-results/
+/apps/web/end2end/playwright-report/
+/apps/web/end2end/blob-report/
+/apps/web/end2end/.last-run.json
+/desktop/test-results/
+/desktop/playwright-report/
+/desktop/blob-report/
+/desktop/.last-run.json
+
+# Vitest coverage (desktop)
+/desktop/coverage/
+
+# StrykerJS (desktop)
+/desktop/.stryker-tmp/
+/desktop/reports/
+/desktop/stryker-setup-*.js

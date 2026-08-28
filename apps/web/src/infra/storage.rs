@@ -206,3 +206,7 @@ pub fn ensure_device_id() -> String {
     let _ = storage.set_item(DEVICE_ID_KEY, &id);
     id
 }
+
+#[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
+#[path = "storage_wasm_tests.rs"]
+mod wasm_tests;

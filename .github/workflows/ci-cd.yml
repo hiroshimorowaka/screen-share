@@ -3,12 +3,29 @@ name: CI/CD
 # Every push to main is one pipeline that independently decides, from the
 # files that actually changed, whether the web server needs a new Fly.io
 # deploy, whether the desktop app needs new installers published, both, or
-# neither. A PR that only touches `desktop/` never triggers a web deploy,
+# neither. A PR that only touches `desktop/` never triggers the web jobs,
 # and vice versa — see the `changes` job below. A manual run (Actions tab
 # or `gh workflow run`) skips path detection entirely and runs both sides
 # in full — useful for re-deploying without a throwaway commit.
+#
+# A pull request runs the full quality gate (build, lint, every test
+# layer, mutation) but never the deploy/publish jobs. A push to `main`
+# runs the reverse: only what a deploy depends on — build + fast tests
+# (`build-web`/`test-web`, `test-desktop`/`build-desktop-*`) as a
+# pre-deploy smoke, then deploy/publish. The slow browser layers
+# (`test-web-wasm`, `e2e-web`, `e2e-desktop`) and the mutation jobs are
+# PR-only; they are strong gates there and re-running them on the merge
+# commit is not worth the runner time. Pair this with branch protection's
+# "require branches up to date before merging" so the PR is re-checked
+# against the latest `main`. A manual run (`workflow_dispatch`) runs
+# everything, both sides, in full.
+#
+# Repeated setup (Rust toolchain + cache + tool, or pnpm + Node) lives in
+# the local composite actions under `.github/actions/`.
 on:
   push:
+    branches: [main]
+  pull_request:
     branches: [main]
   workflow_dispatch: {}
 
@@ -26,7 +43,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
-        if: github.event_name == 'push'
+        # Skipped only for manual runs, which have no diff base; `push` and
+        # `pull_request` both get path-filtered so a desktop-only change
+        # never spins up the web jobs (and vice versa).
+        if: github.event_name != 'workflow_dispatch'
         with:
           filters: |
             web:
@@ -38,8 +58,10 @@ jobs:
               - '.dockerignore'
               - 'fly.toml'
               - '.cargo/**'
+              - '.github/actions/setup-rust/**'
             desktop:
               - 'desktop/**'
+              - '.github/actions/setup-desktop/**'
       - name: Decide outputs
         id: decide
         run: |
@@ -53,6 +75,27 @@ jobs:
 
   # --- Web server (Rust/Leptos, deployed to Fly.io) ---
 
+  build-web:
+    name: Build + lint web
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          targets: wasm32-unknown-unknown
+          # Binary download of the same tool the Dockerfile builds from
+          # source (`cargo install cargo-leptos --locked`); unpinned to
+          # track that.
+          tool: cargo-leptos
+      - run: cargo fmt --check
+      - run: cargo clippy --workspace --all-targets --features ssr -- -D warnings
+      - run: cargo clippy -p screen_share --target wasm32-unknown-unknown --all-targets --no-default-features --features hydrate -- -D warnings
+      # The web app's real build authority — a plain `cargo build` passing
+      # is not enough (see CLAUDE.md §"Definition of done").
+      - run: cargo leptos build
+
   test-web:
     name: Test web server
     needs: changes
@@ -60,18 +103,202 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust
+        with:
+          components: llvm-tools-preview
+          tool: cargo-llvm-cov
+      # Runs the same suite as `cargo test` (fails the job the same way)
+      # and emits coverage. llvm-cov only sees the native `ssr` target —
+      # the wasm/`hydrate` paths are exercised by `test-web-wasm`.
+      #
+      # --ignore-filename-regex drops files that can't move the needle:
+      # `dev_preview.rs` is a `#[cfg(debug_assertions)]` bench (never
+      # shipped), `icons.rs` is SVG-path constants, and `main.rs`/`app.rs`
+      # are entry-point wiring. Keep this list in sync with
+      # scripts/test-all.sh.
+      - run: >
+          cargo llvm-cov --workspace --features ssr --lcov --output-path lcov-rust.info
+          --ignore-filename-regex 'apps/web/src/(main|app)\.rs$|features/room/dev_preview\.rs$|components/icons\.rs$'
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-rust
+          path: lcov-rust.info
+      - if: always()
+        continue-on-error: true # coverage is informational; never fail CI on upload
+        uses: codecov/codecov-action@v5
+        with:
+          files: lcov-rust.info
+          flags: rust
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+
+  test-web-wasm:
+    name: Test web (WASM, headless Chrome)
+    needs: changes
+    # PR + manual only. On push to main this is skipped — `deploy-web`
+    # does not need it, and it is a strong PR gate (see the header note).
+    if: needs.changes.outputs.web == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --all-targets --features ssr -- -D warnings
-      - run: cargo clippy -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate -- -D warnings
-      - run: cargo test --workspace --features ssr
+          # wasm-bindgen-cli supplies the `wasm-bindgen-test-runner`
+          # binary named by `.cargo/config.toml`; version must equal the
+          # `wasm-bindgen` crate in Cargo.lock.
+          tool: wasm-bindgen-cli@0.2.127
+      - uses: browser-actions/setup-chrome@v1
+        id: chrome
+        with:
+          install-chromedriver: true
+      - name: Pin the browser for wasm-bindgen-test
+        run: |
+          printf '{ "goog:chromeOptions": { "binary": "%s", "args": ["--headless=new","--no-sandbox","--disable-gpu","--disable-dev-shm-usage"] } }\n' \
+            "${{ steps.chrome.outputs.chrome-path }}" > "$RUNNER_TEMP/webdriver.json"
+      - run: cargo test -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate --lib
+        env:
+          WASM_BINDGEN_TEST_WEBDRIVER_JSON: ${{ runner.temp }}/webdriver.json
+          # Browser boot + module load is slow in CI; the tests themselves
+          # finish in milliseconds.
+          WASM_BINDGEN_TEST_TIMEOUT: "120"
+
+  e2e-web:
+    name: E2E web (Playwright, xvfb)
+    needs: [changes, build-web]
+    # PR + manual only — skipped on push to main (header note).
+    if: needs.changes.outputs.web == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-rust
+        with:
+          # `cargo leptos serve` (Playwright's webServer) builds the wasm
+          # front end too.
+          targets: wasm32-unknown-unknown
+          tool: cargo-leptos
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: apps/web/end2end/package-lock.json
+      - run: npm ci
+        working-directory: apps/web/end2end
+      # Chromium only; `--with-deps` pulls the shared libraries a headed
+      # browser needs on the runner.
+      - run: npx playwright install --with-deps chromium
+        working-directory: apps/web/end2end
+      # Headed (getDisplayMedia needs it) under a virtual X server. The
+      # Playwright config's `webServer` builds + starts `cargo leptos
+      # serve` itself.
+      - run: xvfb-run -a npm test
+        working-directory: apps/web/end2end
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-web-report
+          path: apps/web/end2end/playwright-report/
+          retention-days: 7
+
+  mutants-web:
+    name: Mutation test — protocol + signaling (changed lines)
+    needs: changes
+    # PRs only; the weekly full sweep (quality-scheduled.yml) is the
+    # authority on push to main. BLOCKING: both crates' full sweeps have
+    # been at zero survivors, so an uncaught mutant in changed lines fails
+    # the PR. If the scheduled `mutants-full` regresses, restore
+    # `continue-on-error: true` here until it is clean again.
+    if: needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+        with:
+          tool: cargo-mutants
+      - name: Diff against the PR base
+        run: git diff origin/${{ github.base_ref }}.. | tee mutants.diff
+      - name: cargo-mutants (in-diff, protocol + signaling)
+        run: |
+          cargo mutants --no-shuffle -vV --in-place --in-diff mutants.diff \
+            -p screen-share-protocol -p screen-share-signaling
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## cargo-mutants — protocol + signaling (changed lines)'
+            if [ -s mutants.out/missed.txt ]; then
+              echo '### Missed (no test failed when the code was broken):'
+              echo '```'; cat mutants.out/missed.txt; echo '```'
+            else
+              echo 'No missed mutants in the diff.'
+            fi
+            if [ -s mutants.out/timeout.txt ]; then
+              echo '### Timed out:'; echo '```'; cat mutants.out/timeout.txt; echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-incremental
+          path: mutants.out/
+
+  mutants-web-app:
+    name: Mutation test — apps/web (changed lines, report-only)
+    needs: changes
+    if: needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    # Report-only: `apps/web`'s survivor list is still being worked down
+    # (roadmap Phase 6 / Task 1.4). Flip to blocking once its scheduled
+    # `mutants-full-app` sweep reaches zero survivors.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: ./.github/actions/setup-rust
+        with:
+          tool: cargo-mutants
+      - name: Diff against the PR base
+        run: git diff origin/${{ github.base_ref }}.. | tee mutants.diff
+      - name: cargo-mutants (in-diff, ssr-live apps/web files)
+        run: |
+          # Only the apps/web files that compile under `--features ssr`.
+          # Everything else is `#[cfg(feature = "hydrate")]` browser code
+          # whose cfg cargo-mutants can't evaluate, so it would report
+          # every mutant there as a false "survivor". Keep this list in
+          # sync with `mutants-full-app` in quality-scheduled.yml.
+          cargo mutants --no-shuffle -vV --in-place --in-diff mutants.diff \
+            --features ssr -p screen_share \
+            -f 'apps/web/src/components/palette.rs' \
+            -f 'apps/web/src/components/status.rs' \
+            -f 'apps/web/src/components/status_message.rs' \
+            -f 'apps/web/src/features/room/grid.rs' \
+            -f 'apps/web/src/features/home/join_room.rs' \
+            -f 'apps/web/src/session/quality.rs'
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo '## cargo-mutants — apps/web (changed lines, report-only)'
+            if [ -s mutants.out/missed.txt ]; then
+              echo '### Missed:'; echo '```'; cat mutants.out/missed.txt; echo '```'
+            else
+              echo 'No missed mutants in the diff.'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-incremental-app
+          path: mutants.out/
 
   deploy-web:
     name: Deploy web server to Fly.io
-    needs: [changes, test-web]
-    if: needs.changes.outputs.web == 'true'
+    needs: [changes, build-web, test-web]
+    if: needs.changes.outputs.web == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -81,6 +308,64 @@ jobs:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
 
   # --- Desktop app (Electron, packaged for Linux + Windows) ---
+
+  test-desktop:
+    name: Test desktop (Vitest)
+    needs: changes
+    if: needs.changes.outputs.desktop == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # StrykerJS `--since` needs the base branch
+      - uses: ./.github/actions/setup-desktop
+      - run: pnpm run check   # Biome — lint + format + import order
+        working-directory: desktop
+      - run: pnpm run build   # tsc typecheck (does not run in packaging jobs)
+        working-directory: desktop
+      - run: pnpm run test:cov  # Vitest (`electron` mocked) + v8 coverage
+        working-directory: desktop
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-desktop
+          path: desktop/coverage/lcov.info
+      - if: always()
+        continue-on-error: true
+        uses: codecov/codecov-action@v5
+        with:
+          files: desktop/coverage/lcov.info
+          flags: desktop
+          fail_ci_if_error: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+      # Report-only mutation score for the lines this PR changed. The full
+      # sweep is `stryker-desktop` in quality-scheduled.yml.
+      - if: github.event_name == 'pull_request'
+        continue-on-error: true
+        run: pnpm run test:mutation -- --since origin/${{ github.base_ref }}
+        working-directory: desktop
+
+  e2e-desktop:
+    name: E2E desktop (Playwright _electron, xvfb)
+    needs: [changes, test-desktop]
+    # PR + manual only — skipped on push to main (header note).
+    if: needs.changes.outputs.desktop == 'true' && github.event_name != 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-desktop
+      # `_electron` drives the app's own bundled Electron (no browser
+      # download) — this only pulls the shared libraries it needs.
+      - run: npx playwright install-deps chromium
+        working-directory: desktop
+      - run: xvfb-run -a pnpm run test:e2e
+        working-directory: desktop
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-desktop-report
+          path: desktop/playwright-report/
+          retention-days: 7
 
   build-desktop-linux:
     name: Build desktop app (Linux)
@@ -92,18 +377,9 @@ jobs:
       # electron-builder runs appimagetool (itself shipped as an AppImage)
       # to produce the .AppImage target — that needs FUSE to run at all.
       - run: sudo apt-get update && sudo apt-get install -y libfuse2
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: desktop/pnpm-lock.yaml
-      - run: pnpm install --frozen-lockfile
-        working-directory: desktop
-      - run: pnpm run check
-        working-directory: desktop
+      - uses: ./.github/actions/setup-desktop
+      # lint / typecheck / unit tests are the `test-desktop` job's remit;
+      # this job only packages.
       - run: pnpm run dist:linux
         working-directory: desktop
       - uses: actions/upload-artifact@v4
@@ -121,20 +397,15 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: ./.github/actions/setup-rust
         with:
           targets: x86_64-pc-windows-msvc
-      - uses: Swatinem/rust-cache@v2
+          cache-workspaces: desktop/native/windows-audio
+      # `install: false` — the desktop `pnpm install` has to wait until the
+      # native `.node` below has been built, so it stays explicit.
+      - uses: ./.github/actions/setup-desktop
         with:
-          workspaces: desktop/native/windows-audio
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 11
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: desktop/pnpm-lock.yaml
+          install: 'false'
       # The Windows system-audio bridge is a native napi-rs addon — its
       # compiled `.node` is gitignored, so it has to be rebuilt from source
       # before packaging can bundle it (see the windows-audio-sharing plan
@@ -142,6 +413,10 @@ jobs:
       - run: npm install
         working-directory: desktop/native/windows-audio
       - run: npm run build
+        working-directory: desktop/native/windows-audio
+      # The napi crate only compiles on Windows (wasapi / windows-rs), so
+      # its pure-logic `#[test]`s can only run here.
+      - run: cargo test
         working-directory: desktop/native/windows-audio
       - run: pnpm install --frozen-lockfile
         working-directory: desktop
@@ -155,8 +430,11 @@ jobs:
 
   publish-desktop-release:
     name: Publish desktop installers
-    needs: [changes, build-desktop-linux, build-desktop-windows]
-    if: needs.changes.outputs.desktop == 'true'
+    # No `e2e-desktop` here: it does not run on push to main, and a
+    # `needs:` on a skipped job would cascade-skip this one. `e2e-desktop`
+    # is a required PR check instead (branch protection).
+    needs: [changes, test-desktop, build-desktop-linux, build-desktop-windows]
+    if: needs.changes.outputs.desktop == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: write

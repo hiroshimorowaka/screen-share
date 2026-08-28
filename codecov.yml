@@ -1,0 +1,25 @@
+# Coverage is informational only in this repo — it never fails a PR.
+# See docs/decisions/0005-quality-gate.md and the quality-gate plan
+# (Phase 6, Task 6.4). If Codecov stops being free for this repo, the CI
+# jobs still upload the lcov files as artifacts.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+comment:
+  layout: 'reach, diff, flags'
+  require_changes: false
+
+flags:
+  rust:
+    paths:
+      - crates/
+      - apps/web/src/
+  desktop:
+    paths:
+      - desktop/src/

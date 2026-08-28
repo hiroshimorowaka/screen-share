@@ -1,0 +1,26 @@
+name: Set up desktop toolchain
+description: >
+  pnpm 11 + Node 24 with the pnpm store cached, and by default
+  `pnpm install --frozen-lockfile` in desktop/. Checkout is the
+  caller's job.
+
+inputs:
+  install:
+    description: Run `pnpm install --frozen-lockfile` in desktop/ ('true' | 'false').
+    default: 'true'
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 11
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 24
+        cache: pnpm
+        cache-dependency-path: desktop/pnpm-lock.yaml
+    - if: inputs.install == 'true'
+      run: pnpm install --frozen-lockfile
+      shell: bash
+      working-directory: desktop

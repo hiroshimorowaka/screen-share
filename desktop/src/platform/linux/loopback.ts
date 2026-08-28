@@ -17,7 +17,10 @@ interface AudioLoopbackSession {
 
 let audioSession: AudioLoopbackSession | null = null;
 
-function shouldIncludeFor(target: AudioShareTarget): (binary: string | null) => boolean {
+/** Builds the per-process inclusion predicate for a share target. Pure —
+ * exported so it can be unit-tested directly (mirrors the Windows side's
+ * `should_include` in `native/windows-audio`). */
+export function shouldIncludeFor(target: AudioShareTarget): (binary: string | null) => boolean {
   const isOwnPlayback = (binary: string | null) => binary === OWN_BINARY_NAME;
   if (target.mode === 'window') {
     return (binary) => !isOwnPlayback(binary) && binary === target.binary;

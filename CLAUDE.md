@@ -103,6 +103,32 @@ the crate is split into a Cargo workspace (see the architecture-refactor
 roadmap in `docs/superpowers/plans/`). Once extra crates exist, run their
 tests with `cargo test -p <crate>`; `cargo test --workspace` runs all.
 
+That native suite does **not** cover the `hydrate` (WASM) code path. Run
+those in a headless browser with:
+
+```bash
+scripts/test-wasm.sh          # extra args pass through to `cargo test`
+```
+
+`.cargo/config.toml` already sets `runner = "wasm-bindgen-test-runner"`
+for the `wasm32` target; the runner needs a WebDriver binary. The script
+uses `chromedriver` if it is on `PATH`, otherwise downloads a
+version-matched headless Chrome + chromedriver via `@puppeteer/browsers`
+into `.wasm-browser/` (git-ignored). It also `cargo install`s
+`wasm-bindgen-cli` at the `Cargo.lock` version if the runner is missing.
+
+To run **every** check the way CI does (fmt, clippy, all test layers,
+mutation, both Playwright suites) in one go:
+
+```bash
+scripts/test-all.sh            # --quick skips lint/mutants/e2e; --help for more
+```
+
+It collects failures, prints a summary, and exits non-zero if anything
+failed; missing optional tools are skipped, not failed. The full matrix
+with prerequisites is in
+`docs/superpowers/plans/2026-08-28-quality-gate.md`.
+
 Production build:
 
 ```bash
@@ -246,12 +272,16 @@ hosting platform: only the environment differs.
 Anything that's plain Rust logic without a browser in the loop — the
 signaling protocol's (de)serialization, the room registry's behavior, the
 WebSocket endpoint's wiring — has automated unit and integration tests and
-should keep having them as it grows. Anything that only exists inside a
-real browser (screen capture, the actual media flowing over a WebRTC
-connection, clipboard access) is exercised by hand in a real browser
-instead; there is no browser automation harness in this repo for that
-layer, so changes touching `client/` or the pages should be sanity-checked
-in an actual browser before being considered done.
+should keep having them as it grows. The `hydrate` (WASM) code path has
+`wasm-bindgen-test` suites that run in headless Chrome (`infra/`,
+`session/` helpers; see the `test-web-wasm` job). Full browser flows —
+create/join a room, the two-tab share/watch scenario with real WebRTC
+media — are covered by Playwright in `apps/web/end2end/` (`e2e-web` job,
+headed under `xvfb`). What still isn't automated here: the browser's own
+"stop sharing" control, real window/screen capture, audio, and bitrate
+adaptation — sanity-check those by hand in a real browser before
+considering a change to that layer done (see §"Definition of done" →
+"Browser layer").
 
 ## Rust and Leptos coding practices
 
@@ -464,21 +494,38 @@ hand work over for the maintainer to discover a failing check.
 - `cargo fmt --check` — clean.
 - `cargo leptos build` — succeeds. This is the web app's real build
   authority; a plain `cargo build` passing is not enough.
+- `cargo test -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate --lib`
+  — the `hydrate` (WASM) suite, green in headless Chrome (`test-web-wasm`
+  runs it in CI).
+- **Mutation:** a PR that changes `crates/protocol` or `crates/signaling`
+  must not add an uncaught mutant — `cargo mutants --in-diff … -p
+  screen-share-protocol -p screen-share-signaling` is a **blocking** CI
+  check. `apps/web` mutation (`mutants-web-app`) and the weekly full
+  sweeps are report-only. When touching those crates, run cargo-mutants
+  locally on the changed area before pushing.
 - If the change touches the `Dockerfile`, the deployment, or anything the
   container build depends on: `docker build .` succeeds.
 
 ### Browser layer — `apps/web` UI and everything under `apps/web/src/session/`
 
-There is no automated harness here. Hand-verify in a real browser
-(`cargo leptos watch`):
+Automated: `apps/web/end2end/` (Playwright, headed under `xvfb` in CI —
+job `e2e-web`). It covers the home create/join flows and the two-tab
+room scenario end to end: two members in one room, share, watch, **real
+WebRTC media flowing** (asserted via the peer `<video>`'s `readyState` /
+`videoWidth`), stop sharing via the in-app button, and a watcher reload
+mid-session. Run it locally with `npm --prefix apps/web/end2end test`
+(needs a display) or `cargo leptos end-to-end`.
+
+Still hand-verified in a real browser (`cargo leptos watch`) for a
+UI-touching change:
 
 - the changed screen or flow renders and behaves; no console errors; no
   hydration mismatch.
-- For room WebRTC / media / signaling changes, run the two-tab checklist:
-  two tabs in one room; each shares; each watches the other; stop sharing
-  via the in-app button **and** via the browser's own "stop sharing"
-  control; stop watching; reload a tab mid-session. Behaviour matches the
-  pre-change build.
+- Not yet automated — check by hand when the change touches these: stop
+  sharing via the **browser's own** "stop sharing" control (not the
+  in-app button); per-viewer watch independence with 3+ members; screen
+  capture of a real window; audio; bitrate adaptation under a throttled
+  network.
 
 ### Desktop — `desktop/` (run with `pnpm --dir desktop …` or from `desktop/`)
 
@@ -486,9 +533,15 @@ There is no automated harness here. Hand-verify in a real browser
 - `pnpm build` — `tsc` clean. Note that `tsc` does **not** check
   `__dirname`-relative runtime paths or the `#…` import map — those only
   fail at launch.
-- For behaviour-affecting changes, launch it (`pnpm start`) and exercise
-  the affected flow (tray, source picker, screen share, system-audio
-  share) on Linux, and on Windows if a machine is available. State
+- `pnpm run test` — Vitest unit suite (`electron` mocked) green.
+- `pnpm run test:e2e` — Playwright `_electron` suite: the app boots, the
+  audio IPC handlers are registered, `desktop-share:link-ready` copies
+  the link, `before-quit` lets the window close. Needs a display
+  (`xvfb-run` in CI). Point the shell at a local server with
+  `SCREEN_SHARE_URL=…` (the E2E uses `about:blank`).
+- Still by hand: the source picker window, real screen/window capture,
+  system-audio loopback (PipeWire / WASAPI), and anything Windows-only —
+  the `windows-audio` napi tests run only on the Windows CI job. State
   explicitly which platform paths could not be tested.
 
 ### Commits, pushes, and branches — maintainer-gated

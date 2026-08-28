@@ -29,10 +29,19 @@ impl TurnConfig {
     /// `TURN_SECRET` and `TURN_URLS` (comma-separated `turn:`/`turns:` URLs)
     /// must both be set and non-empty, or this deployment runs STUN-only.
     pub fn from_env() -> Option<Self> {
-        let secret = std::env::var("TURN_SECRET")
-            .ok()
-            .filter(|s| !s.is_empty())?;
-        let urls_raw = std::env::var("TURN_URLS").ok().filter(|s| !s.is_empty())?;
+        Self::from_vars(
+            std::env::var("TURN_SECRET").ok(),
+            std::env::var("TURN_URLS").ok(),
+        )
+    }
+
+    /// The parsing/validation half of [`from_env`](Self::from_env), split
+    /// out so it can be built directly in tests without mutating
+    /// process-global env vars. Both values must be present and non-empty;
+    /// `urls` is split on commas and each entry trimmed.
+    pub fn from_vars(secret: Option<String>, urls_raw: Option<String>) -> Option<Self> {
+        let secret = secret.filter(|s| !s.is_empty())?;
+        let urls_raw = urls_raw.filter(|s| !s.is_empty())?;
         let urls: Vec<String> = urls_raw
             .split(',')
             .map(|url| url.trim().to_string())

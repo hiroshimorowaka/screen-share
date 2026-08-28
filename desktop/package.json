@@ -24,14 +24,24 @@
     "dist:win": "tsc && electron-builder --win",
     "check": "biome check",
     "check:fix": "biome check --write",
-    "format": "biome format --write"
+    "format": "biome format --write",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:cov": "vitest run --coverage",
+    "test:e2e": "tsc && playwright test --config e2e/playwright.config.ts",
+    "test:mutation": "stryker run"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
+    "@playwright/test": "1.62.1",
+    "@stryker-mutator/core": "^10.0.0",
+    "@stryker-mutator/vitest-runner": "^10.0.0",
     "@types/node": "^26.2.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "electron": "^43.4.1",
     "electron-builder": "26.15.3",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
   },
   "build": {
     "appId": "com.hiroshimorowaka.screenshare",
@@ -50,12 +60,18 @@
       "package.json"
     ],
     "linux": {
-      "target": ["AppImage", "deb"],
+      "target": [
+        "AppImage",
+        "deb"
+      ],
       "category": "Network",
       "icon": "icons/app-icon.png"
     },
     "win": {
-      "target": ["nsis", "portable"],
+      "target": [
+        "nsis",
+        "portable"
+      ],
       "icon": "icons/app-icon.png"
     },
     "nsis": {

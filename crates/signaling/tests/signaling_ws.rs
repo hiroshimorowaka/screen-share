@@ -1,8 +1,14 @@
 use futures_util::{SinkExt, StreamExt};
-use screen_share_protocol::{ClientMessage, ServerMessage};
+use screen_share_protocol::{ClientMessage, QualityLevel, ServerMessage, MAX_MEMBERS};
+use screen_share_signaling::registry::MAX_PASSWORD_ATTEMPTS;
+use screen_share_signaling::turn::TurnConfig;
 use tokio_tungstenite::tungstenite::Message;
 
 async fn spawn_test_server() -> String {
+    spawn_test_server_with_turn(None).await
+}
+
+async fn spawn_test_server_with_turn(turn: Option<TurnConfig>) -> String {
     use axum::routing::get;
     use axum::Router;
     use screen_share_signaling::registry::Registry;
@@ -11,7 +17,7 @@ async fn spawn_test_server() -> String {
 
     let signaling_state = SignalingState {
         registry: Registry::new(),
-        turn: None,
+        turn,
     };
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -29,10 +35,23 @@ async fn spawn_test_server() -> String {
     format!("ws://{addr}/ws")
 }
 
+/// Upper bound on how long any single server message may take to arrive.
+/// A correct relay answers each of these tests near-instantly (everything
+/// is in-process over loopback); anything slower means the relay dropped
+/// the message. Bounding the wait makes that a test *failure* instead of
+/// a hang — which also lets a mutation run see a suppressed broadcast as
+/// a caught mutant rather than an inconclusive timeout.
+const RECV_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 async fn recv_json(
     ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
 ) -> ServerMessage {
-    match ws.next().await.unwrap().unwrap() {
+    let frame = tokio::time::timeout(RECV_TIMEOUT, ws.next())
+        .await
+        .expect("timed out waiting for a server message")
+        .expect("websocket closed while waiting for a server message")
+        .unwrap();
+    match frame {
         Message::Text(text) => serde_json::from_str(&text).unwrap(),
         other => panic!("mensagem inesperada: {other:?}"),
     }
@@ -374,4 +393,272 @@ async fn room_not_found_for_unknown_code() {
     )
     .await;
     assert_eq!(recv_json(&mut ws).await, ServerMessage::RoomNotFound);
+}
+
+#[tokio::test]
+async fn joined_carries_turn_credentials_when_the_deployment_has_turn_configured() {
+    let turn = TurnConfig::from_vars(
+        Some("s3cr3t".to_string()),
+        Some("turn:relay.example:3478".to_string()),
+    );
+    let url = spawn_test_server_with_turn(turn).await;
+
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala da Ana".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+
+    match recv_json(&mut ws).await {
+        ServerMessage::Joined { turn, .. } => {
+            let creds =
+                turn.expect("a TURN-configured deployment must hand the client credentials");
+            assert_eq!(creds.urls, vec!["turn:relay.example:3478".to_string()]);
+            assert!(!creds.username.is_empty());
+            assert!(!creds.password.is_empty());
+        }
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    }
+}
+
+/// One sharer + one viewer, then every remaining client→server message
+/// the relay handles that the other tests don't already assert: the
+/// `Answer` / `IceCandidate` / `SetQuality` relays, the `Ping`→`Pong`
+/// echo, the `ReportLatency` broadcast, and `StopShare`.
+#[tokio::test]
+async fn relays_the_remaining_peer_to_peer_message_types() {
+    let url = spawn_test_server().await;
+
+    let (mut sharer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut sharer_ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    let (room, sharer_id) = match recv_json(&mut sharer_ws).await {
+        ServerMessage::Joined { room, peer_id, .. } => (room, peer_id),
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    let (mut viewer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut viewer_ws,
+        &ClientMessage::JoinRoom {
+            room: room.clone(),
+            nick: "Bia".to_string(),
+            password: None,
+            color: "sky".to_string(),
+            device_id: "device-bia".to_string(),
+        },
+    )
+    .await;
+    let viewer_id = match recv_json(&mut viewer_ws).await {
+        ServerMessage::Joined { peer_id, .. } => peer_id,
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+    recv_json(&mut sharer_ws).await; // drena o PeerJoined
+
+    send_json(&mut sharer_ws, &ClientMessage::StartShare).await;
+    assert_eq!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::PeerStartedSharing {
+            peer_id: sharer_id.clone(),
+        }
+    );
+
+    // Answer — relayed to `to`, stamped with the sender's id as `from`.
+    send_json(
+        &mut viewer_ws,
+        &ClientMessage::Answer {
+            to: sharer_id.clone(),
+            sdp: "answer-sdp".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::Answer {
+            from: viewer_id.clone(),
+            sdp: "answer-sdp".to_string(),
+        }
+    );
+
+    // IceCandidate — same relay, carries its extra fields through verbatim.
+    send_json(
+        &mut viewer_ws,
+        &ClientMessage::IceCandidate {
+            to: sharer_id.clone(),
+            stream_owner: sharer_id.clone(),
+            candidate: "candidate:1 1 udp".to_string(),
+            sdp_mid: Some("0".to_string()),
+            sdp_m_line_index: Some(0),
+        },
+    )
+    .await;
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::IceCandidate {
+            from: viewer_id.clone(),
+            stream_owner: sharer_id.clone(),
+            candidate: "candidate:1 1 udp".to_string(),
+            sdp_mid: Some("0".to_string()),
+            sdp_m_line_index: Some(0),
+        }
+    );
+
+    // SetQuality — relayed to the sharer as `QualityRequested`.
+    send_json(
+        &mut viewer_ws,
+        &ClientMessage::SetQuality {
+            to: sharer_id.clone(),
+            quality: QualityLevel::Low,
+        },
+    )
+    .await;
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::QualityRequested {
+            from: viewer_id.clone(),
+            quality: QualityLevel::Low,
+        }
+    );
+
+    // Ping — answered immediately, only to the sender.
+    send_json(&mut viewer_ws, &ClientMessage::Ping).await;
+    assert_eq!(recv_json(&mut viewer_ws).await, ServerMessage::Pong);
+
+    // ReportLatency — broadcast to the whole room (sender included).
+    send_json(&mut viewer_ws, &ClientMessage::ReportLatency { ms: 42 }).await;
+    let expected_latency = ServerMessage::PeerLatency {
+        peer_id: viewer_id.clone(),
+        ms: 42,
+    };
+    assert_eq!(recv_json(&mut sharer_ws).await, expected_latency);
+    assert_eq!(recv_json(&mut viewer_ws).await, expected_latency);
+
+    // StopShare — broadcast to everyone but the sharer.
+    send_json(&mut sharer_ws, &ClientMessage::StopShare).await;
+    assert_eq!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::PeerStoppedSharing { peer_id: sharer_id }
+    );
+}
+
+/// The `JoinError::TooManyAttempts` arm: after `MAX_PASSWORD_ATTEMPTS`
+/// wrong-password joins from one client, the next reply is
+/// `TooManyAttempts`, not `AuthFailed`.
+#[tokio::test]
+async fn join_room_reports_too_many_attempts_after_the_lockout() {
+    let url = spawn_test_server().await;
+
+    let (mut creator_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut creator_ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: Some("senha123".to_string()),
+            room_name: "Sala".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    let room = match recv_json(&mut creator_ws).await {
+        ServerMessage::Joined { room, .. } => room,
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    let (mut attacker_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    let wrong_join = ClientMessage::JoinRoom {
+        room: room.clone(),
+        nick: "Bia".to_string(),
+        password: Some("errada".to_string()),
+        color: "sky".to_string(),
+        device_id: "device-bia".to_string(),
+    };
+
+    for _ in 0..MAX_PASSWORD_ATTEMPTS {
+        send_json(&mut attacker_ws, &wrong_join).await;
+        assert_eq!(recv_json(&mut attacker_ws).await, ServerMessage::AuthFailed);
+    }
+
+    send_json(&mut attacker_ws, &wrong_join).await;
+    assert_eq!(
+        recv_json(&mut attacker_ws).await,
+        ServerMessage::TooManyAttempts
+    );
+}
+
+/// The `JoinError::Full` arm: the `MAX_MEMBERS + 1`-th join is answered
+/// with `RoomFull`.
+#[tokio::test]
+async fn join_room_reports_room_full_at_capacity() {
+    let url = spawn_test_server().await;
+
+    let (mut creator_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut creator_ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    let room = match recv_json(&mut creator_ws).await {
+        ServerMessage::Joined { room, .. } => room,
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    // Fill the remaining slots. Each socket is left with its PeerJoined
+    // broadcasts unread — the test only cares about the join replies.
+    let mut members = Vec::new();
+    for i in 1..MAX_MEMBERS {
+        let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+        send_json(
+            &mut ws,
+            &ClientMessage::JoinRoom {
+                room: room.clone(),
+                nick: format!("member-{i}"),
+                password: None,
+                color: "sky".to_string(),
+                device_id: format!("device-{i}"),
+            },
+        )
+        .await;
+        assert!(matches!(
+            recv_json(&mut ws).await,
+            ServerMessage::Joined { .. }
+        ));
+        members.push(ws);
+    }
+
+    let (mut overflow_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut overflow_ws,
+        &ClientMessage::JoinRoom {
+            room,
+            nick: "one-too-many".to_string(),
+            password: None,
+            color: "sky".to_string(),
+            device_id: "device-overflow".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(recv_json(&mut overflow_ws).await, ServerMessage::RoomFull);
 }

@@ -28,9 +28,40 @@ fn mint_credentials_username_is_a_future_unix_timestamp() {
         .parse()
         .expect("username should be a Unix timestamp");
     assert!(expiry > now, "expiry should be in the future");
+    // Literal, not `CREDENTIAL_TTL.as_secs()`: asserting against the const
+    // would move with any mutation of its own arithmetic and never catch
+    // it. 6h = 21_600s; allow a second of slack for the clock read.
+    let ttl = expiry - now;
     assert!(
-        expiry <= now + CREDENTIAL_TTL.as_secs() + 1,
-        "expiry shouldn't exceed the configured TTL"
+        (21_595..=21_600).contains(&ttl),
+        "credential TTL should be 6 hours, got {ttl}s"
+    );
+}
+
+#[test]
+fn from_vars_needs_both_secret_and_urls_non_empty() {
+    assert!(TurnConfig::from_vars(None, Some("turn:x:3478".into())).is_none());
+    assert!(TurnConfig::from_vars(Some("s".into()), None).is_none());
+    assert!(TurnConfig::from_vars(Some(String::new()), Some("turn:x:3478".into())).is_none());
+    assert!(TurnConfig::from_vars(Some("s".into()), Some(String::new())).is_none());
+    assert!(TurnConfig::from_vars(Some("s".into()), Some("turn:x:3478".into())).is_some());
+}
+
+#[test]
+fn from_vars_splits_and_trims_the_url_list() {
+    let config = TurnConfig::from_vars(
+        Some("s3cr3t".into()),
+        Some(" turn:a.example:3478 , turns:b.example:5349 ".into()),
+    )
+    .expect("both vars present and non-empty");
+
+    assert_eq!(config.secret, "s3cr3t");
+    assert_eq!(
+        config.urls,
+        vec![
+            "turn:a.example:3478".to_string(),
+            "turns:b.example:5349".to_string(),
+        ]
     );
 }
 

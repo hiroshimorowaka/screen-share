@@ -4,7 +4,24 @@ use std::time::Duration;
 
 use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
 use screen_share_signaling::registry::*;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+
+/// Bound on how long a registry broadcast may take to reach a member's
+/// channel. Every path here is synchronous in-process work, so a correct
+/// registry delivers immediately; bounding the wait turns a dropped
+/// broadcast into a test failure instead of a hang — which also lets a
+/// mutation run score a suppressed broadcast as caught rather than as an
+/// inconclusive timeout.
+const RECV_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// Await the next `ServerMessage` on `rx`, failing the test if none
+/// arrives within [`RECV_TIMEOUT`] or the channel has closed.
+async fn recv(rx: &mut UnboundedReceiver<ServerMessage>) -> ServerMessage {
+    tokio::time::timeout(RECV_TIMEOUT, rx.recv())
+        .await
+        .expect("timed out waiting for a registry broadcast")
+        .expect("registry channel closed while waiting for a broadcast")
+}
 
 #[tokio::test]
 async fn create_room_registers_creator_and_returns_snapshot() {
@@ -119,7 +136,7 @@ async fn join_room_success_notifies_existing_members_and_includes_them_in_snapsh
         .iter()
         .any(|m| m.peer_id == snapshot.peer_id && m.nick == "Bia"));
 
-    let notification = host_rx.recv().await.unwrap();
+    let notification = recv(&mut host_rx).await;
     assert_eq!(
         notification,
         ServerMessage::PeerJoined {
@@ -201,7 +218,7 @@ async fn join_room_from_same_device_kicks_the_previous_connection() {
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain Bia's PeerJoined
+    recv(&mut host_rx).await; // drain Bia's PeerJoined
 
     let (host_tx_2, mut host_rx_2) = unbounded_channel();
     let snapshot = registry
@@ -218,16 +235,16 @@ async fn join_room_from_same_device_kicks_the_previous_connection() {
         )
         .unwrap();
 
-    assert_eq!(host_rx.recv().await.unwrap(), ServerMessage::Kicked);
+    assert_eq!(recv(&mut host_rx).await, ServerMessage::Kicked);
 
     assert_eq!(
-        viewer_rx.recv().await.unwrap(),
+        recv(&mut viewer_rx).await,
         ServerMessage::PeerLeft {
             peer_id: creator_snapshot.peer_id.clone()
         }
     );
     assert_eq!(
-        viewer_rx.recv().await.unwrap(),
+        recv(&mut viewer_rx).await,
         ServerMessage::PeerJoined {
             peer_id: snapshot.peer_id.clone(),
             nick: "AnaCelular".to_string(),
@@ -275,11 +292,11 @@ async fn start_share_notifies_others_but_not_self() {
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain the PeerJoined
+    recv(&mut host_rx).await; // drain the PeerJoined
 
     registry.start_share(&room_code, &creator_snapshot.peer_id);
 
-    let notification = viewer_rx.recv().await.unwrap();
+    let notification = recv(&mut viewer_rx).await;
     assert_eq!(
         notification,
         ServerMessage::PeerStartedSharing {
@@ -316,13 +333,13 @@ async fn stop_share_notifies_others() {
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain the PeerJoined
+    recv(&mut host_rx).await; // drain the PeerJoined
 
     registry.start_share(&room_code, &creator_snapshot.peer_id);
-    viewer_rx.recv().await.unwrap(); // drain the PeerStartedSharing
+    recv(&mut viewer_rx).await; // drain the PeerStartedSharing
 
     registry.stop_share(&room_code, &creator_snapshot.peer_id);
-    let notification = viewer_rx.recv().await.unwrap();
+    let notification = recv(&mut viewer_rx).await;
     assert_eq!(
         notification,
         ServerMessage::PeerStoppedSharing {
@@ -361,7 +378,7 @@ async fn leave_room_survives_when_members_remain() {
 
     registry.leave_room(&room_code, &creator_snapshot.peer_id);
 
-    let notification = viewer_rx.recv().await.unwrap();
+    let notification = recv(&mut viewer_rx).await;
     assert_eq!(
         notification,
         ServerMessage::PeerLeft {
@@ -522,18 +539,18 @@ async fn leave_room_while_sharing_also_sends_peer_stopped_sharing() {
         )
         .unwrap();
     registry.start_share(&room_code, &creator_snapshot.peer_id);
-    viewer_rx.recv().await.unwrap(); // drain the PeerStartedSharing
+    recv(&mut viewer_rx).await; // drain the PeerStartedSharing
 
     registry.leave_room(&room_code, &creator_snapshot.peer_id);
 
-    let left = viewer_rx.recv().await.unwrap();
+    let left = recv(&mut viewer_rx).await;
     assert_eq!(
         left,
         ServerMessage::PeerLeft {
             peer_id: creator_snapshot.peer_id.clone()
         }
     );
-    let stopped = viewer_rx.recv().await.unwrap();
+    let stopped = recv(&mut viewer_rx).await;
     assert_eq!(
         stopped,
         ServerMessage::PeerStoppedSharing {
@@ -569,7 +586,7 @@ async fn add_watcher_notifies_sharer_and_broadcasts_count_to_everyone() {
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain the PeerJoined
+    recv(&mut host_rx).await; // drain the PeerJoined
 
     registry.add_watcher(
         &room_code,
@@ -578,20 +595,20 @@ async fn add_watcher_notifies_sharer_and_broadcasts_count_to_everyone() {
     );
 
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::WatchRequested {
             from: viewer_snapshot.peer_id.clone()
         }
     );
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::WatchersChanged {
             sharer_id: creator_snapshot.peer_id.clone(),
             watchers: vec![viewer_snapshot.peer_id.clone()]
         }
     );
     assert_eq!(
-        viewer_rx.recv().await.unwrap(),
+        recv(&mut viewer_rx).await,
         ServerMessage::WatchersChanged {
             sharer_id: creator_snapshot.peer_id,
             watchers: vec![viewer_snapshot.peer_id]
@@ -626,16 +643,16 @@ async fn remove_watcher_notifies_sharer_and_broadcasts_updated_count() {
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain the PeerJoined
+    recv(&mut host_rx).await; // drain the PeerJoined
 
     registry.add_watcher(
         &room_code,
         &creator_snapshot.peer_id,
         &viewer_snapshot.peer_id,
     );
-    host_rx.recv().await.unwrap(); // drain the WatchRequested
-    host_rx.recv().await.unwrap(); // drain the WatchersChanged
-    viewer_rx.recv().await.unwrap(); // drain the WatchersChanged
+    recv(&mut host_rx).await; // drain the WatchRequested
+    recv(&mut host_rx).await; // drain the WatchersChanged
+    recv(&mut viewer_rx).await; // drain the WatchersChanged
 
     registry.remove_watcher(
         &room_code,
@@ -644,20 +661,20 @@ async fn remove_watcher_notifies_sharer_and_broadcasts_updated_count() {
     );
 
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::WatchStopped {
             from: viewer_snapshot.peer_id.clone()
         }
     );
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::WatchersChanged {
             sharer_id: creator_snapshot.peer_id.clone(),
             watchers: vec![]
         }
     );
     assert_eq!(
-        viewer_rx.recv().await.unwrap(),
+        recv(&mut viewer_rx).await,
         ServerMessage::WatchersChanged {
             sharer_id: creator_snapshot.peer_id,
             watchers: vec![]
@@ -698,8 +715,8 @@ async fn join_room_snapshot_includes_watcher_info_for_active_sharers() {
         &creator_snapshot.peer_id,
         &viewer_snapshot.peer_id,
     );
-    viewer_rx.recv().await.unwrap(); // drain PeerStartedSharing
-    viewer_rx.recv().await.unwrap(); // drain WatchersChanged
+    recv(&mut viewer_rx).await; // drain PeerStartedSharing
+    recv(&mut viewer_rx).await; // drain WatchersChanged
 
     let (late_tx, _late_rx) = unbounded_channel();
     let late_snapshot = registry
@@ -752,19 +769,19 @@ async fn report_latency_broadcasts_to_the_whole_room_including_the_reporter() {
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain PeerJoined
+    recv(&mut host_rx).await; // drain PeerJoined
 
     registry.report_latency(&room_code, &viewer_snapshot.peer_id, 87);
 
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::PeerLatency {
             peer_id: viewer_snapshot.peer_id.clone(),
             ms: 87
         }
     );
     assert_eq!(
-        viewer_rx.recv().await.unwrap(),
+        recv(&mut viewer_rx).await,
         ServerMessage::PeerLatency {
             peer_id: viewer_snapshot.peer_id,
             ms: 87
@@ -852,26 +869,26 @@ async fn leave_room_removes_the_leaver_from_watcher_lists_and_broadcasts_update(
             },
         )
         .unwrap();
-    host_rx.recv().await.unwrap(); // drain PeerJoined
+    recv(&mut host_rx).await; // drain PeerJoined
 
     registry.add_watcher(
         &room_code,
         &creator_snapshot.peer_id,
         &viewer_snapshot.peer_id,
     );
-    host_rx.recv().await.unwrap(); // drain WatchRequested
-    host_rx.recv().await.unwrap(); // drain WatchersChanged
+    recv(&mut host_rx).await; // drain WatchRequested
+    recv(&mut host_rx).await; // drain WatchersChanged
 
     registry.leave_room(&room_code, &viewer_snapshot.peer_id);
 
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::PeerLeft {
             peer_id: viewer_snapshot.peer_id.clone()
         }
     );
     assert_eq!(
-        host_rx.recv().await.unwrap(),
+        recv(&mut host_rx).await,
         ServerMessage::WatchersChanged {
             sharer_id: creator_snapshot.peer_id,
             watchers: vec![]
@@ -1087,6 +1104,60 @@ async fn join_room_lockout_clears_after_the_attempt_window_elapses() {
     assert!(
         result.is_ok(),
         "the lockout should clear once the attempt window has elapsed"
+    );
+}
+
+#[tokio::test(start_paused = true)]
+async fn join_room_lockout_clears_exactly_at_the_attempt_window_boundary() {
+    // Pins the sliding window's boundary: an attempt whose age is exactly
+    // `PASSWORD_ATTEMPT_WINDOW` is "older than the window" and must be
+    // dropped, so the lockout clears at the boundary, not one instant
+    // after it.
+    let registry = Registry::new();
+    let (host_tx, _host_rx) = unbounded_channel();
+    let (room_code, _snapshot) = registry.create_room(
+        "Ana".to_string(),
+        "coral".to_string(),
+        "Sala da Ana".to_string(),
+        Some("senha123".to_string()),
+        "device-host".to_string(),
+        host_tx,
+    );
+
+    for _ in 0..MAX_PASSWORD_ATTEMPTS {
+        let (tx, _rx) = unbounded_channel();
+        registry
+            .join_room(
+                &room_code,
+                JoinRequest {
+                    nick: "Bia".to_string(),
+                    color: "sky".to_string(),
+                    password: Some("senha-errada".to_string()),
+                    device_id: "device-viewer".to_string(),
+                    client_key: "client-1".to_string(),
+                    sender: tx,
+                },
+            )
+            .unwrap_err();
+    }
+
+    tokio::time::advance(PASSWORD_ATTEMPT_WINDOW).await;
+
+    let (tx, _rx) = unbounded_channel();
+    let result = registry.join_room(
+        &room_code,
+        JoinRequest {
+            nick: "Bia".to_string(),
+            color: "sky".to_string(),
+            password: Some("senha123".to_string()),
+            device_id: "device-viewer".to_string(),
+            client_key: "client-1".to_string(),
+            sender: tx,
+        },
+    );
+    assert!(
+        result.is_ok(),
+        "an attempt exactly one window old must not count toward the lockout"
     );
 }
 

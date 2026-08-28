@@ -43,6 +43,12 @@ reload-port = 3001
 # The browserlist query used for optimizing the CSS.
 browserquery = "defaults"
 
+# `cargo leptos end-to-end` builds + serves the app, then runs this in
+# `end2end-dir`. The Playwright project there also has its own
+# `webServer`, so `npx playwright test` works standalone too.
+end2end-cmd = "npx playwright test"
+end2end-dir = "apps/web/end2end"
+
 # Features/profile for the bin (SSR) target.
 bin-features = ["ssr"]
 bin-default-features = false
