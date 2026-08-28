@@ -84,14 +84,27 @@ pub fn HomePage() -> impl IntoView {
                         on:input:target=move |ev| set_room_name.set(ev.target().value())
                     />
                 </label>
-                <label class="checkbox-field">
-                    <input
-                        type="checkbox"
-                        prop:checked=public_room
-                        on:change:target=move |ev| set_public_room.set(ev.target().checked())
-                    />
-                    "Sala pública (sem senha)"
-                </label>
+                <div class="switch-field">
+                    <label class="switch">
+                        <input
+                            type="checkbox"
+                            class="switch__input"
+                            prop:checked=public_room
+                            on:change:target=move |ev| set_public_room.set(ev.target().checked())
+                        />
+                        <span class="switch__track"><span class="switch__thumb"></span></span>
+                        <span class="switch__label">"Sala pública"</span>
+                    </label>
+                    <p class="switch-field__hint">
+                        {move || {
+                            if public_room.get() {
+                                "Qualquer pessoa com o link entra, sem senha."
+                            } else {
+                                "Só entra quem tiver o link e a senha abaixo."
+                            }
+                        }}
+                    </p>
+                </div>
                 <label class="field" class:hidden=move || public_room.get()>
                     <span class="field__label">"Senha da sala"</span>
                     <input

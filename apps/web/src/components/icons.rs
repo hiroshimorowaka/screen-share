@@ -126,6 +126,24 @@ pub fn icon_link() -> impl IntoView {
     }
 }
 
+pub fn icon_bars() -> impl IntoView {
+    view! {
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="6" y1="20" x2="6" y2="14"></line>
+            <line x1="12" y1="20" x2="12" y2="9"></line>
+            <line x1="18" y1="20" x2="18" y2="4"></line>
+        </svg>
+    }
+}
+
+pub fn icon_chevron_down() -> impl IntoView {
+    view! {
+        <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="6 9 12 15 18 9"></polyline>
+        </svg>
+    }
+}
+
 pub fn icon_check() -> impl IntoView {
     view! {
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">

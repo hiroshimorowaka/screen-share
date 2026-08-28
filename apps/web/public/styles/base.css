@@ -284,6 +284,79 @@ h1 {
   outline-offset: 1px;
 }
 
+/* --- toggle switch --- */
+
+/* A checkbox rendered as a sliding switch: the real <input> stays in the
+   DOM for semantics/focus but is visually hidden, and `.switch__track` is
+   painted from its `:checked` state via the sibling selector below. */
+.switch-field {
+  margin-bottom: 1rem;
+}
+
+.switch {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.switch__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.switch__track {
+  flex-shrink: 0;
+  width: 2.4rem;
+  height: 1.4rem;
+  padding: 0.15rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition: background 0.15s ease;
+}
+
+.switch__thumb {
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--text-dim);
+  transition:
+    transform 0.15s ease,
+    background 0.15s ease;
+}
+
+.switch__input:checked + .switch__track {
+  background: var(--accent);
+  border-color: transparent;
+}
+
+.switch__input:checked + .switch__track .switch__thumb {
+  transform: translateX(1rem);
+  background: var(--accent-ink);
+}
+
+.switch__input:focus-visible + .switch__track {
+  outline: 2px solid var(--accent-strong);
+  outline-offset: 2px;
+}
+
+.switch__label {
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.switch-field__hint {
+  margin: 0.4rem 0 0;
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
 /* --- color palette --- */
 
 .color-picker {

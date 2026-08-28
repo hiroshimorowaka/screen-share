@@ -85,6 +85,29 @@ pub(crate) fn exit_fullscreen_if_showing(peer_id: &str) -> bool {
 }
 
 #[cfg(not(feature = "hydrate"))]
+pub(super) fn blur_active_element() {}
+
+/// Drops focus from whatever element currently holds it. The quality menu
+/// stays open while it has `:focus-within`, so after a click on one of its
+/// options the popup would otherwise linger (focus stuck on the clicked
+/// button) until the user clicks elsewhere — blurring lets it close as
+/// soon as the pointer leaves, like a normal menu.
+#[cfg(feature = "hydrate")]
+pub(super) fn blur_active_element() {
+    use wasm_bindgen::JsCast;
+
+    let Some(active) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.active_element())
+    else {
+        return;
+    };
+    if let Some(el) = active.dyn_ref::<web_sys::HtmlElement>() {
+        let _ = el.blur();
+    }
+}
+
+#[cfg(not(feature = "hydrate"))]
 pub(super) fn toggle_picture_in_picture(_slot: VideoSlot, _peer_id: &str) {}
 
 /// Same `id` scheme as `toggle_fullscreen` uses to find the right video

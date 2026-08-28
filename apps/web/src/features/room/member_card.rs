@@ -1,12 +1,13 @@
 use leptos::prelude::*;
 
 use super::media_controls::{
-    exit_fullscreen_if_active, set_muted, set_volume, toggle_fullscreen, toggle_picture_in_picture,
-    VideoSlot,
+    blur_active_element, exit_fullscreen_if_active, set_muted, set_volume, toggle_fullscreen,
+    toggle_picture_in_picture, VideoSlot,
 };
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use crate::components::icons::{
-    icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume, icon_volume_off,
+    icon_bars, icon_chevron_down, icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume,
+    icon_volume_off,
 };
 use crate::components::palette::{avatar_letter, color_hex};
 use crate::session::RoomMember;
@@ -52,25 +53,24 @@ fn ping_color_var(ms: u32) -> &'static str {
     }
 }
 
-/// `<option value=...>` <-> `QualityLevel`, kept next to each other since
-/// they only ever need to agree with one another, not with anything else.
-fn quality_option_value(quality: QualityLevel) -> &'static str {
+/// The label shown for each quality level in the picker.
+fn quality_label(quality: QualityLevel) -> &'static str {
     match quality {
-        QualityLevel::Auto => "auto",
-        QualityLevel::High => "high",
-        QualityLevel::Medium => "medium",
-        QualityLevel::Low => "low",
+        QualityLevel::Auto => "Auto",
+        QualityLevel::High => "Alta",
+        QualityLevel::Medium => "Média",
+        QualityLevel::Low => "Baixa",
     }
 }
 
-fn quality_from_option_value(value: &str) -> QualityLevel {
-    match value {
-        "high" => QualityLevel::High,
-        "medium" => QualityLevel::Medium,
-        "low" => QualityLevel::Low,
-        _ => QualityLevel::Auto,
-    }
-}
+/// The four levels in the order the picker lists them — `Auto` first, then
+/// worst-case fixed tiers descending.
+const QUALITY_LEVELS: [QualityLevel; 4] = [
+    QualityLevel::Auto,
+    QualityLevel::High,
+    QualityLevel::Medium,
+    QualityLevel::Low,
+];
 
 /// `MAX_MEMBERS` fixed, static cards, not a reactive `<For>` — the buttons
 /// capture `RoomSession` (`Rc<RefCell<...>>`, not Send + Sync, which
@@ -163,10 +163,6 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                     .unwrap_or(QualityLevel::Auto)
             };
             let set_quality = crate::session::quality::set_quality_handler(conn.clone(), members, quality_by_peer, i);
-            let quality_change = move |ev: leptos::ev::Event| {
-                let target = event_target::<leptos::web_sys::HtmlSelectElement>(&ev);
-                set_quality(quality_from_option_value(&target.value()));
-            };
             let mute_toggle_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
                 let Some(member) = member_at() else { return };
@@ -179,6 +175,7 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                     }
                 });
                 set_muted(video_slot(), &member.peer_id, now_muted);
+                blur_active_element();
             };
             let card_click = move |ev: leptos::ev::MouseEvent| {
                 // Clicking a fullscreen card should just back out of
@@ -302,20 +299,51 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                             >
                                 {icon_pip}
                             </button>
-                            <select
-                                class="quality-select"
+                            // A custom menu rather than a native `<select>`:
+                            // the browser's option list can't be themed to
+                            // match the rest of the card, and it looked
+                            // jarringly out of place. Same hover/focus-reveal
+                            // pattern as `.volume-control` next to it.
+                            <div
+                                class="quality-menu"
                                 class:hidden=move || !is_watching_this()
-                                title="Qualidade do vídeo"
-                                aria-label="Qualidade do vídeo"
                                 on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()
-                                prop:value=move || quality_option_value(current_quality())
-                                on:change=quality_change
                             >
-                                <option value="auto">"Auto"</option>
-                                <option value="high">"Alta"</option>
-                                <option value="medium">"Média"</option>
-                                <option value="low">"Baixa"</option>
-                            </select>
+                                <button
+                                    type="button"
+                                    class="quality-menu__trigger"
+                                    title="Qualidade do vídeo"
+                                    aria-label="Qualidade do vídeo"
+                                >
+                                    {icon_bars()}
+                                    <span class="quality-menu__current">
+                                        {move || quality_label(current_quality())}
+                                    </span>
+                                    {icon_chevron_down()}
+                                </button>
+                                <div class="quality-menu__popup">
+                                    {QUALITY_LEVELS
+                                        .into_iter()
+                                        .map(move |level| {
+                                            let set_quality = set_quality.clone();
+                                            view! {
+                                                <button
+                                                    type="button"
+                                                    class="quality-menu__option"
+                                                    class:quality-menu__option--active=move || current_quality() == level
+                                                    on:click=move |ev: leptos::ev::MouseEvent| {
+                                                        ev.stop_propagation();
+                                                        set_quality(level);
+                                                        blur_active_element();
+                                                    }
+                                                >
+                                                    {quality_label(level)}
+                                                </button>
+                                            }
+                                        })
+                                        .collect::<Vec<_>>()}
+                                </div>
+                            </div>
                             <div
                                 class="volume-control"
                                 class:hidden=move || !is_watching_this()
@@ -328,6 +356,12 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                                         min="0"
                                         max="100"
                                         prop:value=move || if is_muted() { 0.0 } else { current_volume_pct() }
+                                        // Drives the filled portion of the track — CSS can't
+                                        // read a range's value on its own.
+                                        style=move || {
+                                            let pct = if is_muted() { 0.0 } else { current_volume_pct() };
+                                            format!("--volume-fill: {pct}%")
+                                        }
                                         on:input:target=move |ev| {
                                             let Some(member) = member_at() else { return };
                                             let value = ev.target().value();
@@ -343,6 +377,10 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                                                 set_muted(video_slot(), &member.peer_id, false);
                                             }
                                         }
+                                        // Drop focus once the drag is committed so the
+                                        // popup (open on `:focus-within`) closes as soon
+                                        // as the pointer leaves — same as the quality menu.
+                                        on:change=move |_| blur_active_element()
                                     />
                                 </div>
                                 <button
