@@ -2,10 +2,10 @@ import { app, Menu } from 'electron';
 
 import { registerAudioIpcHandlers, stopAudioLoopbackNow } from '#features/audio-share/ipc.js';
 import { registerDisplayMediaHandler } from '#features/screen-share/display-media.js';
-import { markQuitting } from '#main/lifecycle.js';
-import { createMainWindow } from '#main/window.js';
 import { registerQuickShareIpcHandlers } from '#features/screen-share/quick-share.js';
+import { markQuitting } from '#main/lifecycle.js';
 import { createTray } from '#main/tray.js';
+import { createMainWindow } from '#main/window.js';
 
 app.on('before-quit', () => {
   // Synchronous and already platform-resolved (see

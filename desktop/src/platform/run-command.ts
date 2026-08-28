@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn } from 'node:child_process';
 
 /** Runs a command to completion and resolves with everything it wrote to
  * stdout. Never rejects — a command that fails to spawn or exits with an

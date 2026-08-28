@@ -35,7 +35,9 @@ contextBridge.exposeInMainWorld('desktopAudio', {
   ...(process.platform === 'win32'
     ? {
         onPcmChunk: (callback: (chunk: ArrayBuffer) => void) => {
-          ipcRenderer.on('desktop-audio-pcm-chunk', (_event, chunk: ArrayBuffer) => callback(chunk));
+          ipcRenderer.on('desktop-audio-pcm-chunk', (_event, chunk: ArrayBuffer) =>
+            callback(chunk),
+          );
         },
       }
     : {}),

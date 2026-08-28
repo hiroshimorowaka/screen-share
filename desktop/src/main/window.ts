@@ -1,5 +1,5 @@
+import * as path from 'node:path';
 import { BrowserWindow } from 'electron';
-import * as path from 'path';
 
 import { isQuitting } from '#main/lifecycle.js';
 

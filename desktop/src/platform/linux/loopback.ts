@@ -1,7 +1,12 @@
-import type { ChildProcess } from 'child_process';
+import type { ChildProcess } from 'node:child_process';
 
 import type { AudioShareTarget } from '#ipc/types.js';
-import { linkNodeToMix, listAudioOutputStreams, spawnMixProcess, waitForMixSinkReady } from '#platform/linux/pipewire.js';
+import {
+  linkNodeToMix,
+  listAudioOutputStreams,
+  spawnMixProcess,
+  waitForMixSinkReady,
+} from '#platform/linux/pipewire.js';
 import { OWN_BINARY_NAME } from '#platform/linux/process-identity.js';
 
 interface AudioLoopbackSession {

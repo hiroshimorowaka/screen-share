@@ -1,4 +1,4 @@
-import { ChildProcess, spawn } from 'child_process';
+import { type ChildProcess, spawn } from 'node:child_process';
 
 import { runCollectingStdout } from '#platform/run-command.js';
 
@@ -28,7 +28,7 @@ export async function listAudioOutputStreams(): Promise<AudioStreamInfo[]> {
   const streams: AudioStreamInfo[] = [];
   for (const obj of data) {
     const props = (obj as { info?: { props?: Record<string, unknown> } })?.info?.props;
-    if (!props || props['media.class'] !== 'Stream/Output/Audio') continue;
+    if (props?.['media.class'] !== 'Stream/Output/Audio') continue;
     streams.push({
       id: (obj as { id: number }).id,
       nodeName: typeof props['node.name'] === 'string' ? (props['node.name'] as string) : null,

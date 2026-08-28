@@ -1,5 +1,5 @@
+import * as path from 'node:path';
 import { Menu, Tray } from 'electron';
-import * as path from 'path';
 
 import { requestQuit } from '#main/lifecycle.js';
 import { showMainWindow, startQuickShare } from '#main/window.js';

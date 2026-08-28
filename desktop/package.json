@@ -21,9 +21,13 @@
     "start": "tsc && electron .",
     "dist": "tsc && electron-builder",
     "dist:linux": "tsc && electron-builder --linux",
-    "dist:win": "tsc && electron-builder --win"
+    "dist:win": "tsc && electron-builder --win",
+    "check": "biome check",
+    "check:fix": "biome check --write",
+    "format": "biome format --write"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.10",
     "@types/node": "^26.2.0",
     "electron": "^43.4.1",
     "electron-builder": "26.15.3",

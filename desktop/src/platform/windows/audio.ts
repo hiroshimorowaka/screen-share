@@ -1,5 +1,5 @@
-import { getMainWindow } from '#main/window.js';
 import type { AudioShareTarget } from '#ipc/types.js';
+import { getMainWindow } from '#main/window.js';
 import { listActiveAudioProcesses, WindowsAudioSession } from '#native/windows-audio/index.js';
 
 let activeSession: WindowsAudioSession | null = null;
@@ -43,5 +43,7 @@ export function stopAudioLoopback(): void {
  * `listDistinctAudioApps` in `platform/linux/pipewire.ts`. */
 export function listDistinctAudioApps(): Promise<{ binary: string; label: string }[]> {
   const processes = listActiveAudioProcesses();
-  return Promise.resolve(processes.map((process) => ({ binary: process.exeName, label: process.exeName })));
+  return Promise.resolve(
+    processes.map((process) => ({ binary: process.exeName, label: process.exeName })),
+  );
 }

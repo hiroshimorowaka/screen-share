@@ -1,8 +1,7 @@
+import * as path from 'node:path';
 import { BrowserWindow, desktopCapturer, ipcMain } from 'electron';
-import * as path from 'path';
-
-import { getMainWindow } from '#main/window.js';
 import type { PickerChoice, PickerSource, ShareChoice } from '#ipc/types.js';
+import { getMainWindow } from '#main/window.js';
 
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {
@@ -78,9 +77,7 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         pickerWindow.on('blur', () => settle(null));
       }, 300);
 
-      await pickerWindow.loadFile(
-        path.join(__dirname, '..', '..', '..', 'static', 'picker.html'),
-      );
+      await pickerWindow.loadFile(path.join(__dirname, '..', '..', '..', 'static', 'picker.html'));
       pickerWindow.webContents.send('picker:sources', pickerSources);
     })();
   });
