@@ -21,10 +21,10 @@ use super::media_controls::setup_fullscreen_autohide_controls;
 use super::member_card::{member_cards, MemberCardSignals};
 use super::watch::leave_or_stop_watching_handler;
 use super::RoomMember;
-use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
 use crate::ui::components::icons::{icon_eye_off, icon_log_out, icon_screen_off, icon_video_off};
 use crate::ui::components::palette::{color_hex, palette_ids, DEFAULT_COLOR};
+use screen_share_protocol::MAX_MEMBERS;
 
 /// Bulk-add nicknames cycle through this so "adicionar vários" gives you an
 /// instantly readable room without typing.
@@ -55,7 +55,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
     let quality_by_peer = RwSignal::new(std::collections::HashMap::<
         String,
-        crate::signaling::protocol::QualityLevel,
+        screen_share_protocol::QualityLevel,
     >::new());
     let controls_visible = RwSignal::new(true);
     let panel_open = RwSignal::new(true);

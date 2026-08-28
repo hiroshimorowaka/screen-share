@@ -5,9 +5,9 @@ use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use tokio::sync::mpsc;
 
-use super::protocol::{ClientMessage, ServerMessage};
 use super::registry::{JoinError, JoinRequest, Registry};
 use super::turn::TurnConfig;
+use screen_share_protocol::{ClientMessage, ServerMessage};
 
 /// The real client IP as Fly's edge proxy sees it — unlike `X-Forwarded-For`,
 /// this header is set by Fly itself from the actual TCP connection, so a

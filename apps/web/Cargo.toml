@@ -7,6 +7,7 @@ edition = "2021"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+screen-share-protocol = { path = "../../crates/protocol" }
 leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
 leptos_meta = { version = "0.8.0" }

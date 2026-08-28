@@ -91,7 +91,6 @@ pub fn submit_create_room(
 
     use leptos_router::hooks::use_navigate;
 
-    use crate::signaling::protocol::{ClientMessage, ServerMessage};
     use crate::ui::client::session::{self, PendingSession};
     use crate::ui::client::socket::WsClient;
     use crate::ui::client::storage::{
@@ -99,6 +98,7 @@ pub fn submit_create_room(
         RoomSession,
     };
     use crate::ui::profile::{Profile, RecentRoom};
+    use screen_share_protocol::{ClientMessage, ServerMessage};
 
     set_submitting.set(true);
     set_status.set("Criando sala...".to_string());

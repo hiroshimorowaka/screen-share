@@ -2040,6 +2040,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "screen-share-protocol"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "screen_share"
 version = "0.1.0"
 dependencies = [
@@ -2056,6 +2064,7 @@ dependencies = [
  "leptos_router",
  "rand 0.10.2",
  "reqwest",
+ "screen-share-protocol",
  "serde",
  "serde_json",
  "sha1 0.10.7",

@@ -1,0 +1,13 @@
+[package]
+name = "screen-share-protocol"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "screen_share_protocol"
+
+[dependencies]
+serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1.0.151"

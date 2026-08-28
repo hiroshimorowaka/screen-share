@@ -82,7 +82,7 @@ pub(super) struct RoomSignals {
     /// connection opened during this WebSocket session — see
     /// `signaling::turn`. `None` on a deployment with no TURN server
     /// configured.
-    pub(super) turn_credentials: RwSignal<Option<crate::signaling::protocol::TurnCredentials>>,
+    pub(super) turn_credentials: RwSignal<Option<screen_share_protocol::TurnCredentials>>,
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -100,10 +100,10 @@ pub(super) fn setup_room_connection(
     conn: RoomConnection,
     signals: RoomSignals,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
-    use crate::signaling::protocol::ClientMessage;
     use crate::ui::client::socket::WsClient;
     use crate::ui::client::storage::{ensure_device_id, save_profile};
     use crate::ui::profile::Profile;
+    use screen_share_protocol::ClientMessage;
 
     use super::message_handler::build_message_handler;
 

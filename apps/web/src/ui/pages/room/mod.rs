@@ -34,7 +34,6 @@ use watch::leave_or_stop_watching_handler;
 #[cfg(feature = "hydrate")]
 use watch::leave_room;
 
-use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
 use crate::ui::components::icons::{
     icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off,
@@ -42,6 +41,7 @@ use crate::ui::components::icons::{
 };
 use crate::ui::components::status::status_meta;
 use crate::ui::components::status_message::StatusMessage;
+use screen_share_protocol::MAX_MEMBERS;
 
 #[derive(Clone, PartialEq)]
 pub struct RoomMember {
@@ -79,13 +79,13 @@ pub fn RoomPage() -> impl IntoView {
     let expanded = RwSignal::new(None::<String>);
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
-    let turn_credentials = RwSignal::new(None::<crate::signaling::protocol::TurnCredentials>);
+    let turn_credentials = RwSignal::new(None::<screen_share_protocol::TurnCredentials>);
     let own_preview_hidden = RwSignal::new(false);
     let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
     let quality_by_peer = RwSignal::new(std::collections::HashMap::<
         String,
-        crate::signaling::protocol::QualityLevel,
+        screen_share_protocol::QualityLevel,
     >::new());
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);

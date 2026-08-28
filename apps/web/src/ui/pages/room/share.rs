@@ -82,8 +82,8 @@ pub(super) fn start_sharing(
     use wasm_bindgen::JsCast;
     use web_sys::MediaStreamTrack;
 
-    use crate::signaling::protocol::ClientMessage;
     use crate::ui::client::webrtc::capture_display;
+    use screen_share_protocol::ClientMessage;
 
     let my_peer_id_value = my_peer_id.get_untracked();
     set_status.set("Selecione a tela para compartilhar...".to_string());
@@ -216,7 +216,7 @@ pub(super) fn stop_sharing(
         super::quality::stop_auto_polling(conn, &viewer_peer_id);
     }
     if let Some(ws) = conn.ws.borrow().as_ref() {
-        ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
+        ws.send(&screen_share_protocol::ClientMessage::StopShare);
     }
     set_is_sharing.set(false);
     own_preview_hidden.set(false);

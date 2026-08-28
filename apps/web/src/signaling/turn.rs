@@ -5,7 +5,7 @@ use base64::Engine as _;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
-use super::protocol::TurnCredentials;
+use screen_share_protocol::TurnCredentials;
 
 /// How long a minted credential stays valid. Only gates *new* TURN
 /// allocations — coturn checks a credential's embedded expiry only at

@@ -2,7 +2,7 @@ use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
 
-use crate::signaling::protocol::{ClientMessage, ServerMessage};
+use screen_share_protocol::{ClientMessage, ServerMessage};
 
 pub struct WsClient {
     socket: WebSocket,

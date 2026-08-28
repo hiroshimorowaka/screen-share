@@ -12,11 +12,11 @@ pub(super) struct JoinedSnapshot {
     pub(super) room_code: String,
     pub(super) room_name: String,
     pub(super) peer_id: String,
-    pub(super) members: Vec<crate::signaling::protocol::MemberInfo>,
+    pub(super) members: Vec<screen_share_protocol::MemberInfo>,
     pub(super) active_sharers: Vec<String>,
-    pub(super) watcher_info: Vec<crate::signaling::protocol::WatcherInfo>,
-    pub(super) latencies: Vec<crate::signaling::protocol::LatencyInfo>,
-    pub(super) turn: Option<crate::signaling::protocol::TurnCredentials>,
+    pub(super) watcher_info: Vec<screen_share_protocol::WatcherInfo>,
+    pub(super) latencies: Vec<screen_share_protocol::LatencyInfo>,
+    pub(super) turn: Option<screen_share_protocol::TurnCredentials>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -81,15 +81,15 @@ pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
 pub(super) fn build_message_handler(
     conn: super::connection::RoomConnection,
     signals: RoomSignals,
-) -> impl Fn(crate::signaling::protocol::ServerMessage) + 'static {
+) -> impl Fn(screen_share_protocol::ServerMessage) + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
     use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
-    use crate::signaling::protocol::{ClientMessage, ServerMessage};
     use crate::ui::client::webrtc::{
         accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection,
     };
+    use screen_share_protocol::{ClientMessage, ServerMessage};
 
     let RoomSignals {
         set_status,

@@ -310,7 +310,7 @@ const STUN_SERVER_URL: &str = "stun:stun.l.google.com:19302";
 /// connection still works for peers that don't need a relay, just without
 /// a fallback for the ones that do.
 pub fn new_peer_connection(
-    turn: Option<&crate::signaling::protocol::TurnCredentials>,
+    turn: Option<&screen_share_protocol::TurnCredentials>,
 ) -> Result<RtcPeerConnection, JsValue> {
     let stun_server = RtcIceServer::new();
     let stun_urls = js_sys::Array::new();

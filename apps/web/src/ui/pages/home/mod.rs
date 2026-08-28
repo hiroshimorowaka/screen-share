@@ -12,9 +12,9 @@ use create_room::{
 use join_room::join_room_handler;
 use recent_rooms::{load_recent_rooms_after_mount, prune_recent_rooms};
 
-use crate::signaling::protocol::MAX_MEMBERS;
 use crate::ui::components::color_picker::ColorPicker;
 use crate::ui::components::status_message::StatusMessage;
+use screen_share_protocol::MAX_MEMBERS;
 
 #[component]
 pub fn HomePage() -> impl IntoView {

@@ -8,7 +8,7 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::auth::{hash_password, verify_password};
-use super::protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
 
 /// How long a room stays reservable after its last member leaves before it's
 /// actually deleted — long enough to survive a page reload (the old

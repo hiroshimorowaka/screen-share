@@ -58,8 +58,8 @@ fn preset_for(tier: Tier) -> (u32, f32) {
 /// `None` for `QualityLevel::Auto` — it has no single tier of its own, it's
 /// `AdaptiveQuality` picking one continuously.
 #[cfg(any(test, feature = "hydrate"))]
-pub(super) fn tier_for(level: crate::signaling::protocol::QualityLevel) -> Option<Tier> {
-    use crate::signaling::protocol::QualityLevel;
+pub(super) fn tier_for(level: screen_share_protocol::QualityLevel) -> Option<Tier> {
+    use screen_share_protocol::QualityLevel;
     match level {
         QualityLevel::Auto => None,
         QualityLevel::High => Some(Tier::High),
@@ -402,10 +402,10 @@ pub(super) fn set_quality_handler(
     _conn: super::connection::RoomConnection,
     _members: leptos::prelude::ReadSignal<Vec<super::RoomMember>>,
     _quality_by_peer: leptos::prelude::RwSignal<
-        std::collections::HashMap<String, crate::signaling::protocol::QualityLevel>,
+        std::collections::HashMap<String, screen_share_protocol::QualityLevel>,
     >,
     _slot: usize,
-) -> impl Fn(crate::signaling::protocol::QualityLevel) + Clone + 'static {
+) -> impl Fn(screen_share_protocol::QualityLevel) + Clone + 'static {
     move |_| {}
 }
 
@@ -414,10 +414,10 @@ pub(super) fn set_quality_handler(
     conn: super::connection::RoomConnection,
     members: leptos::prelude::ReadSignal<Vec<super::RoomMember>>,
     quality_by_peer: leptos::prelude::RwSignal<
-        std::collections::HashMap<String, crate::signaling::protocol::QualityLevel>,
+        std::collections::HashMap<String, screen_share_protocol::QualityLevel>,
     >,
     slot: usize,
-) -> impl Fn(crate::signaling::protocol::QualityLevel) + Clone + 'static {
+) -> impl Fn(screen_share_protocol::QualityLevel) + Clone + 'static {
     use leptos::prelude::*;
 
     move |quality| {
@@ -428,7 +428,7 @@ pub(super) fn set_quality_handler(
             m.insert(member.peer_id.clone(), quality);
         });
         if let Some(ws) = conn.ws.borrow().as_ref() {
-            ws.send(&crate::signaling::protocol::ClientMessage::SetQuality {
+            ws.send(&screen_share_protocol::ClientMessage::SetQuality {
                 to: member.peer_id,
                 quality,
             });
@@ -466,7 +466,7 @@ mod tests {
 
     #[test]
     fn tier_for_maps_every_fixed_level_and_leaves_auto_as_none() {
-        use crate::signaling::protocol::QualityLevel;
+        use screen_share_protocol::QualityLevel;
         assert_eq!(tier_for(QualityLevel::Auto), None);
         assert_eq!(tier_for(QualityLevel::High), Some(Tier::High));
         assert_eq!(tier_for(QualityLevel::Medium), Some(Tier::Medium));

@@ -1,5 +1,5 @@
 use futures_util::{SinkExt, StreamExt};
-use screen_share::signaling::protocol::{ClientMessage, ServerMessage};
+use screen_share_protocol::{ClientMessage, ServerMessage};
 use tokio_tungstenite::tungstenite::Message;
 
 async fn spawn_test_server() -> String {

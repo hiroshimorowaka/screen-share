@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
-use crate::signaling::protocol::{MemberInfo, TurnCredentials};
 use crate::ui::client::socket::WsClient;
+use screen_share_protocol::{MemberInfo, TurnCredentials};
 
 /// An already-authenticated connection that `HomePage` leaves ready for
 /// `RoomPage` to take over, without reopening the WebSocket. `thread_local`

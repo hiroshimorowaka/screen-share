@@ -1,8 +1,8 @@
 use axum::extract::{Path, State};
 use axum::Json;
 
-use super::protocol::RoomStatus;
 use super::registry::Registry;
+use screen_share_protocol::RoomStatus;
 
 pub async fn room_status_handler(
     State(registry): State<Registry>,

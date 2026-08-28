@@ -15,7 +15,7 @@ pub(super) fn setup_ping_loop(_conn: super::connection::RoomConnection) {}
 
 #[cfg(feature = "hydrate")]
 fn send_ping(conn: &super::connection::RoomConnection) {
-    use crate::signaling::protocol::ClientMessage;
+    use screen_share_protocol::ClientMessage;
 
     let Some(window) = web_sys::window() else {
         return;

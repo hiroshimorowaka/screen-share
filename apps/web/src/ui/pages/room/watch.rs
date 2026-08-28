@@ -20,7 +20,7 @@ pub(super) fn watch_click_handler(
     watching: RwSignal<std::collections::HashSet<String>>,
     slot: usize,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    use crate::signaling::protocol::ClientMessage;
+    use screen_share_protocol::ClientMessage;
 
     move |_| {
         let Some(member) = members.get_untracked().get(slot).cloned() else {
@@ -56,7 +56,7 @@ pub(super) fn stop_watching_click_handler(
     expanded: RwSignal<Option<String>>,
     slot: usize,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    use crate::signaling::protocol::ClientMessage;
+    use screen_share_protocol::ClientMessage;
 
     move |_| {
         let Some(member) = members.get_untracked().get(slot).cloned() else {
@@ -128,7 +128,7 @@ pub(super) fn leave_or_stop_watching_handler(
     my_peer_id: ReadSignal<Option<String>>,
     room_code: String,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
-    use crate::signaling::protocol::ClientMessage;
+    use screen_share_protocol::ClientMessage;
 
     move |_| {
         let Some(focused_peer_id) = expanded.get_untracked() else {

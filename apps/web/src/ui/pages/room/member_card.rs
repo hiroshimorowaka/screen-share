@@ -7,11 +7,11 @@ use super::media_controls::{
 };
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use super::RoomMember;
-use crate::signaling::protocol::{QualityLevel, MAX_MEMBERS};
 use crate::ui::components::icons::{
     icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume, icon_volume_off,
 };
 use crate::ui::components::palette::{avatar_letter, color_hex};
+use screen_share_protocol::{QualityLevel, MAX_MEMBERS};
 
 /// Border/background used for a card slot that currently holds no member.
 const EMPTY_SLOT_COLORS: (&str, &str) = ("#b0b8c1", "#2a2d31");
@@ -32,7 +32,7 @@ pub(super) struct MemberCardSignals {
     pub(super) muted_by_peer: RwSignal<std::collections::HashSet<String>>,
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
     pub(super) quality_by_peer:
-        RwSignal<std::collections::HashMap<String, crate::signaling::protocol::QualityLevel>>,
+        RwSignal<std::collections::HashMap<String, screen_share_protocol::QualityLevel>>,
 }
 
 /// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"

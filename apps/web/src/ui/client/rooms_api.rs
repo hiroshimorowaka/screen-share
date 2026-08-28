@@ -2,7 +2,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
 use web_sys::Response;
 
-use crate::signaling::protocol::RoomStatus;
+use screen_share_protocol::RoomStatus;
 
 /// `None` means a network/parsing failure (inconclusive) — only an actual
 /// `RoomStatus { exists: false, .. }` means "the room doesn't exist".
