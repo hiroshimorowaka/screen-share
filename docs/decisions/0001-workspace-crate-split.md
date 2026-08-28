@@ -1,7 +1,7 @@
 # ADR-0001: Cargo workspace with core / protocol / signaling / apps-web seams
 
 Date: 2026-08-28
-Status: accepted
+Status: accepted — `core` deferred (see "Update" below)
 
 ## Context
 
@@ -49,6 +49,26 @@ The web package keeps the name `screen_share` even though its directory
 becomes `apps/web`, and `LEPTOS_OUTPUT_NAME` stays `screen_share`, so the
 Dockerfile and every `use screen_share::…` path are untouched by the
 move.
+
+## Update (2026-08-28, during Phase 3)
+
+`crates/core` was **not** created. Inspection at Phase 3 found no
+browser-agnostic domain logic shared between `apps/web` and
+`crates/signaling`: the registry's `Room`/`Member` are server-side
+(mpsc senders, `tokio::time::Instant`), the member cap already lives in
+`protocol` as `MAX_MEMBERS`, and the UI has its own view-models. The only
+remaining candidate was a handful of id/nick/color newtypes, and
+threading `#[serde(transparent)]` newtypes through every wire type plus
+every construction site carried real wire-drift risk for little gain.
+Per this ADR's own escape hatch ("if it would hold only 4 newtypes, fold
+them into `protocol` and drop `core`"), `core` is deferred. Revisit only
+if genuinely shared domain logic appears. The dependency graph is now:
+
+```
+protocol    →  (serde only)
+signaling   →  protocol
+apps/web    →  protocol, signaling
+```
 
 ## Consequences
 

@@ -270,17 +270,20 @@ architecture-refactor roadmap in `docs/superpowers/plans/`). These rules
 hold now and are enforced by the dependency graph once the crates exist:
 
 ```
-core        →  (serde only)
-protocol    →  core
-signaling   →  core, protocol
-apps/web    →  core, protocol, signaling
+protocol    →  (serde only)
+signaling   →  protocol
+apps/web    →  protocol, signaling
 ```
 
+(A `crates/core` for shared domain types was considered and deferred —
+see `docs/decisions/0001-workspace-crate-split.md`. Add it only if
+genuinely shared, browser-agnostic domain logic appears.)
+
 - **Dependency direction.** Dependencies point toward lower-level
-  abstractions only. `core` depends on nothing but `serde`. `protocol`
-  may depend on `core`, never the reverse. Domain and protocol code
-  (`crates/core`, `crates/protocol`) must never depend on Axum, Tokio,
-  `web-sys`, `wasm-bindgen`, Leptos, Electron, or any OS API.
+  abstractions only. `crates/protocol` depends on nothing but `serde` and
+  must never depend on Axum, Tokio, `web-sys`, `wasm-bindgen`, Leptos,
+  Electron, or any OS API. `crates/signaling` may depend on `protocol`,
+  never the reverse.
 - **UI components never do I/O.** A Leptos `#[component]` must not open a
   `WebSocket`, construct an `RtcPeerConnection`, call `getDisplayMedia`,
   touch `localStorage`, or reach into `crates/signaling`. It calls a
