@@ -1,114 +1,17 @@
-[package]
-name = "screen_share"
-version = "0.1.0"
-edition = "2021"
-
-[lib]
-crate-type = ["cdylib", "rlib"]
-
-[dependencies]
-leptos = { version = "0.8.0" }
-leptos_router = { version = "0.8.0" }
-leptos_meta = { version = "0.8.0" }
-axum = { version = "0.8.0", optional = true }
-console_error_panic_hook = { version = "0.1", optional = true }
-leptos_axum = { version = "0.8.0", optional = true }
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"], optional = true }
-wasm-bindgen = { version = "0.2.106", optional = true }
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json = "1.0.151"
-uuid = { version = "1.24.1", features = ["v4"], optional = true }
-rand = { version = "0.10.2", optional = true }
-futures-util = { version = "0.3.34", optional = true }
-wasm-bindgen-futures = { version = "0.4.77", optional = true }
-js-sys = { version = "0.3.104", optional = true }
-web-sys = { version = "0.3.104", optional = true, features = [
-    "WebSocket",
-    "MessageEvent",
-    "MediaDevices",
-    "MediaStream",
-    "MediaStreamTrack",
-    "DisplayMediaStreamConstraints",
-    "MediaDeviceInfo",
-    "MediaDeviceKind",
-    "MediaTrackConstraints",
-    "MediaStreamConstraints",
-    "ConstrainDomStringParameters",
-    "Navigator",
-    "Window",
-    "Location",
-    "RtcPeerConnection",
-    "RtcConfiguration",
-    "RtcIceServer",
-    "RtcSdpType",
-    "RtcSessionDescriptionInit",
-    "RtcIceCandidateInit",
-    "RtcIceCandidate",
-    "RtcPeerConnectionIceEvent",
-    "RtcTrackEvent",
-    "RtcIceConnectionState",
-    "RtcRtpSender",
-    "RtcRtpParameters",
-    "RtcRtpEncodingParameters",
-    "HtmlVideoElement",
-    "HtmlMediaElement",
-    "Element",
-    "NodeList",
-    "PictureInPictureWindow",
-    "MediaStreamTrackGenerator",
-    "MediaStreamTrackGeneratorInit",
-    "AudioData",
-    "AudioDataInit",
-    "AudioSampleFormat",
-    "WritableStream",
-    "WritableStreamDefaultWriter",
-    "Clipboard",
-    "Storage",
-    "Response",
-    "Crypto",
-    "Performance",
-    "console",
-] }
-argon2 = { version = "0.5.3", optional = true, features = ["std"] }
-hmac = { version = "0.12", optional = true }
-sha1 = { version = "0.10", optional = true }
-base64 = { version = "0.22", optional = true }
-
-[features]
-hydrate = [
-    "leptos/hydrate",
-    "dep:console_error_panic_hook",
-    "dep:wasm-bindgen",
-    "dep:wasm-bindgen-futures",
-    "dep:js-sys",
-    "dep:web-sys",
-]
-ssr = [
-    "dep:axum",
-    "dep:tokio",
-    "dep:leptos_axum",
-    "dep:uuid",
-    "dep:rand",
-    "dep:futures-util",
-    "dep:argon2",
-    "dep:hmac",
-    "dep:sha1",
-    "dep:base64",
-    "leptos/ssr",
-    "leptos_meta/ssr",
-    "leptos_router/ssr",
-]
-argon2 = ["dep:argon2"]
+[workspace]
+members = ["apps/web"]
+resolver = "2"
 
 # Line-tables-only debug info for dev builds. With full `debug = 2`, the
 # combined `.debug_info` of the ~250-crate dependency graph overflows the
 # 32-bit relocation range when rust-lld links the `screen_share` binary
 # ("relocation R_X86_64_32 out of range"). Line tables keep backtraces
-# useful and also cut link time.
+# useful and also cut link time. Profiles are only read from the
+# workspace root, so this must live here.
 [profile.dev]
 debug = 1
 
-# Defines a size-optimized profile for the WASM bundle in release mode
+# Size-optimized profile for the WASM bundle in release mode.
 [profile.wasm-release]
 inherits = "release"
 opt-level = 'z'
@@ -116,40 +19,37 @@ lto = true
 codegen-units = 1
 panic = "abort"
 
-[dev-dependencies]
-tokio-tungstenite = "0.30.0"
-reqwest = { version = "0.12", features = ["json"] }
-tokio = { version = "1", features = ["test-util"] }
+[[workspace.metadata.leptos]]
+name = "screen_share"
+bin-package = "screen_share"
+lib-package = "screen_share"
 
-[package.metadata.leptos]
-# The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle. Defaults to the crate name
+# The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle.
+# MUST stay in sync with LEPTOS_OUTPUT_NAME in .cargo/config.toml.
 output-name = "screen_share"
 
-# The site root folder is where cargo-leptos generate all output. WARNING: all content of this folder will be erased on a rebuild. Use it in your server setup.
+# cargo-leptos resolves these paths relative to this workspace-root directory.
+# WARNING: all content of site-root is erased on a rebuild.
 site-root = "target/site"
-
-# The site-root relative folder where all compiled output (JS, WASM and CSS) is written
 site-pkg-dir = "pkg"
-
-# Assets source dir. All files found here will be copied and synchronized to site-root.
-assets-dir = "public"
+assets-dir = "apps/web/public"
 
 # The IP and port where the server serves the content.
 site-addr = "127.0.0.1:3000"
 
-# The port to use for automatic reload monitoring
+# The port to use for automatic reload monitoring.
 reload-port = 3001
 
 # The browserlist query used for optimizing the CSS.
 browserquery = "defaults"
 
-# The features to use when compiling the bin target
+# Features/profile for the bin (SSR) target.
 bin-features = ["ssr"]
 bin-default-features = false
 
-# The features to use when compiling the lib target
+# Features for the lib (hydrate) target.
 lib-features = ["hydrate"]
 lib-default-features = false
 
-# The profile to use for the lib target when compiling for release
+# The profile to use for the lib target when compiling for release.
 lib-profile-release = "wasm-release"

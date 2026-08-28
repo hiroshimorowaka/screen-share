@@ -127,10 +127,12 @@ fly deploy
 ### One crate, two compiled targets
 
 This is the single most important thing to understand before touching any
-UI code. The crate is compiled twice, under two mutually exclusive Cargo
-features:
+UI code. The web crate lives at `apps/web/` as the sole member of a Cargo
+workspace (`cargo-leptos` is driven from the repo root via
+`[[workspace.metadata.leptos]]`). It is compiled twice, under two
+mutually exclusive Cargo features:
 
-- **`ssr`** — a native binary (`src/main.rs`) that renders pages
+- **`ssr`** — a native binary (`apps/web/src/main.rs`) that renders pages
   server-side and serves them over HTTP/WebSocket via Axum.
 - **`hydrate`** — a `wasm32-unknown-unknown` library that runs in the
   browser, takes over the server-rendered HTML, and makes it interactive.

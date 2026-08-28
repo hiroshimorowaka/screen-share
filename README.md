@@ -91,7 +91,7 @@ em `desktop/release/`.
 ## Testes automatizados
 
 ```bash
-cargo test --features ssr
+cargo test -p screen_share --features ssr
 ```
 
 Cobre a lógica de sinalização (protocolo, registro de salas, endpoint WebSocket).
