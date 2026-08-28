@@ -3,17 +3,17 @@ use leptos::prelude::*;
 use crate::session::RoomSession;
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn share_supported() -> bool {
+pub(crate) fn share_supported() -> bool {
     true
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn share_supported() -> bool {
+pub(crate) fn share_supported() -> bool {
     crate::infra::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn share_toggle_handler(
+pub(crate) fn share_toggle_handler(
     _conn: RoomSession,
     _is_sharing: ReadSignal<bool>,
     _set_is_sharing: WriteSignal<bool>,
@@ -26,7 +26,7 @@ pub(super) fn share_toggle_handler(
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn share_toggle_handler(
+pub(crate) fn share_toggle_handler(
     conn: RoomSession,
     is_sharing: ReadSignal<bool>,
     set_is_sharing: WriteSignal<bool>,
@@ -69,7 +69,7 @@ pub(super) fn share_toggle_handler(
 /// anything — the quick-share flow uses it to leave the room instead of
 /// sitting in it, hidden and unshared, forever.
 #[cfg(feature = "hydrate")]
-pub(super) fn start_sharing(
+pub(crate) fn start_sharing(
     conn: RoomSession,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
@@ -147,7 +147,7 @@ pub(super) fn start_sharing(
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn stop_sharing(
+pub(crate) fn stop_sharing(
     conn: &RoomSession,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
@@ -213,7 +213,7 @@ pub(super) fn stop_sharing(
         .cloned()
         .collect::<Vec<_>>()
     {
-        super::quality::stop_auto_polling(conn, &viewer_peer_id);
+        crate::features::room::quality::stop_auto_polling(conn, &viewer_peer_id);
     }
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);

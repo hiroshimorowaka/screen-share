@@ -379,7 +379,7 @@ pub(super) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_
 /// Stops `viewer_peer_id`'s Auto poll if one is running — safe to call even
 /// if there isn't one (switching between two fixed tiers, e.g.).
 #[cfg(feature = "hydrate")]
-pub(super) fn stop_auto_polling(conn: &crate::session::RoomSession, viewer_peer_id: &str) {
+pub(crate) fn stop_auto_polling(conn: &crate::session::RoomSession, viewer_peer_id: &str) {
     let Some(interval_id) = conn
         .quality_auto_intervals
         .borrow_mut()

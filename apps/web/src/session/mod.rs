@@ -1,3 +1,5 @@
+pub mod media;
+
 use leptos::prelude::*;
 
 /// One member of a room, as the roster UI needs it. `sharing` is never
