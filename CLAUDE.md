@@ -426,7 +426,74 @@ around).
 
 ### Dependencies and lints
 
-- Run `cargo clippy --all-targets -- -D warnings` and `cargo fmt --check`
-  before considering a change done; fix warnings rather than silencing
-  them, and if a lint must be allowed, do it at the item level with a
-  short reason, not at the crate level.
+- The full pre-done checklist (exact commands) is in §"Definition of
+  done" below. Fix warnings rather than silencing them; if a lint must be
+  allowed, do it at the item level with a short reason, not at the crate
+  level.
+
+## Definition of done
+
+A task is not done because the code compiles. It is done when every check
+below has been run **and passed**, by you, before you report back. Do not
+hand work over for the maintainer to discover a failing check.
+
+### Every change
+
+- It does what was actually asked — verified against the request, not
+  assumed from "it builds".
+- No debug leftovers introduced by the change: no `dbg!`, stray
+  `println!`/`console.log`, commented-out code, or `TODO`s.
+- Any comment added explains **why** (§Comments); any new timeout, limit,
+  retry count, or other magic value has a named `const` with a one-line
+  reason (§Constants).
+- Docs updated when the change alters architecture, commands, an
+  invariant, or a decision: the relevant `docs/architecture/*`, a new
+  `docs/decisions/NNNN-*.md` ADR, and this file.
+
+### Rust — `crates/*` and `apps/web` (run from the repo root)
+
+- `cargo test --workspace --features ssr` — all green. The test count
+  must not silently drop; removing a test is a deliberate, explained
+  change.
+- `cargo clippy --workspace --all-targets --features ssr -- -D warnings`
+  — clean.
+- `cargo clippy -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate -- -D warnings`
+  — clean (the browser/WASM build compiles different code).
+- `cargo fmt --check` — clean.
+- `cargo leptos build` — succeeds. This is the web app's real build
+  authority; a plain `cargo build` passing is not enough.
+- If the change touches the `Dockerfile`, the deployment, or anything the
+  container build depends on: `docker build .` succeeds.
+
+### Browser layer — `apps/web` UI and everything under `apps/web/src/session/`
+
+There is no automated harness here. Hand-verify in a real browser
+(`cargo leptos watch`):
+
+- the changed screen or flow renders and behaves; no console errors; no
+  hydration mismatch.
+- For room WebRTC / media / signaling changes, run the two-tab checklist:
+  two tabs in one room; each shares; each watches the other; stop sharing
+  via the in-app button **and** via the browser's own "stop sharing"
+  control; stop watching; reload a tab mid-session. Behaviour matches the
+  pre-change build.
+
+### Desktop — `desktop/` (run with `pnpm --dir desktop …` or from `desktop/`)
+
+- `pnpm run check` — Biome (lint + format + import order) clean.
+- `pnpm build` — `tsc` clean. Note that `tsc` does **not** check
+  `__dirname`-relative runtime paths or the `#…` import map — those only
+  fail at launch.
+- For behaviour-affecting changes, launch it (`pnpm start`) and exercise
+  the affected flow (tray, source picker, screen share, system-audio
+  share) on Linux, and on Windows if a machine is available. State
+  explicitly which platform paths could not be tested.
+
+### Commits, pushes, and branches — maintainer-gated
+
+`git commit`, `git push`, `git merge`, and deleting branches happen
+**only with the maintainer's explicit approval for that specific
+action**. "The task is done" is not approval to commit. Present the
+finished, verified change — say what you ran and what passed — and wait
+for the go-ahead. Approval for one commit is not standing approval for
+the next.
