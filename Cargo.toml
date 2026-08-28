@@ -100,6 +100,14 @@ ssr = [
 ]
 argon2 = ["dep:argon2"]
 
+# Line-tables-only debug info for dev builds. With full `debug = 2`, the
+# combined `.debug_info` of the ~250-crate dependency graph overflows the
+# 32-bit relocation range when rust-lld links the `screen_share` binary
+# ("relocation R_X86_64_32 out of range"). Line tables keep backtraces
+# useful and also cut link time.
+[profile.dev]
+debug = 1
+
 # Defines a size-optimized profile for the WASM bundle in release mode
 [profile.wasm-release]
 inherits = "release"
