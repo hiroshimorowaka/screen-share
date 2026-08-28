@@ -1,6 +1,35 @@
+# The image build is just `cargo leptos build --release` over the Rust
+# workspace (crates/ + apps/web). Everything below is either build output,
+# test tooling, or another project entirely — keeping it out of the build
+# context keeps `fly deploy` uploads small and builds fast.
+
+# Rust / Cargo build output (target/ is a BuildKit cache mount anyway)
 target
+debug
+**/*.rs.bk
+*.pdb
+
+# Version control / editor / CI / docs — not build inputs
 .git
+.github
 .claude
 docs
 *.md
+
+# Headless-Chrome download for wasm-bindgen-test (296 MB) — test-only
+.wasm-browser
+webdriver.json
+
+# The desktop Electron app — its own project, not in the cargo workspace
 desktop
+
+# Playwright e2e project — its own npm package, not a build input
+apps/web/end2end
+
+# Node lives nowhere in the web build
+**/node_modules
+
+# cargo-mutants / misc local output
+mutants.out
+mutants.out.old
+*.log
