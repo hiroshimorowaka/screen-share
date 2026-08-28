@@ -375,16 +375,5 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn ping_color_var_classifies_into_three_tiers() {
-        assert_eq!(ping_color_var(0), "--success");
-        assert_eq!(ping_color_var(PING_GOOD_MS - 1), "--success");
-        assert_eq!(ping_color_var(PING_GOOD_MS), "--warning");
-        assert_eq!(ping_color_var(PING_WARN_MS - 1), "--warning");
-        assert_eq!(ping_color_var(PING_WARN_MS), "--error");
-        assert_eq!(ping_color_var(9999), "--error");
-    }
-}
+#[path = "member_card_tests.rs"]
+mod tests;
