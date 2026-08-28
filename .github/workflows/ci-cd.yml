@@ -9,16 +9,21 @@ name: CI/CD
 # in full — useful for re-deploying without a throwaway commit.
 #
 # A pull request runs the full quality gate (build, lint, every test
-# layer, mutation) but never the deploy/publish jobs. A push to `main`
-# runs the reverse: only what a deploy depends on — build + fast tests
-# (`build-web`/`test-web`, `test-desktop`/`build-desktop-*`) as a
-# pre-deploy smoke, then deploy/publish. The slow browser layers
-# (`test-web-wasm`, `e2e-web`, `e2e-desktop`) and the mutation jobs are
-# PR-only; they are strong gates there and re-running them on the merge
-# commit is not worth the runner time. Pair this with branch protection's
-# "require branches up to date before merging" so the PR is re-checked
-# against the latest `main`. A manual run (`workflow_dispatch`) runs
-# everything, both sides, in full.
+# layer, mutation) but never the deploy/publish jobs — and never the
+# desktop *packaging* (`electron-builder`) either: those installers only
+# feed `publish-desktop-release`, which a PR never reaches, so building
+# them per PR just burns runner time and litters artifacts. A push to
+# `main` runs the reverse: only what a deploy depends on — build + fast
+# tests (`build-web`/`test-web`, `test-desktop`) plus the desktop
+# packaging (`build-desktop-*`) as a pre-deploy smoke, then deploy/publish.
+# The Windows-only `cargo test` for the native audio addon still runs on
+# PRs (it is the only place it can), just without the packaging steps
+# around it. The slow browser layers (`test-web-wasm`, `e2e-web`,
+# `e2e-desktop`) and the mutation jobs are PR-only; they are strong gates
+# there and re-running them on the merge commit is not worth the runner
+# time. Pair this with branch protection's "require branches up to date
+# before merging" so the PR is re-checked against the latest `main`. A
+# manual run (`workflow_dispatch`) runs everything, both sides, in full.
 #
 # Repeated setup (Rust toolchain + cache + tool, or pnpm + Node) lives in
 # the local composite actions under `.github/actions/`.
@@ -393,7 +398,10 @@ jobs:
   build-desktop-linux:
     name: Build desktop app (Linux)
     needs: changes
-    if: needs.changes.outputs.desktop == 'true'
+    # Packaging only feeds `publish-desktop-release` (push / manual, never
+    # a PR), and this job does nothing else — lint/typecheck/tests are
+    # `test-desktop`'s remit. So it is pointless on a PR.
+    if: needs.changes.outputs.desktop == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -424,28 +432,35 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
           cache-workspaces: desktop/native/windows-audio
+      # The napi crate only compiles on Windows (wasapi / windows-rs), so
+      # its pure-logic `#[test]`s can only run here — kept on PRs as a gate.
+      - run: cargo test
+        working-directory: desktop/native/windows-audio
+      # --- packaging: push to `main` / manual only (see the header note) ---
       # `install: false` — the desktop `pnpm install` has to wait until the
       # native `.node` below has been built, so it stays explicit.
-      - uses: ./.github/actions/setup-desktop
+      - if: github.event_name != 'pull_request'
+        uses: ./.github/actions/setup-desktop
         with:
           install: 'false'
       # The Windows system-audio bridge is a native napi-rs addon — its
       # compiled `.node` is gitignored, so it has to be rebuilt from source
       # before packaging can bundle it (see the windows-audio-sharing plan
       # under docs/superpowers/plans/).
-      - run: npm install
+      - if: github.event_name != 'pull_request'
+        run: npm install
         working-directory: desktop/native/windows-audio
-      - run: npm run build
+      - if: github.event_name != 'pull_request'
+        run: npm run build
         working-directory: desktop/native/windows-audio
-      # The napi crate only compiles on Windows (wasapi / windows-rs), so
-      # its pure-logic `#[test]`s can only run here.
-      - run: cargo test
-        working-directory: desktop/native/windows-audio
-      - run: pnpm install --frozen-lockfile
+      - if: github.event_name != 'pull_request'
+        run: pnpm install --frozen-lockfile
         working-directory: desktop
-      - run: pnpm run dist:win
+      - if: github.event_name != 'pull_request'
+        run: pnpm run dist:win
         working-directory: desktop
-      - uses: actions/upload-artifact@v4
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
           path: desktop/release/*.exe

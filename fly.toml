@@ -38,9 +38,9 @@ primary_region = "gru"
 # `fly ips allocate-v6`) — the shared anycast IP Fly gives every app by
 # default is routed by SNI/Host header at L7 and can't carry plain UDP.
 #
-# `end_port` for a range is this repo's best current understanding of Fly's
-# schema, not something actually deployed yet — run `fly config validate`
-# after filling in real values below and before `fly deploy`.
+# A port *range* uses `start_port` + `end_port` (a single port uses `port`);
+# giving `end_port` without `start_port` fails the deploy with
+# "Port range missing start_port".
 [[services]]
   internal_port = 3478
   protocol = "udp"
@@ -55,7 +55,7 @@ primary_region = "gru"
   processes = ["app"]
 
   [[services.ports]]
-    port = 49160
+    start_port = 49160
     end_port = 49300
 
 [[vm]]

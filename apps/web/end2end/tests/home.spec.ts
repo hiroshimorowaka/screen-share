@@ -35,10 +35,13 @@ test.describe('home page — create room', () => {
     await expect(page.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
   });
 
-  test('checking "sala pública" creates a room with no password', async ({ page }) => {
+  test('toggling "sala pública" creates a room with no password', async ({ page }) => {
     await page.getByLabel('Nick').fill('Bia');
     await page.getByLabel('Nome da sala').fill('Sala aberta');
-    await page.getByLabel('Sala pública (sem senha)').check();
+    // The checkbox is visually hidden behind the switch UI — click the
+    // switch itself, the way a user does, then assert the state took.
+    await createPanel(page).locator('label.switch').click();
+    await expect(page.getByLabel('Sala pública')).toBeChecked();
     // The password field is hidden once the room is public.
     await expect(page.getByLabel('Senha da sala')).toBeHidden();
     await createPanel(page).getByRole('button', { name: 'Criar sala' }).click();

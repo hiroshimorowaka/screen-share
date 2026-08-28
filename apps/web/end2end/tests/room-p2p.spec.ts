@@ -36,7 +36,10 @@ async function createPublicRoom(context: BrowserContext, nick: string, roomName:
   await page.goto('/');
   await page.getByLabel('Nick').fill(nick);
   await page.getByLabel('Nome da sala').fill(roomName);
-  await page.getByLabel('Sala pública (sem senha)').check();
+  // The "sala pública" checkbox is hidden behind the switch UI — click the
+  // switch the way a user does, then confirm the state took.
+  await page.locator('label.switch').click();
+  await expect(page.getByLabel('Sala pública')).toBeChecked();
   await page
     .locator('.panel', { hasText: 'Criar sala' })
     .getByRole('button', { name: 'Criar sala' })
@@ -64,7 +67,8 @@ test('two members: share, watch, real media flows, then teardown', async ({ brow
   await ana.goto('/');
   await ana.getByLabel('Nick').fill('Ana');
   await ana.getByLabel('Nome da sala').fill('Sala P2P');
-  await ana.getByLabel('Sala pública (sem senha)').check();
+  await ana.locator('label.switch').click();
+  await expect(ana.getByLabel('Sala pública')).toBeChecked();
   await ana.locator('.panel', { hasText: 'Criar sala' }).getByRole('button', { name: 'Criar sala' }).click();
   await expect(ana).toHaveURL(/\/r\/[A-Z0-9]+$/);
   const roomUrl = ana.url();
@@ -106,7 +110,8 @@ test('a watcher reload mid-session silently rejoins and keeps the roster', async
   await ana.goto('/');
   await ana.getByLabel('Nick').fill('Ana');
   await ana.getByLabel('Nome da sala').fill('Sala reload');
-  await ana.getByLabel('Sala pública (sem senha)').check();
+  await ana.locator('label.switch').click();
+  await expect(ana.getByLabel('Sala pública')).toBeChecked();
   await ana.locator('.panel', { hasText: 'Criar sala' }).getByRole('button', { name: 'Criar sala' }).click();
   await expect(ana).toHaveURL(/\/r\/[A-Z0-9]+$/);
 
