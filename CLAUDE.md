@@ -258,10 +258,12 @@ in an actual browser before being considered done.
 General practices to keep this codebase clean, testable, and cheap to
 extend as it grows past the pilot feature set.
 
-The mechanical, checklist-style Rust rules (naming, error handling,
-imports, the pre-commit checklist) live in `RUST_GUIDELINES.md`. This
-section owns the project-specific judgment calls; where the two overlap,
-this section wins.
+**Before editing any Rust file, read `RUST_GUIDELINES.md` in full.** It
+holds the mechanical, checklist-style rules (naming, error handling,
+imports, the pre-commit checklist); this section holds the
+project-specific judgment calls. Where the two overlap, this section
+wins. Read `RUST_GUIDELINES.md` at the start of every task that will
+touch `.rs` code — do not rely on remembering it from a previous task.
 
 ### Dependency invariants
 
