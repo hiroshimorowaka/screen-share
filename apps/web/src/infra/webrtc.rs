@@ -396,3 +396,7 @@ pub fn is_display_media_supported() -> bool {
     };
     js_sys::Reflect::has(&media_devices, &JsValue::from_str("getDisplayMedia")).unwrap_or(false)
 }
+
+#[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
+#[path = "webrtc_wasm_tests.rs"]
+mod wasm_tests;

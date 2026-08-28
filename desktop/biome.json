@@ -6,7 +6,13 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["src/**/*.ts", "biome.json"]
+    "includes": [
+      "src/**/*.ts",
+      "e2e/**/*.ts",
+      "vitest.config.mts",
+      "stryker.config.mjs",
+      "biome.json"
+    ]
   },
   "formatter": {
     "enabled": true,

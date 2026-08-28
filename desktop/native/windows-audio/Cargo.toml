@@ -12,8 +12,12 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 
+# `rlib` alongside `cdylib` so `cargo test` can link a normal test binary
+# against the crate (the napi `cdylib` alone has unresolved `napi_*`
+# symbols at test-link time). electron-builder / `napi build` only ever
+# consume the `cdylib`.
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 napi = { version = "3", default-features = false, features = ["napi6"] }

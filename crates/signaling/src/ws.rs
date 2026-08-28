@@ -225,3 +225,7 @@ async fn handle_socket(
     }
     send_task.abort();
 }
+
+#[cfg(test)]
+#[path = "ws_tests.rs"]
+mod tests;

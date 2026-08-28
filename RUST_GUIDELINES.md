@@ -96,10 +96,16 @@ explaining **why that value**.
 - Unit-test plain logic (parsing, validation, the status classifier,
   room-code generation, the signaling protocol's (de)serialization, the
   registry's behavior).
-- Browser-only behavior (screen capture, live WebRTC media, clipboard) is
-  exercised by hand in a real browser — there is no automation harness for
-  it in this repo.
+- Browser-only behavior: `hydrate`-path helpers have `wasm-bindgen-test`
+  suites (headless Chrome); full flows incl. the two-tab WebRTC scenario
+  have Playwright specs in `apps/web/end2end/`. Real screen/window
+  capture, audio, and the browser's own share controls are still checked
+  by hand (see `CLAUDE.md` §"Testing approach").
 - Arrange-Act-Assert. No commented-out tests.
+- **Mutation:** `cargo mutants --in-diff … -p screen-share-protocol -p
+  screen-share-signaling` is a blocking CI check — a change to those
+  crates must not add an uncaught mutant. Run it locally on the changed
+  area before pushing. `apps/web` mutation is report-only for now.
 - After Phase 4 of the architecture refactor, tests live in each crate's
   `tests/` directory, not in `#[cfg(test)]` modules inside source files
   (see the refactor roadmap).

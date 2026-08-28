@@ -1,0 +1,106 @@
+name: Quality (scheduled)
+
+# The full mutation sweeps — every mutant in a crate, not just the ones in
+# a PR diff. Too slow for the per-PR path (`mutants-web` / `mutants-web-app`
+# in ci-cd.yml run `--in-diff`); run weekly instead, sharded across
+# parallel jobs. A red `mutants-full` is the signal to strengthen tests
+# and, if it stays red, to restore `continue-on-error` on the blocking
+# `mutants-web` job. `mutants-full-app` (apps/web) and `stryker-desktop`
+# are report-only — they track the survivor lists still being worked down.
+on:
+  schedule:
+    - cron: '17 4 * * 1' # Mondays 04:17 UTC — off-peak, once a week
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  mutants-full:
+    name: Full mutation sweep — protocol + signaling (shard ${{ matrix.shard }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      # SHARD_COUNT: keep this list's length equal to the `/N` below. A
+      # mismatch makes `--shard k/N` skip or double-cover mutants.
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: cargo-mutants (protocol + signaling)
+        run: |
+          cargo mutants --no-shuffle -vV --in-place \
+            -p screen-share-protocol -p screen-share-signaling \
+            --shard ${{ matrix.shard }}/4
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-full-${{ matrix.shard }}
+          path: mutants.out/
+
+  mutants-full-app:
+    name: Full mutation sweep — apps/web ssr-live files (shard ${{ matrix.shard }}, report-only)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-mutants
+      - name: cargo-mutants (screen_share, ssr-live files only)
+        run: |
+          # Only the apps/web files that compile under `--features ssr` —
+          # see the matching note in `mutants-web-app` (ci-cd.yml). Keep
+          # the two lists in sync.
+          cargo mutants --no-shuffle -vV --in-place \
+            --features ssr -p screen_share \
+            -f 'apps/web/src/components/palette.rs' \
+            -f 'apps/web/src/components/status.rs' \
+            -f 'apps/web/src/components/status_message.rs' \
+            -f 'apps/web/src/features/room/grid.rs' \
+            -f 'apps/web/src/features/home/join_room.rs' \
+            -f 'apps/web/src/session/quality.rs' \
+            --shard ${{ matrix.shard }}/2
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutants-full-app-${{ matrix.shard }}
+          path: mutants.out/
+
+  stryker-desktop:
+    name: StrykerJS mutation — desktop (report-only)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: desktop/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+        working-directory: desktop
+      - run: pnpm run test:mutation
+        working-directory: desktop
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stryker-desktop
+          path: desktop/reports/mutation/

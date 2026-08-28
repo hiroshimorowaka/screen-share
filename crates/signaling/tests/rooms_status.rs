@@ -49,7 +49,16 @@ async fn room_status_reports_existing_room_with_name_and_member_count() {
     .await
     .unwrap();
 
-    let room = match ws.next().await.unwrap().unwrap() {
+    // Bounded so a mutant that suppresses the `Joined` reply fails the
+    // test instead of hanging it (matching the helpers in the other
+    // signaling test files); 5s is orders of magnitude over the real
+    // in-process round trip.
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(5), ws.next())
+        .await
+        .expect("timed out waiting for the Joined reply")
+        .expect("websocket closed before the Joined reply")
+        .unwrap();
+    let room = match frame {
         Message::Text(text) => match serde_json::from_str::<ServerMessage>(&text).unwrap() {
             ServerMessage::Joined { room, .. } => room,
             other => panic!("esperava Joined, recebeu {other:?}"),

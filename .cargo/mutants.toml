@@ -1,0 +1,38 @@
+# cargo-mutants configuration. https://mutants.rs/config-file.html
+#
+# Scope note: `screen-share-protocol` / `screen-share-signaling` are
+# selected with `-p` and need no Cargo features (the blocking `mutants-web`
+# job + `mutants-full`). `screen_share` (`apps/web`) is a separate
+# `-p screen_share --features ssr` invocation — report-only
+# (`mutants-web-app` / `mutants-full-app`) while its survivor list is worked
+# down. `--features ssr` stays on the command line, not here, so it never
+# reaches the two feature-less crates.
+
+# Framework glue and debug-only code: no logic worth mutating, and they
+# balloon the `screen_share` run.
+exclude_globs = [
+    "apps/web/src/main.rs",
+    "apps/web/src/lib.rs",
+    "apps/web/src/app.rs",
+    "apps/web/src/features/room/dev_preview.rs", # #[cfg(debug_assertions)] test bench
+    # In-source test modules — cargo-mutants can't `cfg`-evaluate these
+    # away and `#[wasm_bindgen_test]` isn't a recognised test attribute,
+    # so without this it "mutates" the test bodies themselves.
+    "**/*_tests.rs",
+    "**/*_wasm_tests.rs",
+]
+
+# Kill a mutant that spins in an infinite loop instead of waiting out the
+# global timeout: 5x the measured baseline `cargo test` duration, floored
+# at 60s so a fast baseline does not produce a punishingly tight bound.
+timeout_multiplier = 5.0
+minimum_test_timeout = 60
+
+# `TurnConfig::from_env` is a two-line `std::env::var` read that delegates
+# every branch to `from_vars` (thoroughly unit-tested). Its own mutants
+# ("-> None", "delete !") can only be caught by mutating process-global
+# env vars, which is racy under parallel tests and `unsafe` in edition
+# 2024. The logic that matters is covered; the plumbing is excluded.
+exclude_re = [
+    "TurnConfig::from_env",
+]

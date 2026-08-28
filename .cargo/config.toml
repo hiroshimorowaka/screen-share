@@ -14,3 +14,8 @@ LEPTOS_OUTPUT_NAME = "screen_share"
 # https://wasm-bindgen.github.io/wasm-bindgen/web-sys/unstable-apis.html.
 # Scoped to the wasm target only so the native ssr build is unaffected.
 rustflags = ["--cfg=web_sys_unstable_apis"]
+# Runs `#[wasm_bindgen_test]` suites in a headless browser. Only affects
+# `cargo test` for this target; `cargo leptos build` runs `cargo build`,
+# which ignores `runner`. Install it with `wasm-bindgen-cli` at the exact
+# version of the `wasm-bindgen` crate in Cargo.lock.
+runner = "wasm-bindgen-test-runner"

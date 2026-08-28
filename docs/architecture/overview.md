@@ -40,6 +40,7 @@ invariants" for the enforced rules.
 | Why a dumb central relay instead of a smart server | [0002](../decisions/0002-signaling-relay-architecture.md) |
 | Why peer-to-peer WebRTC, and the `RoomSession` seam | [0003](../decisions/0003-webrtc-p2p-and-roomsession.md) |
 | Why Electron (not Tauri), and Rust/napi for Windows audio | [0004](../decisions/0004-desktop-electron-and-windows-native-audio.md) |
+| Layered automated tests, mutation testing, CI as the gate | [0005](../decisions/0005-quality-gate.md) |
 
 ## Runtime shape
 

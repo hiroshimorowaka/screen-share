@@ -477,3 +477,7 @@ pub(crate) fn build_message_handler(
         }
     }
 }
+
+#[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
+#[path = "handler_wasm_tests.rs"]
+mod wasm_tests;

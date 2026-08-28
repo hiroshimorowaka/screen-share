@@ -5,6 +5,12 @@ import { isQuitting } from '#main/lifecycle.js';
 
 const PROD_URL = 'https://screen-share-h0rb5w.fly.dev/';
 
+/** The web app the shell wraps. Overridable via `SCREEN_SHARE_URL` so a
+ * dev can point the desktop app at a local `cargo leptos serve`, and so
+ * the `_electron` E2E can load a deterministic page instead of hitting
+ * production. Unset in every shipped build — defaults to `PROD_URL`. */
+const APP_URL = process.env.SCREEN_SHARE_URL ?? PROD_URL;
+
 let mainWindow: BrowserWindow | null = null;
 
 export function createMainWindow(): void {
@@ -19,7 +25,7 @@ export function createMainWindow(): void {
       preload: path.join(__dirname, '..', 'preload.js'),
     },
   });
-  mainWindow.loadURL(PROD_URL);
+  mainWindow.loadURL(APP_URL);
 
   mainWindow.on('close', (event) => {
     if (!isQuitting()) {
@@ -42,7 +48,7 @@ export function showMainWindow(): void {
  * was; it only becomes visible if the user separately opens it. */
 export function startQuickShare(): void {
   if (!mainWindow) return;
-  const url = new URL(PROD_URL);
+  const url = new URL(APP_URL);
   url.searchParams.set('quick_share', '1');
   mainWindow.loadURL(url.toString());
 }

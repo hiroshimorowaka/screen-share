@@ -1,0 +1,14 @@
+{
+  "name": "screen-share-e2e",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Playwright end-to-end tests for the screen-share web app.",
+  "type": "commonjs",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@types/node": "^26.4.0"
+  }
+}

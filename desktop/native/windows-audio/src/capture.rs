@@ -305,3 +305,32 @@ impl SessionHandle {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::should_include;
+
+    const OWN: &str = "screen-share.exe";
+
+    #[test]
+    fn self_playback_is_always_excluded() {
+        // Even in "window" mode targeting our own exe — a share must never
+        // sweep this app's own output back into a mix it produces.
+        assert!(!should_include("window", &Some(OWN.into()), &[], OWN, OWN));
+        assert!(!should_include("screen", &None, &[], OWN, OWN));
+    }
+
+    #[test]
+    fn window_mode_includes_only_the_target_binary() {
+        assert!(should_include("window", &Some("chrome.exe".into()), &[], OWN, "chrome.exe"));
+        assert!(!should_include("window", &Some("chrome.exe".into()), &[], OWN, "spotify.exe"));
+        assert!(!should_include("window", &None, &[], OWN, "chrome.exe"));
+    }
+
+    #[test]
+    fn screen_mode_includes_everything_except_the_excluded_binaries() {
+        let excluded = ["discord.exe".to_string(), "spotify.exe".to_string()];
+        assert!(should_include("screen", &None, &excluded, OWN, "chrome.exe"));
+        assert!(!should_include("screen", &None, &excluded, OWN, "discord.exe"));
+    }
+}

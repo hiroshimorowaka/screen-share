@@ -1,0 +1,155 @@
+import { type BrowserContext, type Page, expect, test } from '@playwright/test';
+
+// The manual two-tab checklist from CLAUDE.md, automated: two members in
+// one room, each a separate browser context (own storage, own peer id).
+// The sharer's screen capture and both peer connections are real; only
+// the captured media is synthetic (the fake-device Chromium flags in
+// playwright.config.ts).
+
+// A watched stream should paint within this window once the peer
+// connection is up — generous for a CI box under xvfb.
+const MEDIA_SETTLE_MS = 15_000;
+
+async function videoState(page: Page, cardNick: string) {
+  return page
+    .locator('.card', { hasText: cardNick })
+    .locator('video')
+    .nth(1) // [0] is the self-preview slot, [1] is the peer slot
+    .evaluate((v: HTMLVideoElement) => ({
+      readyState: v.readyState,
+      width: v.videoWidth,
+    }));
+}
+
+async function joinRoom(context: BrowserContext, url: string, nick: string): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto(url);
+  await expect(page.getByRole('heading', { name: 'Entrar na sala' })).toBeVisible();
+  await page.getByLabel('Nick').fill(nick);
+  await page.getByRole('button', { name: 'Entrar' }).click();
+  await expect(page.locator('#member-grid')).toBeVisible();
+  return page;
+}
+
+async function createPublicRoom(context: BrowserContext, nick: string, roomName: string) {
+  const page = await context.newPage();
+  await page.goto('/');
+  await page.getByLabel('Nick').fill(nick);
+  await page.getByLabel('Nome da sala').fill(roomName);
+  await page.getByLabel('Sala pública (sem senha)').check();
+  await page
+    .locator('.panel', { hasText: 'Criar sala' })
+    .getByRole('button', { name: 'Criar sala' })
+    .click();
+  await expect(page).toHaveURL(/\/r\/[A-Z0-9]+$/);
+  return { page, url: page.url() };
+}
+
+const SHARE_BUTTON = 'Compartilhar ou parar de compartilhar minha tela';
+
+async function watchSharer(viewer: Page, sharerNick: string) {
+  await expect(viewer.locator('.card', { hasText: sharerNick }).locator('.card__watch-pill')).toBeVisible();
+  await viewer.locator('.card', { hasText: sharerNick }).click();
+  await expect
+    .poll(async () => (await videoState(viewer, sharerNick)).readyState, { timeout: MEDIA_SETTLE_MS })
+    .toBeGreaterThanOrEqual(2);
+}
+
+test('two members: share, watch, real media flows, then teardown', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+
+  // Ana creates a public room and is dropped straight into it.
+  const ana = await anaCtx.newPage();
+  await ana.goto('/');
+  await ana.getByLabel('Nick').fill('Ana');
+  await ana.getByLabel('Nome da sala').fill('Sala P2P');
+  await ana.getByLabel('Sala pública (sem senha)').check();
+  await ana.locator('.panel', { hasText: 'Criar sala' }).getByRole('button', { name: 'Criar sala' }).click();
+  await expect(ana).toHaveURL(/\/r\/[A-Z0-9]+$/);
+  const roomUrl = ana.url();
+
+  // Bob joins the same room.
+  const bob = await joinRoom(bobCtx, roomUrl, 'Bob');
+  await expect(ana.locator('.card__nick', { hasText: 'Bob' })).toBeVisible();
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+
+  // Starting a share only lights up a "watch" affordance — it pushes no
+  // video on its own.
+  await ana.getByRole('button', { name: 'Compartilhar ou parar de compartilhar minha tela' }).click();
+  await expect(bob.locator('.card', { hasText: 'Ana' }).locator('.card__watch-pill')).toBeVisible();
+  expect((await videoState(bob, 'Ana')).readyState).toBe(0);
+
+  // Bob watches Ana's card — the whole tile is the watch affordance.
+  await bob.locator('.card', { hasText: 'Ana' }).click();
+
+  await expect
+    .poll(async () => (await videoState(bob, 'Ana')).readyState, { timeout: MEDIA_SETTLE_MS })
+    .toBeGreaterThanOrEqual(2);
+  expect((await videoState(bob, 'Ana')).width).toBeGreaterThan(0);
+  await expect(bob.locator('.card', { hasText: 'Ana' }).locator('.card__avatar')).toBeHidden();
+
+  // Ana stops sharing from the in-app control — Bob's view tears down and
+  // the card falls back to the avatar.
+  await ana.getByRole('button', { name: 'Compartilhar ou parar de compartilhar minha tela' }).click();
+  await expect(bob.locator('.card', { hasText: 'Ana' }).locator('.card__avatar')).toBeVisible();
+
+  await anaCtx.close();
+  await bobCtx.close();
+});
+
+test('a watcher reload mid-session silently rejoins and keeps the roster', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+
+  const ana = await anaCtx.newPage();
+  await ana.goto('/');
+  await ana.getByLabel('Nick').fill('Ana');
+  await ana.getByLabel('Nome da sala').fill('Sala reload');
+  await ana.getByLabel('Sala pública (sem senha)').check();
+  await ana.locator('.panel', { hasText: 'Criar sala' }).getByRole('button', { name: 'Criar sala' }).click();
+  await expect(ana).toHaveURL(/\/r\/[A-Z0-9]+$/);
+
+  const bob = await joinRoom(bobCtx, ana.url(), 'Bob');
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+
+  await bob.reload();
+
+  // No nick gate this time — the tab-scoped session rejoins on its own.
+  await expect(bob.locator('#member-grid')).toBeVisible();
+  await expect(bob.getByRole('heading', { name: 'Entrar na sala' })).toBeHidden();
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+
+  await anaCtx.close();
+  await bobCtx.close();
+});
+
+test('one watcher stopping does not disturb another watching the same sharer', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+  const caioCtx = await browser.newContext();
+
+  const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala 3-vias');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+  const caio = await joinRoom(caioCtx, url, 'Caio');
+
+  await ana.getByRole('button', { name: SHARE_BUTTON }).click();
+  await watchSharer(bob, 'Ana');
+  await watchSharer(caio, 'Ana');
+
+  // Bob stops watching — his own tile falls back to the avatar.
+  const anaCardOnBob = bob.locator('.card', { hasText: 'Ana' });
+  await anaCardOnBob.hover();
+  await anaCardOnBob.getByRole('button', { name: 'Parar de assistir' }).click();
+  await expect(anaCardOnBob.locator('.card__avatar')).toBeVisible();
+
+  // Caio's independent connection keeps decoding frames.
+  await expect
+    .poll(async () => (await videoState(caio, 'Ana')).readyState, { timeout: 5_000 })
+    .toBeGreaterThanOrEqual(2);
+  expect((await videoState(caio, 'Ana')).width).toBeGreaterThan(0);
+
+  await anaCtx.close();
+  await bobCtx.close();
+  await caioCtx.close();
+});

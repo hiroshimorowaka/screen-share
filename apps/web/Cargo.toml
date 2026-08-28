@@ -69,6 +69,13 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "console",
 ] }
 
+[dev-dependencies]
+# Browser test harness for the `hydrate` (wasm32) code path. Its version
+# must stay compatible with the `wasm-bindgen` version in Cargo.lock
+# (the two crates are released in lockstep); `wasm-bindgen-test` pins an
+# exact `=` requirement on `wasm-bindgen`, so Cargo enforces the pairing.
+wasm-bindgen-test = "=0.3.77"
+
 [features]
 hydrate = [
     "leptos/hydrate",
