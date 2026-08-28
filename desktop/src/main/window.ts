@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron';
 import * as path from 'path';
 
-import { isQuitting } from './lifecycle.js';
+import { isQuitting } from '#main/lifecycle.js';
 
 const PROD_URL = 'https://screen-share-h0rb5w.fly.dev/';
 

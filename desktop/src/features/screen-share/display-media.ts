@@ -1,7 +1,7 @@
 import { session } from 'electron';
 
-import { loadAudioBackend } from '../audio-share/backend.js';
-import { showSourcePicker } from './picker.js';
+import { loadAudioBackend } from '#features/audio-share/backend.js';
+import { showSourcePicker } from '#features/screen-share/picker.js';
 
 export async function registerDisplayMediaHandler(): Promise<void> {
   const { startAudioLoopback, resolveAudioTarget } = await loadAudioBackend();

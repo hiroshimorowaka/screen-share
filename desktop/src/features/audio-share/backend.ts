@@ -1,4 +1,4 @@
-import type { AudioShareTarget, ShareChoice } from '../../ipc/types.js';
+import type { AudioShareTarget, ShareChoice } from '#ipc/types.js';
 
 /** The platform's audio-loopback implementation: PipeWire on Linux,
  * WASAPI (via `native/windows-audio`) on Windows. `resolveAudioTarget`
@@ -25,13 +25,13 @@ export function loadAudioBackend(): Promise<AudioBackend> {
   cached ??=
     process.platform === 'win32'
       ? Promise.all([
-          import('../../platform/windows/audio.js'),
-          import('../../platform/windows/process-identity.js'),
+          import('#platform/windows/audio.js'),
+          import('#platform/windows/process-identity.js'),
         ]).then(([audio, identity]): AudioBackend => ({ ...audio, ...identity }))
       : Promise.all([
-          import('../../platform/linux/loopback.js'),
-          import('../../platform/linux/pipewire.js'),
-          import('../../platform/linux/process-identity.js'),
+          import('#platform/linux/loopback.js'),
+          import('#platform/linux/pipewire.js'),
+          import('#platform/linux/process-identity.js'),
         ]).then(
           ([loopback, pipewire, identity]): AudioBackend => ({
             ...loopback,

@@ -1,8 +1,8 @@
 import { Menu, Tray } from 'electron';
 import * as path from 'path';
 
-import { requestQuit } from './lifecycle.js';
-import { showMainWindow, startQuickShare } from './window.js';
+import { requestQuit } from '#main/lifecycle.js';
+import { showMainWindow, startQuickShare } from '#main/window.js';
 
 let tray: Tray | null = null;
 

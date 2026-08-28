@@ -53,6 +53,14 @@ Channel-name strings stay as literals in both `preload.ts` and its main
 shared `channels.ts` — the sandboxed preload can only `import type`, so a
 shared runtime constants module would not reach it.
 
+Intra-`src` imports use Node subpath imports (`#…`), not `../` chains —
+`package.json` `"imports"` maps `#*` to `./src/*` for the type-checker
+(the `types` condition) and `./dist/*` at runtime (`default`), and
+`#native/*` to `./native/*`. No bundler or `tsc-alias`: `tsc` emits the
+`#…` specifier verbatim and Node resolves it. (`@`-style aliases would
+need build-time rewriting, which the `typescript@7` native preview
+compiler in use here can't drive.)
+
 `__dirname`-relative runtime paths after the renest: `main/window.ts` and
 `features/screen-share/picker.ts` load `../…/preload.js`; `main/tray.ts`
 loads `../../icons/tray-icon.png`; `picker.ts` loads

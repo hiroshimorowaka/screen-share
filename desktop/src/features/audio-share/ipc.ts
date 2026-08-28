@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron';
 
-import type { AudioShareTarget } from '../../ipc/types.js';
-import { loadAudioBackend } from './backend.js';
+import type { AudioShareTarget } from '#ipc/types.js';
+import { loadAudioBackend } from '#features/audio-share/backend.js';
 
 // Cached once `registerAudioIpcHandlers` resolves the platform backend,
 // so `stopAudioLoopbackNow` can call it synchronously — `before-quit`

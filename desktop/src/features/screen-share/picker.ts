@@ -1,8 +1,8 @@
 import { BrowserWindow, desktopCapturer, ipcMain } from 'electron';
 import * as path from 'path';
 
-import { getMainWindow } from '../../main/window.js';
-import type { PickerChoice, PickerSource, ShareChoice } from '../../ipc/types.js';
+import { getMainWindow } from '#main/window.js';
+import type { PickerChoice, PickerSource, ShareChoice } from '#ipc/types.js';
 
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {

@@ -1,6 +1,6 @@
-import { getMainWindow } from '../../main/window.js';
-import type { AudioShareTarget } from '../../ipc/types.js';
-import { listActiveAudioProcesses, WindowsAudioSession } from '../../../native/windows-audio/index.js';
+import { getMainWindow } from '#main/window.js';
+import type { AudioShareTarget } from '#ipc/types.js';
+import { listActiveAudioProcesses, WindowsAudioSession } from '#native/windows-audio/index.js';
 
 let activeSession: WindowsAudioSession | null = null;
 

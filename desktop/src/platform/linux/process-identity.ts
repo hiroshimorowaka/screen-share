@@ -1,8 +1,8 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
-import type { AudioShareTarget, ShareChoice } from '../../ipc/types.js';
-import { runCollectingStdout } from '../run-command.js';
+import type { AudioShareTarget, ShareChoice } from '#ipc/types.js';
+import { runCollectingStdout } from '#platform/run-command.js';
 
 /** This app's own binary name, so its own audio playback (e.g. a member
  * watching someone's share, including their own, in this same app) can

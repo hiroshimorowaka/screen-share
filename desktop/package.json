@@ -9,6 +9,13 @@
   "homepage": "https://github.com/hiroshimorowaka/screen-share",
   "private": true,
   "main": "dist/main/index.js",
+  "imports": {
+    "#native/*": "./native/*",
+    "#*": {
+      "types": "./src/*",
+      "default": "./dist/*"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "start": "tsc && electron .",

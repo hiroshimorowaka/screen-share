@@ -1,5 +1,5 @@
-import type { AudioShareTarget, ShareChoice } from '../../ipc/types.js';
-import { getExeNameForPid, getPidForWindow } from '../../../native/windows-audio/index.js';
+import type { AudioShareTarget, ShareChoice } from '#ipc/types.js';
+import { getExeNameForPid, getPidForWindow } from '#native/windows-audio/index.js';
 
 export function parseWindowsWindowId(sourceId: string): number | null {
   const match = sourceId.match(/^window:(\d+):/);
