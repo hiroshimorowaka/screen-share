@@ -58,7 +58,7 @@ fn preset_for(tier: Tier) -> (u32, f32) {
 /// `None` for `QualityLevel::Auto` — it has no single tier of its own, it's
 /// `AdaptiveQuality` picking one continuously.
 #[cfg(any(test, feature = "hydrate"))]
-pub(super) fn tier_for(level: screen_share_protocol::QualityLevel) -> Option<Tier> {
+pub(crate) fn tier_for(level: screen_share_protocol::QualityLevel) -> Option<Tier> {
     use screen_share_protocol::QualityLevel;
     match level {
         QualityLevel::Auto => None,
@@ -227,7 +227,7 @@ const AUTO_POLL_INTERVAL_MS: i32 = 3_000;
 /// yet (no sender), which can happen if a quality change races the initial
 /// track being added.
 #[cfg(feature = "hydrate")]
-pub(super) async fn apply_tier(
+pub(crate) async fn apply_tier(
     pc: &web_sys::RtcPeerConnection,
     tier: Tier,
 ) -> Result<(), wasm_bindgen::JsValue> {
@@ -320,7 +320,7 @@ async fn read_reading(pc: &web_sys::RtcPeerConnection) -> Option<RawReading> {
 /// already be running for this viewer, or two intervals end up fighting
 /// over the same sender.
 #[cfg(feature = "hydrate")]
-pub(super) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_id: String) {
+pub(crate) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_id: String) {
     use std::cell::RefCell;
     use std::rc::Rc;
 

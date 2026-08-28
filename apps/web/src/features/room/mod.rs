@@ -2,10 +2,9 @@
 mod dev_preview;
 mod grid;
 mod invite;
-mod latency;
-mod media_controls;
+pub(crate) mod latency;
+pub(crate) mod media_controls;
 mod member_card;
-pub(crate) mod message_handler;
 pub(crate) mod quality;
 mod room_check;
 mod watch;

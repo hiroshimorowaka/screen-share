@@ -1,3 +1,4 @@
+pub mod handler;
 pub mod media;
 
 use leptos::prelude::*;
@@ -115,7 +116,7 @@ pub(crate) fn setup_room_connection(
     use crate::infra::storage::{ensure_device_id, save_profile};
     use screen_share_protocol::ClientMessage;
 
-    use crate::features::room::message_handler::build_message_handler;
+    use crate::session::handler::build_message_handler;
 
     let RoomSignals { set_status, .. } = signals;
 
@@ -184,9 +185,7 @@ pub(crate) fn adopt_pending_session(
 ) {
     use crate::infra::session;
 
-    use crate::features::room::message_handler::{
-        apply_joined_snapshot, build_message_handler, JoinedSnapshot,
-    };
+    use crate::session::handler::{apply_joined_snapshot, build_message_handler, JoinedSnapshot};
 
     let RoomSignals { set_status, .. } = signals;
 

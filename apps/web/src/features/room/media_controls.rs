@@ -70,7 +70,7 @@ pub(super) fn exit_fullscreen_if_active() -> bool {
 /// the browser stuck there — the fullscreen API has no idea the video
 /// feeding it just disappeared, so nothing else would exit it automatically.
 #[cfg(feature = "hydrate")]
-pub(super) fn exit_fullscreen_if_showing(peer_id: &str) -> bool {
+pub(crate) fn exit_fullscreen_if_showing(peer_id: &str) -> bool {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {
         return false;
     };

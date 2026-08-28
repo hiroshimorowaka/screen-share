@@ -33,7 +33,7 @@ fn send_ping(conn: &crate::session::RoomSession) {
 /// milliseconds — used to time a `Ping`/`Pong` round trip once the `Pong`
 /// arrives.
 #[cfg(feature = "hydrate")]
-pub(super) fn round_trip_ms_since(sent_at: f64) -> Option<u32> {
+pub(crate) fn round_trip_ms_since(sent_at: f64) -> Option<u32> {
     let performance = web_sys::window()?.performance()?;
     let elapsed = performance.now() - sent_at;
     Some(elapsed.max(0.0).round() as u32)
