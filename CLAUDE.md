@@ -84,19 +84,24 @@ produce a working page, because the server and the WASM bundle have to
 agree on an output-name that's only threaded through correctly by
 `cargo-leptos`'s own build/run flow (see `.cargo/config.toml`).
 
-Run the automated test suite:
+Run the automated test suite (from the repo root):
 
 ```bash
-cargo test --features ssr
+cargo test -p screen_share --features ssr
 ```
 
 Run a single test:
 
 ```bash
-cargo test --features ssr <test_name>
+cargo test -p screen_share --features ssr <test_name>
 # e.g.
-cargo test --features ssr create_room_registers_host_and_returns_code
+cargo test -p screen_share --features ssr create_room_registers_host_and_returns_code
 ```
+
+The `-p screen_share` scope is explicit so the command keeps working as
+the crate is split into a Cargo workspace (see the architecture-refactor
+roadmap in `docs/superpowers/plans/`). Once extra crates exist, run their
+tests with `cargo test -p <crate>`; `cargo test --workspace` runs all.
 
 Production build:
 
@@ -250,6 +255,47 @@ in an actual browser before being considered done.
 
 General practices to keep this codebase clean, testable, and cheap to
 extend as it grows past the pilot feature set.
+
+The mechanical, checklist-style Rust rules (naming, error handling,
+imports, the pre-commit checklist) live in `RUST_GUIDELINES.md`. This
+section owns the project-specific judgment calls; where the two overlap,
+this section wins.
+
+### Dependency invariants
+
+The codebase is being split into a Cargo workspace (see the
+architecture-refactor roadmap in `docs/superpowers/plans/`). These rules
+hold now and are enforced by the dependency graph once the crates exist:
+
+```
+core        →  (serde only)
+protocol    →  core
+signaling   →  core, protocol
+apps/web    →  core, protocol, signaling
+```
+
+- **Dependency direction.** Dependencies point toward lower-level
+  abstractions only. `core` depends on nothing but `serde`. `protocol`
+  may depend on `core`, never the reverse. Domain and protocol code
+  (`crates/core`, `crates/protocol`) must never depend on Axum, Tokio,
+  `web-sys`, `wasm-bindgen`, Leptos, Electron, or any OS API.
+- **UI components never do I/O.** A Leptos `#[component]` must not open a
+  `WebSocket`, construct an `RtcPeerConnection`, call `getDisplayMedia`,
+  touch `localStorage`, or reach into `crates/signaling`. It calls a
+  method on a `RoomSession` (or a plain helper) and renders signals.
+  Networking, signaling, and WebRTC lifecycle live in
+  `apps/web/src/infra` and `apps/web/src/session`.
+- **Platform code is isolated.** `process.platform` / `#[cfg(target_os)]`
+  branching lives only under a `platform/` module that exposes one
+  interface; the rest of the code depends on the interface, not the
+  branch.
+
+### Feature ownership
+
+Code belongs to the feature that owns it, not to the technology it
+happens to use. `features/room/member_card.rs`, not
+`components/room_member_card.rs`. `components/` holds only genuinely
+generic pieces (button, modal, status indicator, color picker).
 
 ### Engineering philosophy
 
