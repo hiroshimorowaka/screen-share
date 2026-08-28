@@ -36,13 +36,17 @@ desktop/src/
         └── process-identity.ts   hwnd→pid→exe via native/windows-audio
 ```
 
-`process.platform` branching is confined to two dynamic-import switches —
-`features/audio-share/ipc.ts` and `features/screen-share/display-media.ts`
-— each picking `platform/windows/*` or `platform/linux/*` at startup so a
-Linux process never even evaluates `native/windows-audio/index.js` (which
-throws on load off win32/x64). Folding both into one
-`features/audio-share/backend.ts` `AudioBackend` loader is a follow-up
-(Phase 6b).
+`process.platform` for audio is consulted in exactly one place:
+`features/audio-share/backend.ts`'s memoized `loadAudioBackend()`, which
+dynamically imports `platform/windows/*` or `platform/linux/*` once (so a
+Linux process never evaluates `native/windows-audio/index.js`, which
+throws on load off win32/x64) and returns an `AudioBackend`:
+`{ startAudioLoopback, stopAudioLoopback, listDistinctAudioApps,
+resolveAudioTarget }`. Both `features/audio-share/ipc.ts` and
+`features/screen-share/display-media.ts` depend on that loader, not on a
+`win32` check of their own. (`preload.ts` has its own `process.platform`
+check, renderer-side, gating the PCM-chunk IPC bridge — a separate
+concern, documented in place.)
 
 Channel-name strings stay as literals in both `preload.ts` and its main
 -process counterpart (with "must match … exactly" comments) rather than a
