@@ -46,8 +46,12 @@ Disponível pra **Linux (X11)** e **Windows**.
 
 Toda mudança em `desktop/` publicada em `main` gera instaladores novos
 automaticamente (veja [CI/CD](#cicd) abaixo) e os publica na aba
-**Releases** deste repositório, na tag `desktop-latest`: `.AppImage`/`.deb`
-pra Linux, instalador ou versão portátil (`.exe`) pra Windows.
+**Releases** deste repositório, numa tag `desktop-v<X.Y.Z>` com a versão
+atual: `.AppImage`/`.deb` pra Linux, instalador ou versão portátil
+(`.exe`) pra Windows. Cada PR que mexe em `desktop/` precisa subir a
+versão em `desktop/package.json` e descrever a mudança em
+`desktop/CHANGELOG.md` (em português, sem tecnicidade) — esse texto vira
+as notas da release.
 
 ### Rodando a partir do código
 

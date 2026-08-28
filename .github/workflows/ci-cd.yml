@@ -318,6 +318,29 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # StrykerJS `--since` needs the base branch
+      # Every PR that touches desktop/ must bump the version in
+      # desktop/package.json and add a matching `## X.Y.Z` section to
+      # desktop/CHANGELOG.md — that changelog is what
+      # `publish-desktop-release` turns into the GitHub release notes, so a
+      # desktop change with no user-facing note is a mistake, not a choice.
+      - if: github.event_name == 'pull_request'
+        name: Desktop version + changelog bump
+        run: |
+          base=$(git show "origin/${{ github.base_ref }}:desktop/package.json" | jq -r .version)
+          new=$(jq -r .version desktop/package.json)
+          echo "base version: $base — new version: $new"
+          if [ "$base" = "$new" ]; then
+            echo "::error::desktop/ changed but desktop/package.json is still $new. Bump it (patch for fixes, minor for features)."
+            exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$base" "$new" | sort -V | tail -1)" != "$new" ]; then
+            echo "::error::desktop/package.json version $new is not higher than the base version $base."
+            exit 1
+          fi
+          if ! grep -qE "^## +${new//./\\.}( |\$)" desktop/CHANGELOG.md; then
+            echo "::error::desktop/CHANGELOG.md has no '## $new' section for the new version."
+            exit 1
+          fi
       - uses: ./.github/actions/setup-desktop
       - run: pnpm run check   # Biome — lint + format + import order
         working-directory: desktop
@@ -439,21 +462,29 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           pattern: desktop-*
           path: dist-artifacts
           merge-multiple: true
-      # One rolling release, not a new one per push — re-publishing the
-      # same tag updates its assets in place instead of piling up a release
-      # per commit that happens to touch `desktop/`.
+      # One release per version (tag `desktop-v<X.Y.Z>`), named and
+      # described from `desktop/package.json` + `desktop/CHANGELOG.md`. The
+      # PR gate in `test-desktop` guarantees the version was bumped and has
+      # a changelog section, so this never re-publishes an existing tag.
+      - id: meta
+        name: Version + release notes from the desktop changelog
+        run: |
+          version=$(jq -r .version desktop/package.json)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          # Body = the top `## X.Y.Z` section of the changelog (its heading
+          # dropped), written in plain Portuguese for end users.
+          awk '/^## /{ if (seen) exit; seen=1; next } seen' desktop/CHANGELOG.md > release-notes.md
+          printf '\n---\nInstaladores gerados automaticamente do commit %s em `main`.\n' "${{ github.sha }}" >> release-notes.md
       - uses: softprops/action-gh-release@v2
         with:
-          tag_name: desktop-latest
-          name: Screen Share Desktop (latest)
-          body: >-
-            Instaladores gerados automaticamente a partir do commit
-            ${{ github.sha }} em `main`. Sempre reflete a última alteração
-            enviada ao app desktop.
+          tag_name: desktop-v${{ steps.meta.outputs.version }}
+          name: Screen Share Desktop v${{ steps.meta.outputs.version }}
+          body_path: release-notes.md
           prerelease: false
           files: dist-artifacts/*
