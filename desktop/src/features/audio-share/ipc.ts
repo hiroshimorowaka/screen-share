@@ -1,6 +1,6 @@
 import { ipcMain } from 'electron';
 
-import type { AudioShareTarget } from '../shared-types.js';
+import type { AudioShareTarget } from '../../ipc/types.js';
 
 // Cached once `registerAudioIpcHandlers` resolves its platform's backend,
 // so `stopAudioLoopbackNow` can call it synchronously — `before-quit`
@@ -12,8 +12,8 @@ let stopActiveAudioLoopback: (() => void) | null = null;
 export async function registerAudioIpcHandlers(): Promise<void> {
   const { startAudioLoopback, stopAudioLoopback, listDistinctAudioApps } =
     process.platform === 'win32'
-      ? await import('./windows/loopback-session.js')
-      : { ...(await import('./loopback-session.js')), ...(await import('./pipewire.js')) };
+      ? await import('../../platform/windows/audio.js')
+      : { ...(await import('../../platform/linux/loopback.js')), ...(await import('../../platform/linux/pipewire.js')) };
 
   stopActiveAudioLoopback = stopAudioLoopback;
 
@@ -31,7 +31,7 @@ export async function registerAudioIpcHandlers(): Promise<void> {
 /** Safe to call even before `registerAudioIpcHandlers` has resolved (a
  * no-op then, which only matters if `app.quit()` somehow fires before
  * `app.whenReady()` ever does — not a real scenario, but not worth a
- * crash either). Exists for `main.ts`'s `before-quit` handler, which
+ * crash either). Exists for `main/index.ts`'s `before-quit` handler, which
  * can't itself await the dynamic import `registerAudioIpcHandlers`
  * needs. */
 export function stopAudioLoopbackNow(): void {

@@ -1,8 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 
-import type { AudioShareTarget, PickerChoice, PickerSource } from './shared-types.js';
+import type { AudioShareTarget, PickerChoice, PickerSource } from './ipc/types.js';
 
-// Must match `SHARE_LINK_READY_CHANNEL` in `share.ts` exactly — kept as a
+// Must match `SHARE_LINK_READY_CHANNEL` in `features/screen-share/quick-share.ts` exactly — kept as a
 // literal, not a shared import, because the sandboxed preload script can't
 // `require()` local project files (only `import type`, erased at compile
 // time, survives here).

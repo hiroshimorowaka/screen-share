@@ -1,7 +1,7 @@
 import { app } from 'electron';
 
 /** Whether the app is shutting down for real, vs. just having its main
- * window closed — `main-window.ts`'s close handler checks this to decide
+ * window closed — `main/window.ts`'s close handler checks this to decide
  * between hiding (tray behavior) and letting the close proceed. */
 let quitting = false;
 

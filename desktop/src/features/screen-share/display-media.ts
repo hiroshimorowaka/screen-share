@@ -1,8 +1,8 @@
 import { session } from 'electron';
 
-import { parseX11WindowId, resolveProcessBinary, resolveWindowPid } from './audio/process-identity.js';
+import { parseX11WindowId, resolveProcessBinary, resolveWindowPid } from '../../platform/linux/process-identity.js';
 import { showSourcePicker } from './picker.js';
-import type { AudioShareTarget, ShareChoice } from './shared-types.js';
+import type { AudioShareTarget, ShareChoice } from '../../ipc/types.js';
 
 async function resolveLinuxAudioTarget(chosen: ShareChoice): Promise<AudioShareTarget | null> {
   if (chosen.source.id.startsWith('window:')) {
@@ -24,9 +24,9 @@ export async function registerDisplayMediaHandler(): Promise<void> {
   // even evaluates `native/windows-audio/index.js`, which throws at
   // load time on any platform other than win32/x64.
   const { startAudioLoopback } = isWindows
-    ? await import('./audio/windows/loopback-session.js')
-    : await import('./audio/loopback-session.js');
-  const windowsIdentity = isWindows ? await import('./audio/windows/process-identity.js') : null;
+    ? await import('../../platform/windows/audio.js')
+    : await import('../../platform/linux/loopback.js');
+  const windowsIdentity = isWindows ? await import('../../platform/windows/process-identity.js') : null;
 
   function resolveWindowsAudioTarget(chosen: ShareChoice): AudioShareTarget | null {
     if (!windowsIdentity) return null;

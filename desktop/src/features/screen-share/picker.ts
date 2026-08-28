@@ -1,8 +1,8 @@
 import { BrowserWindow, desktopCapturer, ipcMain } from 'electron';
 import * as path from 'path';
 
-import { getMainWindow } from './main-window.js';
-import type { PickerChoice, PickerSource, ShareChoice } from './shared-types.js';
+import { getMainWindow } from '../../main/window.js';
+import type { PickerChoice, PickerSource, ShareChoice } from '../../ipc/types.js';
 
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {
@@ -44,7 +44,7 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         minHeight: 480,
         skipTaskbar: true,
         webPreferences: {
-          preload: path.join(__dirname, 'preload.js'),
+          preload: path.join(__dirname, '..', '..', 'preload.js'),
         },
       });
 
@@ -79,7 +79,7 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
       }, 300);
 
       await pickerWindow.loadFile(
-        path.join(__dirname, '..', 'static', 'picker.html'),
+        path.join(__dirname, '..', '..', '..', 'static', 'picker.html'),
       );
       pickerWindow.webContents.send('picker:sources', pickerSources);
     })();

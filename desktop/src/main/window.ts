@@ -16,7 +16,7 @@ export function createMainWindow(): void {
     // user picks "Abrir" or triggers a share from the tray menu.
     show: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '..', 'preload.js'),
     },
   });
   mainWindow.loadURL(PROD_URL);

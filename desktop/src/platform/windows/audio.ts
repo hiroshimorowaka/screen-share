@@ -1,5 +1,5 @@
-import { getMainWindow } from '../../main-window.js';
-import type { AudioShareTarget } from '../../shared-types.js';
+import { getMainWindow } from '../../main/window.js';
+import type { AudioShareTarget } from '../../ipc/types.js';
 import { listActiveAudioProcesses, WindowsAudioSession } from '../../../native/windows-audio/index.js';
 
 let activeSession: WindowsAudioSession | null = null;
@@ -40,7 +40,7 @@ export function stopAudioLoopback(): void {
 /** Every currently playing app, one entry per distinct resolved
  * executable name (already deduplicated on the Rust side) — what the
  * picker shows in its exclusion list. Mirrors Linux's
- * `listDistinctAudioApps` in `pipewire.ts`. */
+ * `listDistinctAudioApps` in `platform/linux/pipewire.ts`. */
 export function listDistinctAudioApps(): Promise<{ binary: string; label: string }[]> {
   const processes = listActiveAudioProcesses();
   return Promise.resolve(processes.map((process) => ({ binary: process.exeName, label: process.exeName })));

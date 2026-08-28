@@ -1,6 +1,6 @@
 import type { ChildProcess } from 'child_process';
 
-import type { AudioShareTarget } from '../shared-types.js';
+import type { AudioShareTarget } from '../../ipc/types.js';
 import { linkNodeToMix, listAudioOutputStreams, spawnMixProcess, waitForMixSinkReady } from './pipewire.js';
 import { OWN_BINARY_NAME } from './process-identity.js';
 

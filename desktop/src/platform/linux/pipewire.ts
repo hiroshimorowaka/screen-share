@@ -1,6 +1,6 @@
 import { ChildProcess, spawn } from 'child_process';
 
-import { runCollectingStdout } from '../process-utils.js';
+import { runCollectingStdout } from '../run-command.js';
 
 /** Name of the virtual sink apps get pw-link'd into, and of its paired
  * Audio/Source — see `spawnMixProcess` for why these are two separate

@@ -5,7 +5,7 @@ export function parseWindowsWindowId(sourceId: string): number | null {
   return match ? parseInt(match[1], 10) : null;
 }
 
-/** Re-exported (and named to match) the Linux `process-identity.ts`'s
+/** Re-exported (and named to match) the Linux `platform/linux/process-identity.ts`'s
  * `resolveWindowPid`/`resolveProcessBinary` pair — both are direct native
  * calls here rather than a subprocess spawn, so neither needs a
  * `Promise` wrapper. `getPidForWindow` takes an hwnd and resolves it to

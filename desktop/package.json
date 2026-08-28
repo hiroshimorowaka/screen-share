@@ -8,7 +8,7 @@
   },
   "homepage": "https://github.com/hiroshimorowaka/screen-share",
   "private": true,
-  "main": "dist/main.js",
+  "main": "dist/main/index.js",
   "scripts": {
     "build": "tsc",
     "start": "tsc && electron .",

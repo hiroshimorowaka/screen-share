@@ -1,10 +1,10 @@
 import { app, Menu } from 'electron';
 
-import { registerAudioIpcHandlers, stopAudioLoopbackNow } from './audio/ipc-handlers.js';
-import { registerDisplayMediaHandler } from './display-media-handler.js';
+import { registerAudioIpcHandlers, stopAudioLoopbackNow } from '../features/audio-share/ipc.js';
+import { registerDisplayMediaHandler } from '../features/screen-share/display-media.js';
 import { markQuitting } from './lifecycle.js';
-import { createMainWindow } from './main-window.js';
-import { registerQuickShareIpcHandlers } from './share.js';
+import { createMainWindow } from './window.js';
+import { registerQuickShareIpcHandlers } from '../features/screen-share/quick-share.js';
 import { createTray } from './tray.js';
 
 app.on('before-quit', () => {

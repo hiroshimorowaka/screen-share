@@ -1,7 +1,7 @@
 import { clipboard, ipcMain, Notification } from 'electron';
 
 /** Copies the invite link the room page hands over once the tray's quick
- * share flow (see `main-window.ts`'s `startQuickShare`) has a stream
+ * share flow (see `main/window.ts`'s `startQuickShare`) has a stream
  * live — the room page's own window stays hidden throughout, so its
  * Clipboard API (which requires document focus) can't be relied on here.
  *
