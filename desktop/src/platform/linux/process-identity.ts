@@ -1,6 +1,7 @@
 import * as fs from 'fs/promises';
 import * as path from 'path';
 
+import type { AudioShareTarget, ShareChoice } from '../../ipc/types.js';
 import { runCollectingStdout } from '../run-command.js';
 
 /** This app's own binary name, so its own audio playback (e.g. a member
@@ -53,4 +54,22 @@ export function resolveProcessBinary(pid: number): Promise<string | null> {
     .readlink(`/proc/${pid}/exe`)
     .then((target) => path.basename(target))
     .catch(() => resolveProcessBinaryFromCmdline(pid));
+}
+
+/** Resolves a picked source into the loopback target: for a window, the
+ * owning process's binary name (matched against PipeWire's
+ * `application.process.binary`); for the whole screen, the caller's
+ * exclusion list passed straight through. Returns `null` if a window's
+ * owner can't be identified — the share then proceeds video-only. */
+export async function resolveAudioTarget(chosen: ShareChoice): Promise<AudioShareTarget | null> {
+  if (chosen.source.id.startsWith('window:')) {
+    const x11Id = parseX11WindowId(chosen.source.id);
+    if (x11Id === null) return null;
+    const pid = await resolveWindowPid(x11Id);
+    if (pid === null) return null;
+    const binary = await resolveProcessBinary(pid);
+    if (binary === null) return null;
+    return { mode: 'window', binary };
+  }
+  return { mode: 'screen', excludedBinaries: chosen.excludedBinaries };
 }

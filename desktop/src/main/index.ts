@@ -11,7 +11,7 @@ app.on('before-quit', () => {
   // Synchronous and already platform-resolved (see
   // `stopAudioLoopbackNow`) — `before-quit` doesn't wait for promises a
   // listener returns or kicks off, so resolving the backend here via a
-  // fresh `await import(...)` could lose the race against the process
+  // fresh `loadAudioBackend()` could lose the race against the process
   // actually exiting.
   stopAudioLoopbackNow();
   markQuitting();
