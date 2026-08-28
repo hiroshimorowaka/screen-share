@@ -7,10 +7,6 @@ import { runCollectingStdout } from '../run-command.js';
  * PipeWire nodes rather than one. */
 const MIX_SINK_NAME = 'screen_share_mix';
 const MIX_SOURCE_NAME = 'screen_share_mix_out';
-const MIX_PLAYBACK_PORTS = [
-  `${MIX_SINK_NAME}:playback_FL`,
-  `${MIX_SINK_NAME}:playback_FR`,
-];
 
 export interface AudioStreamInfo {
   id: number;
@@ -77,21 +73,21 @@ export async function waitForMixSinkReady(timeoutMs: number): Promise<void> {
   throw new Error(`Timed out waiting for node "${MIX_SINK_NAME}" to appear`);
 }
 
-async function listOutputPorts(nodeName: string): Promise<string[]> {
-  const output = await runCollectingStdout('pw-link', ['-o']);
-  const prefix = `${nodeName}:`;
-  return output
-    .split('\n')
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith(prefix));
-}
-
-export async function linkNodeToMix(nodeName: string): Promise<void> {
-  const outputs = await listOutputPorts(nodeName);
-  const count = Math.min(outputs.length, MIX_PLAYBACK_PORTS.length);
-  for (let i = 0; i < count; i++) {
-    spawn('pw-link', [outputs[i], MIX_PLAYBACK_PORTS[i]]);
-  }
+/** Links one output stream node — addressed by its PipeWire object id,
+ * never its `node.name` — into the mix sink. A single app can expose
+ * several output nodes sharing one `node.name`: every Chromium-based
+ * browser does (roughly one per audio context / tab), and only some are
+ * actually playing at any moment. A name-based `pw-link "<name>:<port>"`
+ * resolves the shared name to an arbitrary one of them — usually an idle
+ * node — so the browser's real audio never reached the mix (Spotify was
+ * unaffected only because it exposes a single output node).
+ *
+ * Given two node endpoints, `pw-link` auto-matches channels to the mix
+ * sink's `playback_FL`/`playback_FR`. Fire-and-forget: re-linking an
+ * already-linked pair just fails harmlessly, so this is safe to redo on
+ * every poll. */
+export function linkNodeToMix(nodeId: number): void {
+  spawn('pw-link', [String(nodeId), MIX_SINK_NAME]);
 }
 
 /** Creates the virtual mix: a Sink (`screen_share_mix`) that other apps'

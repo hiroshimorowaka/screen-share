@@ -37,9 +37,9 @@ function shouldIncludeFor(target: AudioShareTarget): (binary: string | null) => 
  * Chromium-based apps tear down and recreate their audio stream node
  * after a period of silence (confirmed live — a paused/idle tab's node
  * disappears and a fresh one appears on the next playback), so "link
- * once and remember the name" left later replacement nodes never linked
- * at all. Re-linking an already-connected pair just fails harmlessly
- * (the exit code isn't checked), so this is safe to redo every second. */
+ * once and remember the id" left later replacement nodes never linked at
+ * all. Re-linking an already-connected pair just fails harmlessly (the
+ * exit code isn't checked), so this is safe to redo every second. */
 async function scanAndLink(): Promise<void> {
   if (!audioSession) return;
   const streams = await listAudioOutputStreams();
@@ -54,9 +54,14 @@ async function scanAndLink(): Promise<void> {
     }
   }
 
-  for (const nodeName of binaryByName.keys()) {
-    if (!audioSession.shouldInclude(binaryByName.get(nodeName) ?? null)) continue;
-    await linkNodeToMix(nodeName);
+  // Link every individual included stream node, by id — an app with
+  // several nodes under one node.name (every Chromium browser) needs all
+  // of its currently-playing nodes linked, not just whichever one a
+  // shared name resolves to. See `linkNodeToMix`.
+  for (const stream of streams) {
+    if (!stream.nodeName) continue;
+    if (!audioSession.shouldInclude(binaryByName.get(stream.nodeName) ?? null)) continue;
+    linkNodeToMix(stream.id);
   }
 }
 
