@@ -10,4 +10,10 @@ pub mod registry;
 pub mod rooms_status;
 
 #[cfg(feature = "ssr")]
+pub mod state;
+
+#[cfg(feature = "ssr")]
+pub mod turn;
+
+#[cfg(feature = "ssr")]
 pub mod ws;

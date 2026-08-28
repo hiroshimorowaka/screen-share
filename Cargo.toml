@@ -48,6 +48,8 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "RtcTrackEvent",
     "RtcIceConnectionState",
     "RtcRtpSender",
+    "RtcRtpParameters",
+    "RtcRtpEncodingParameters",
     "HtmlVideoElement",
     "HtmlMediaElement",
     "Element",
@@ -68,6 +70,9 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "console",
 ] }
 argon2 = { version = "0.5.3", optional = true, features = ["std"] }
+hmac = { version = "0.12", optional = true }
+sha1 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [features]
 hydrate = [
@@ -86,6 +91,9 @@ ssr = [
     "dep:rand",
     "dep:futures-util",
     "dep:argon2",
+    "dep:hmac",
+    "dep:sha1",
+    "dep:base64",
     "leptos/ssr",
     "leptos_meta/ssr",
     "leptos_router/ssr",

@@ -8,6 +8,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use screen_share::signaling::registry::Registry;
     use screen_share::signaling::rooms_status::room_status_handler;
+    use screen_share::signaling::state::SignalingState;
+    use screen_share::signaling::turn::TurnConfig;
     use screen_share::signaling::ws::ws_handler;
     use screen_share::ui::app::{shell, App};
 
@@ -16,7 +18,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let leptos_options = conf.leptos_options;
     let routes = generate_route_list(App);
 
-    let signaling_state = Registry::new();
+    let turn = TurnConfig::from_env();
+    log!("TURN server: {}", if turn.is_some() { "configured" } else { "not configured (STUN-only ICE)" });
+    let signaling_state = SignalingState { registry: Registry::new(), turn };
     let signaling_router = Router::new()
         .route("/ws", get(ws_handler))
         .route("/api/rooms/{code}", get(room_status_handler))

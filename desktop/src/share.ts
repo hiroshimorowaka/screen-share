@@ -1,4 +1,4 @@
-import { clipboard, ipcMain } from 'electron';
+import { clipboard, ipcMain, Notification } from 'electron';
 
 /** Copies the invite link the room page hands over once the tray's quick
  * share flow (see `main-window.ts`'s `startQuickShare`) has a stream
@@ -11,5 +11,14 @@ import { clipboard, ipcMain } from 'electron';
 export function registerQuickShareIpcHandlers(): void {
   ipcMain.on('desktop-share:link-ready', (_event, link: string) => {
     clipboard.writeText(link);
+  });
+
+  // Same rationale as above: the room page's window is hidden/backgrounded
+  // for most of a desktop session, so an OS-level notification is the only
+  // reliable way to surface this. Channel name matches `preload.ts`'s
+  // `desktopShare.memberJoined` exactly.
+  ipcMain.on('desktop-share:member-joined', (_event, nick: string) => {
+    if (!Notification.isSupported()) return;
+    new Notification({ title: 'Screen Share', body: `${nick} entrou na sala.` }).show();
   });
 }

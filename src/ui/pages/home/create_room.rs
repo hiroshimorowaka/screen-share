@@ -20,6 +20,7 @@ pub fn create_room_handler(
     _color: ReadSignal<String>,
     _room_name: ReadSignal<String>,
     _password: ReadSignal<String>,
+    _public_room: ReadSignal<bool>,
     _set_status: WriteSignal<String>,
     _set_submitting: WriteSignal<bool>,
 ) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
@@ -32,6 +33,7 @@ pub fn create_room_handler(
     color: ReadSignal<String>,
     room_name: ReadSignal<String>,
     password: ReadSignal<String>,
+    public_room: ReadSignal<bool>,
     set_status: WriteSignal<String>,
     set_submitting: WriteSignal<bool>,
 ) -> impl Fn(leptos::ev::SubmitEvent) + 'static {
@@ -42,11 +44,19 @@ pub fn create_room_handler(
         let color_value = color.get_untracked();
         let room_name_value = room_name.get_untracked().trim().to_string();
         let password_value = password.get_untracked();
+        let is_public = public_room.get_untracked();
         if nick_value.is_empty() || room_name_value.is_empty() {
             set_status.set("Preencha o nick e o nome da sala.".to_string());
             return;
         }
-        let password_value = (!password_value.is_empty()).then_some(password_value);
+        // A blank password is only valid as a *deliberate* public room —
+        // otherwise it's someone forgetting to set one, not choosing to
+        // skip it.
+        if !is_public && password_value.is_empty() {
+            set_status.set("Digite uma senha ou marque \"sala pública\".".to_string());
+            return;
+        }
+        let password_value = (!is_public && !password_value.is_empty()).then_some(password_value);
 
         submit_create_room(nick_value, color_value, room_name_value, password_value, set_status, set_submitting, false);
     }
@@ -94,7 +104,7 @@ pub fn submit_create_room(
         let color_value = color_value.clone();
         let password_value = password_value.clone();
         move |msg: ServerMessage| {
-            if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers, .. } = msg {
+            if let ServerMessage::Joined { peer_id, room, room_name, members, active_sharers, turn, .. } = msg {
                 save_profile(&Profile { nick: nick_value.clone(), color: color_value.clone() });
                 save_recent_room(RecentRoom { code: room.clone(), name: room_name.clone() });
                 save_last_room_name(&room_name);
@@ -111,6 +121,7 @@ pub fn submit_create_room(
                         members,
                         active_sharers,
                         requires_password,
+                        turn,
                     });
                 }
                 let target = if quick_share {

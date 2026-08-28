@@ -8,6 +8,7 @@ import type { AudioShareTarget, PickerChoice, PickerSource } from './shared-type
 // time, survives here).
 contextBridge.exposeInMainWorld('desktopShare', {
   linkReady: (link: string) => ipcRenderer.send('desktop-share:link-ready', link),
+  memberJoined: (nick: string) => ipcRenderer.send('desktop-share:member-joined', nick),
 });
 
 contextBridge.exposeInMainWorld('picker', {

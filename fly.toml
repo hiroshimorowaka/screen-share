@@ -9,6 +9,20 @@ primary_region = "gru"
   LEPTOS_SITE_ROOT = "site"
   LEPTOS_SITE_PKG_DIR = "pkg"
   LEPTOS_ENV = "PROD"
+  # TURN_SECRET is NOT set here, it's a secret:
+  #   fly secrets set TURN_SECRET=$(openssl rand -hex 32)
+  #
+  # TURN_RELAY_IP pins coturn's actual relay sockets to this machine's own
+  # private address (`grep 'Private address' -A1 /etc/hosts` over SSH) rather
+  # than letting it auto-discover every local interface. Needed because
+  # Fly's dedicated IP is edge-routed, not bound to a real interface inside
+  # the VM — `turnutils_stunclient` run from inside this same VM against
+  # 137.66.9.162 hangs forever, confirming there's no NAT hairpin back to
+  # itself through the public IP. Will need updating if this machine is ever
+  # recreated with a different private address.
+  TURN_EXTERNAL_IP = "137.66.9.162"
+  TURN_RELAY_IP = "172.19.29.58"
+  TURN_URLS = "turn:137.66.9.162:3478"
 
 [http_service]
   internal_port = 8080
@@ -17,6 +31,32 @@ primary_region = "gru"
   auto_start_machines = true
   min_machines_running = 0
   processes = ["app"]
+
+# TURN control port (STUN + TURN allocate/refresh) and the relay port range
+# coturn hands out from — see docker-entrypoint.sh. Raw UDP, so these need a
+# *dedicated* IPv4/IPv6 on this app (`fly ips allocate-v4` /
+# `fly ips allocate-v6`) — the shared anycast IP Fly gives every app by
+# default is routed by SNI/Host header at L7 and can't carry plain UDP.
+#
+# `end_port` for a range is this repo's best current understanding of Fly's
+# schema, not something actually deployed yet — run `fly config validate`
+# after filling in real values below and before `fly deploy`.
+[[services]]
+  internal_port = 3478
+  protocol = "udp"
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 3478
+
+[[services]]
+  internal_port = 49160
+  protocol = "udp"
+  processes = ["app"]
+
+  [[services.ports]]
+    port = 49160
+    end_port = 49300
 
 [[vm]]
   size = "shared-cpu-1x"

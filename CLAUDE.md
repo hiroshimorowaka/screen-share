@@ -29,12 +29,13 @@ Default to minimal responses. Expand only when the user explicitly requests more
 
 ## What this project is
 
-A persistent, password-protected room where a small group can share their
-screens with each other — any number of them, at any time, not just one
-person presenting to the rest. Someone creates a room (it gets a short code,
-a name, and a password), shares the link and password with whoever should
-join, and from then on anyone in the room can start or stop sharing their
-own screen independently. Sharing and watching are decoupled, Discord-style:
+A persistent room where a small group can share their screens with each
+other — any number of them, at any time, not just one person presenting to
+the rest. Someone creates a room (it gets a short code and a name), choosing
+either a password or to make it explicitly public — anyone with the link can
+join a public room, no password needed. They share the link (and password,
+for a closed room) with whoever should join, and from then on anyone in the
+room can start or stop sharing their own screen independently. Sharing and watching are decoupled, Discord-style:
 starting a share never pushes video to anyone automatically — it just lights
 up a "watch" button on that member's card for everyone else. Watching
 someone is an explicit, per-person choice, made and revoked independently by
@@ -163,11 +164,20 @@ server, meaning and behavior on the client.
 ### Room lifecycle
 
 There is no host — every member of a room is equal. A room is identified by
-a short code and a name, and protected by a password (hashed with `argon2`,
-verified server-side); anyone with the code and password can join under
-whatever nick and color they choose, up to 10 members per room. Any member
-can start or stop sharing their own screen at any time, independently of
-what anyone else is doing, but a share alone opens no connections — it only
+a short code and a name, and is either password-protected (hashed with
+`argon2`, verified server-side) or explicitly public — the creator picks one
+of the two, never an accidental default: on the create-room form, the "sala
+pública" checkbox and the password field are mutually exclusive, and leaving
+the password blank without checking the box is a validation error, not a
+silent public room. Anyone with the code (and password, for a closed room)
+can join under whatever nick and color they choose, up to 10 members per
+room. Wrong-password attempts are rate-limited per client (keyed by IP, via
+Fly's `Fly-Client-IP` header — not the client-supplied `device_id`, which a
+client controls and can't be trusted for this) rather than per room, so one
+attacker guessing passwords can't lock out everyone else trying to join the
+same room. Any member can start or stop sharing their own screen at any
+time, independently of what anyone else is doing, but a share alone opens
+no connections — it only
 flips a flag every member sees on that person's card. A peer-to-peer
 connection between a sharer and a viewer only exists while that specific
 viewer has chosen to watch that specific sharer; a room with several active

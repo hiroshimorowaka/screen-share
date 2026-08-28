@@ -307,6 +307,22 @@
   height: 1.3rem;
 }
 
+.quality-select {
+  appearance: none;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 0.35rem;
+  color: var(--text);
+  font-size: 0.7rem;
+  padding: 0.2rem 0.4rem;
+  cursor: pointer;
+  height: 1.8rem;
+}
+
+.quality-select:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* The slider stays collapsed to just its icon until hovered/focused, then
    pops up above the button as a small floating vertical fader — same
    pattern as Discord/YouTube's volume control, so it doesn't eat into the

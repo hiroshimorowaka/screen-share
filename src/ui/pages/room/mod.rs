@@ -7,6 +7,7 @@ mod latency;
 mod media_controls;
 mod member_card;
 mod message_handler;
+mod quality;
 mod room_check;
 mod share;
 mod watch;
@@ -78,9 +79,12 @@ pub fn RoomPage() -> impl IntoView {
     let expanded = RwSignal::new(None::<String>);
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
+    let turn_credentials = RwSignal::new(None::<crate::signaling::protocol::TurnCredentials>);
     let own_preview_hidden = RwSignal::new(false);
     let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
+    let quality_by_peer =
+        RwSignal::new(std::collections::HashMap::<String, crate::signaling::protocol::QualityLevel>::new());
     let hide_idle = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
     let invite_copied = RwSignal::new(false);
@@ -100,6 +104,7 @@ pub fn RoomPage() -> impl IntoView {
         watchers_by_sharer,
         connection_errors,
         latency_by_peer,
+        turn_credentials,
     };
 
     let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
@@ -307,6 +312,7 @@ pub fn RoomPage() -> impl IntoView {
                     volume_by_peer,
                     muted_by_peer,
                     latency_by_peer,
+                    quality_by_peer,
                 })}
             </div>
             <div

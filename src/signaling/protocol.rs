@@ -26,6 +26,33 @@ pub struct LatencyInfo {
     pub ms: u32,
 }
 
+/// A short-lived TURN credential, minted server-side (see
+/// `signaling::turn`) and handed to a member only once they've actually
+/// authenticated into a room — never exposed through an unauthenticated
+/// endpoint, since a TURN relay is bandwidth anyone with the credential can
+/// spend. `username` embeds its own expiry, so the client never needs to
+/// know the TTL separately; it just holds onto these for the life of the
+/// WebSocket connection and reuses them for every peer connection it opens.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TurnCredentials {
+    pub urls: Vec<String>,
+    pub username: String,
+    pub password: String,
+}
+
+/// A viewer's chosen quality for one sharer's stream — set independently
+/// per (sharer, viewer) pair, since each is its own P2P connection. `Auto`
+/// hands control to the sharer's own bandwidth-adaptive monitor instead of
+/// pinning a fixed tier; see `ui::client::quality`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum QualityLevel {
+    Auto,
+    High,
+    Medium,
+    Low,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
@@ -53,6 +80,11 @@ pub enum ClientMessage {
         sdp_mid: Option<String>,
         sdp_m_line_index: Option<u16>,
     },
+    /// Sent by a viewer to change the quality of the stream they're
+    /// watching — only the sharer's `RTCRtpSender` for that one connection
+    /// can actually apply it, so this is relayed to them rather than
+    /// handled server-side (same shape as `Offer`/`Answer`).
+    SetQuality { to: String, quality: QualityLevel },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -66,10 +98,18 @@ pub enum ServerMessage {
         active_sharers: Vec<String>,
         watcher_info: Vec<WatcherInfo>,
         latencies: Vec<LatencyInfo>,
+        /// `None` when no TURN server is configured for this deployment —
+        /// callers fall back to STUN-only ICE in that case.
+        turn: Option<TurnCredentials>,
     },
     AuthFailed,
     RoomNotFound,
     RoomFull,
+    /// Too many wrong-password attempts against this room recently — see
+    /// `MAX_PASSWORD_ATTEMPTS` in `registry.rs`. Sent instead of
+    /// `AuthFailed` even if the password given this time was correct, so a
+    /// successful guess after brute-forcing gains nothing.
+    TooManyAttempts,
     PeerJoined { peer_id: String, nick: String, color: String },
     PeerLeft { peer_id: String },
     /// Sent only to whoever was disconnected by a same-device re-join — never
@@ -95,6 +135,7 @@ pub enum ServerMessage {
         sdp_mid: Option<String>,
         sdp_m_line_index: Option<u16>,
     },
+    QualityRequested { from: String, quality: QualityLevel },
 }
 
 /// Response for `GET /api/rooms/:code`. `name`/`member_count`/
@@ -180,6 +221,11 @@ mod tests {
             active_sharers: vec![],
             watcher_info: vec![WatcherInfo { sharer_id: "peer-1".to_string(), watchers: vec!["peer-2".to_string()] }],
             latencies: vec![LatencyInfo { peer_id: "peer-1".to_string(), ms: 42 }],
+            turn: Some(TurnCredentials {
+                urls: vec!["turn:example.com:3478".to_string()],
+                username: "1234567890".to_string(),
+                password: "s3cr3t-hash".to_string(),
+            }),
         };
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
@@ -275,6 +321,26 @@ mod tests {
         assert!(json.contains(r#""stream_owner":"peer-1""#));
 
         let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn set_quality_message_round_trips_through_json() {
+        let msg = ClientMessage::SetQuality { to: "peer-1".to_string(), quality: QualityLevel::Medium };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"set_quality","to":"peer-1","quality":"medium"}"#);
+
+        let parsed: ClientMessage = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed, msg);
+    }
+
+    #[test]
+    fn quality_requested_message_round_trips_through_json() {
+        let msg = ServerMessage::QualityRequested { from: "peer-2".to_string(), quality: QualityLevel::Auto };
+        let json = serde_json::to_string(&msg).unwrap();
+        assert_eq!(json, r#"{"type":"quality_requested","from":"peer-2","quality":"auto"}"#);
+
+        let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, msg);
     }
 }

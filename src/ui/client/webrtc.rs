@@ -45,6 +45,30 @@ pub fn notify_desktop_share_ready(link: &str) {
     let _ = link_ready.call1(&bridge, &JsValue::from_str(link));
 }
 
+/// Tells the desktop shell's `window.desktopShare.memberJoined` bridge that
+/// someone just joined the room, so it can raise a native OS notification —
+/// the room page's window stays hidden/backgrounded for most of a desktop
+/// session, so an in-page toast would go unseen. No-op in a plain browser
+/// tab, same as `notify_desktop_share_ready`.
+pub fn notify_desktop_member_joined(nick: &str) {
+    if !is_desktop_app() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
+        return;
+    };
+    let Ok(member_joined) = js_sys::Reflect::get(&bridge, &JsValue::from_str("memberJoined")) else {
+        return;
+    };
+    let Ok(member_joined) = member_joined.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = member_joined.call1(&bridge, &JsValue::from_str(nick));
+}
+
 pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let window = web_sys::window()
         .ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
@@ -280,14 +304,32 @@ fn combine_video_and_audio(
 /// signaling data ever passes through it.
 const STUN_SERVER_URL: &str = "stun:stun.l.google.com:19302";
 
-pub fn new_peer_connection() -> Result<RtcPeerConnection, JsValue> {
-    let ice_server = RtcIceServer::new();
-    let urls = js_sys::Array::new();
-    urls.push(&JsValue::from_str(STUN_SERVER_URL));
-    ice_server.set_urls(&JsValue::from(urls));
+/// `turn` is `None` on a deployment with no TURN server configured (or
+/// briefly, before the join snapshot carrying it has arrived) — the
+/// connection still works for peers that don't need a relay, just without
+/// a fallback for the ones that do.
+pub fn new_peer_connection(
+    turn: Option<&crate::signaling::protocol::TurnCredentials>,
+) -> Result<RtcPeerConnection, JsValue> {
+    let stun_server = RtcIceServer::new();
+    let stun_urls = js_sys::Array::new();
+    stun_urls.push(&JsValue::from_str(STUN_SERVER_URL));
+    stun_server.set_urls(&JsValue::from(stun_urls));
 
     let servers = js_sys::Array::new();
-    servers.push(&ice_server);
+    servers.push(&stun_server);
+
+    if let Some(turn) = turn {
+        let turn_server = RtcIceServer::new();
+        let turn_urls = js_sys::Array::new();
+        for url in &turn.urls {
+            turn_urls.push(&JsValue::from_str(url));
+        }
+        turn_server.set_urls(&JsValue::from(turn_urls));
+        turn_server.set_username(&turn.username);
+        turn_server.set_credential(&turn.password);
+        servers.push(&turn_server);
+    }
 
     let config = RtcConfiguration::new();
     config.set_ice_servers(&JsValue::from(servers));

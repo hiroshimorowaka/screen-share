@@ -17,6 +17,11 @@ pub(super) struct RoomConnection {
     // `latency.rs`), so the `Pong` handler in `message_handler.rs` can time
     // the round trip. `None` once the matching `Pong` has been handled.
     pub(super) last_ping_sent_at: std::rc::Rc<std::cell::Cell<Option<f64>>>,
+    // Viewer peer_id -> the `setInterval` id of that viewer's Auto quality
+    // poll (see `quality.rs`), so switching them to a fixed tier — or them
+    // leaving — can `clearInterval` it instead of leaving it running
+    // against a sender that's gone.
+    pub(super) quality_auto_intervals: std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, i32>>>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -29,6 +34,7 @@ impl RoomConnection {
             local_stream: Default::default(),
             expected_close: Default::default(),
             last_ping_sent_at: Default::default(),
+            quality_auto_intervals: Default::default(),
         }
     }
 }
@@ -67,6 +73,11 @@ pub(super) struct RoomSignals {
     pub(super) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
     pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
+    /// Set once from the join snapshot, then reused for every peer
+    /// connection opened during this WebSocket session — see
+    /// `signaling::turn`. `None` on a deployment with no TURN server
+    /// configured.
+    pub(super) turn_credentials: RwSignal<Option<crate::signaling::protocol::TurnCredentials>>,
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -184,6 +195,7 @@ pub(super) fn adopt_pending_session(
             active_sharers: session.active_sharers,
             watcher_info: Vec::new(),
             latencies: Vec::new(),
+            turn: session.turn,
         },
         signals,
     );

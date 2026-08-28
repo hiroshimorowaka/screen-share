@@ -30,12 +30,17 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
 # --- runtime image: only the compiled binary + generated site assets ---
 FROM debian:bookworm-slim AS runtime
 
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
+# coturn: the self-hosted TURN relay, run as a second process alongside the
+# app inside the same Fly Machine — see docker-entrypoint.sh. Only actually
+# starts if TURN_SECRET/TURN_EXTERNAL_IP are set; a deployment without them
+# just runs the app on its own, STUN-only.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates coturn \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY --from=builder /app/screen_share.out ./screen_share
 COPY --from=builder /app/site.out ./site
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 ENV LEPTOS_OUTPUT_NAME=screen_share
 ENV LEPTOS_SITE_ROOT=site
@@ -46,5 +51,9 @@ ENV LEPTOS_ENV=PROD
 ENV LEPTOS_SITE_ADDR=0.0.0.0:8080
 
 EXPOSE 8080
+# STUN/TURN control port, plus the relay port range coturn allocates from —
+# must match TURN_MIN_PORT/TURN_MAX_PORT and fly.toml's UDP services.
+EXPOSE 3478/udp
+EXPOSE 49160-49300/udp
 
-CMD ["./screen_share"]
+CMD ["./docker-entrypoint.sh"]

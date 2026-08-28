@@ -1,7 +1,7 @@
 use std::cell::RefCell;
 
 use crate::ui::client::socket::WsClient;
-use crate::signaling::protocol::MemberInfo;
+use crate::signaling::protocol::{MemberInfo, TurnCredentials};
 
 /// An already-authenticated connection that `HomePage` leaves ready for
 /// `RoomPage` to take over, without reopening the WebSocket. `thread_local`
@@ -15,6 +15,7 @@ pub struct PendingSession {
     pub members: Vec<MemberInfo>,
     pub active_sharers: Vec<String>,
     pub requires_password: bool,
+    pub turn: Option<TurnCredentials>,
 }
 
 thread_local! {

@@ -53,6 +53,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     let hide_idle = RwSignal::new(false);
     let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
+    let quality_by_peer =
+        RwSignal::new(std::collections::HashMap::<String, crate::signaling::protocol::QualityLevel>::new());
     let controls_visible = RwSignal::new(true);
     let panel_open = RwSignal::new(true);
 
@@ -252,6 +254,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                     volume_by_peer,
                     muted_by_peer,
                     latency_by_peer,
+                    quality_by_peer,
                 })}
             </div>
             <div

@@ -16,6 +16,7 @@ pub(super) struct JoinedSnapshot {
     pub(super) active_sharers: Vec<String>,
     pub(super) watcher_info: Vec<crate::signaling::protocol::WatcherInfo>,
     pub(super) latencies: Vec<crate::signaling::protocol::LatencyInfo>,
+    pub(super) turn: Option<crate::signaling::protocol::TurnCredentials>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -25,8 +26,16 @@ pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
     use crate::ui::client::storage::save_recent_room;
     use crate::ui::profile::RecentRoom;
 
-    let JoinedSnapshot { room_code, room_name, peer_id, members: joined_members, active_sharers, watcher_info, latencies } =
-        snapshot;
+    let JoinedSnapshot {
+        room_code,
+        room_name,
+        peer_id,
+        members: joined_members,
+        active_sharers,
+        watcher_info,
+        latencies,
+        turn,
+    } = snapshot;
     let RoomSignals {
         set_my_peer_id,
         set_members,
@@ -35,6 +44,7 @@ pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
         set_status,
         watchers_by_sharer,
         latency_by_peer,
+        turn_credentials,
         ..
     } = signals;
 
@@ -45,6 +55,7 @@ pub(super) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
         .collect();
     watchers_by_sharer.set(watcher_info.into_iter().map(|w| (w.sharer_id, w.watchers)).collect());
     latency_by_peer.set(latencies.into_iter().map(|l| (l.peer_id, l.ms)).collect());
+    turn_credentials.set(turn);
     save_recent_room(RecentRoom { code: room_code, name: room_name.clone() });
     set_my_peer_id.set(Some(peer_id));
     set_members.set(members);
@@ -76,11 +87,21 @@ pub(super) fn build_message_handler(
         watchers_by_sharer,
         connection_errors,
         latency_by_peer,
+        turn_credentials,
         ..
     } = signals;
 
     move |msg: ServerMessage| match msg {
-        ServerMessage::Joined { peer_id, room, room_name, members: joined_members, active_sharers, watcher_info, latencies } => {
+        ServerMessage::Joined {
+            peer_id,
+            room,
+            room_name,
+            members: joined_members,
+            active_sharers,
+            watcher_info,
+            latencies,
+            turn,
+        } => {
             apply_joined_snapshot(
                 JoinedSnapshot {
                     room_code: room,
@@ -90,6 +111,7 @@ pub(super) fn build_message_handler(
                     active_sharers,
                     watcher_info,
                     latencies,
+                    turn,
                 },
                 signals,
             );
@@ -97,6 +119,9 @@ pub(super) fn build_message_handler(
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
         ServerMessage::RoomNotFound => set_status.set("Sala não encontrada ou já foi encerrada.".to_string()),
         ServerMessage::RoomFull => set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string()),
+        ServerMessage::TooManyAttempts => {
+            set_status.set("Muitas tentativas de senha erradas. Aguarde um pouco antes de tentar de novo.".to_string())
+        }
         ServerMessage::Kicked => {
             // Same device joined this room in another tab — this connection
             // was replaced. `room_exists` must be forced: whoever created
@@ -112,10 +137,12 @@ pub(super) fn build_message_handler(
             set_status.set("Você entrou nessa sala em outra aba ou janela — esta conexão foi encerrada.".to_string());
         }
         ServerMessage::PeerJoined { peer_id, nick, color } => {
+            crate::ui::client::webrtc::notify_desktop_member_joined(&nick);
             set_members.update(|members| members.push(RoomMember { peer_id, nick, color, sharing: false }));
         }
         ServerMessage::PeerLeft { peer_id } => {
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
+            super::quality::stop_auto_polling(&conn, &peer_id);
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
@@ -175,7 +202,16 @@ pub(super) fn build_message_handler(
         ServerMessage::Offer { from, sdp } => {
             let conn = conn.clone();
             spawn_local(async move {
-                let Ok(pc) = new_peer_connection() else { return };
+                let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
+                    Ok(pc) => pc,
+                    Err(err) => {
+                        web_sys::console::error_2(
+                            &wasm_bindgen::JsValue::from_str("new_peer_connection (answering an offer) failed:"),
+                            &err,
+                        );
+                        return;
+                    }
+                };
                 conn.incoming.borrow_mut().insert(from.clone(), pc.clone());
                 connection_errors.update(|errors| { errors.remove(&from); });
 
@@ -224,17 +260,28 @@ pub(super) fn build_message_handler(
                 pc.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
                 oniceconnectionstatechange.forget();
 
-                if let Ok(answer_sdp) = create_answer(&pc, &sdp).await {
-                    if let Some(ws) = conn.ws.borrow().as_ref() {
-                        ws.send(&ClientMessage::Answer { to: from.clone(), sdp: answer_sdp });
+                match create_answer(&pc, &sdp).await {
+                    Ok(answer_sdp) => {
+                        if let Some(ws) = conn.ws.borrow().as_ref() {
+                            ws.send(&ClientMessage::Answer { to: from.clone(), sdp: answer_sdp });
+                        }
                     }
+                    Err(err) => web_sys::console::error_2(
+                        &wasm_bindgen::JsValue::from_str("create_answer failed:"),
+                        &err,
+                    ),
                 }
             });
         }
         ServerMessage::Answer { from, sdp } => {
             if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
                 spawn_local(async move {
-                    let _ = accept_answer(&pc, &sdp).await;
+                    if let Err(err) = accept_answer(&pc, &sdp).await {
+                        web_sys::console::error_2(
+                            &wasm_bindgen::JsValue::from_str("accept_answer failed:"),
+                            &err,
+                        );
+                    }
                 });
             }
         }
@@ -251,7 +298,16 @@ pub(super) fn build_message_handler(
         ServerMessage::WatchRequested { from } => {
             let conn = conn.clone();
             spawn_local(async move {
-                let Ok(pc) = new_peer_connection() else { return };
+                let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
+                    Ok(pc) => pc,
+                    Err(err) => {
+                        web_sys::console::error_2(
+                            &wasm_bindgen::JsValue::from_str("new_peer_connection (offering to a watcher) failed:"),
+                            &err,
+                        );
+                        return;
+                    }
+                };
                 conn.outgoing.borrow_mut().insert(from.clone(), pc.clone());
                 connection_errors.update(|errors| { errors.remove(&from); });
 
@@ -298,16 +354,35 @@ pub(super) fn build_message_handler(
                 pc.set_oniceconnectionstatechange(Some(oniceconnectionstatechange.as_ref().unchecked_ref()));
                 oniceconnectionstatechange.forget();
 
-                if let Ok(sdp) = create_offer(&pc).await {
-                    if let Some(ws) = conn.ws.borrow().as_ref() {
-                        ws.send(&ClientMessage::Offer { to: from, sdp });
+                match create_offer(&pc).await {
+                    Ok(sdp) => {
+                        if let Some(ws) = conn.ws.borrow().as_ref() {
+                            ws.send(&ClientMessage::Offer { to: from, sdp });
+                        }
+                    }
+                    Err(err) => {
+                        web_sys::console::error_2(&wasm_bindgen::JsValue::from_str("create_offer failed:"), &err)
                     }
                 }
             });
         }
         ServerMessage::WatchStopped { from } => {
+            super::quality::stop_auto_polling(&conn, &from);
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&from) {
                 pc.close();
+            }
+        }
+        ServerMessage::QualityRequested { from, quality } => {
+            super::quality::stop_auto_polling(&conn, &from);
+            match super::quality::tier_for(quality) {
+                Some(tier) => {
+                    if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
+                        spawn_local(async move {
+                            let _ = super::quality::apply_tier(&pc, tier).await;
+                        });
+                    }
+                }
+                None => super::quality::start_auto_polling(conn.clone(), from),
             }
         }
     }

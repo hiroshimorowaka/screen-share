@@ -792,6 +792,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"
 
 [[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest 0.10.7",
+]
+
+[[package]]
 name = "html-escape"
 version = "0.2.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2036,8 +2045,10 @@ version = "0.1.0"
 dependencies = [
  "argon2",
  "axum",
+ "base64",
  "console_error_panic_hook",
  "futures-util",
+ "hmac",
  "js-sys",
  "leptos",
  "leptos_axum",
@@ -2047,6 +2058,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "sha1 0.10.7",
  "tokio",
  "tokio-tungstenite 0.30.0",
  "uuid",

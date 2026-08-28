@@ -26,6 +26,7 @@ pub fn HomePage() -> impl IntoView {
     let (room_name, set_room_name) = signal(String::new());
     load_last_room_name_after_mount(set_room_name);
     let (password, set_password) = signal(String::new());
+    let (public_room, set_public_room) = signal(false);
     let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
     let (submitting, set_submitting) = signal(false);
     let (recent_rooms, set_recent_rooms) = signal(Vec::<crate::ui::profile::RecentRoom>::new());
@@ -37,7 +38,7 @@ pub fn HomePage() -> impl IntoView {
     load_recent_rooms_after_mount(set_recent_rooms);
     prune_recent_rooms(set_recent_rooms, set_member_counts);
 
-    let create_room = create_room_handler(nick, color, room_name, password, set_status, set_submitting);
+    let create_room = create_room_handler(nick, color, room_name, password, public_room, set_status, set_submitting);
     start_quick_share_after_mount(set_status, set_submitting);
 
     let (join_input, set_join_input) = signal(String::new());
@@ -48,7 +49,7 @@ pub fn HomePage() -> impl IntoView {
         <div class="home-layout">
         <div class="panel">
             <h1>"Criar sala"</h1>
-            <p class="subtext">"Escolha um nick, uma cor e um nome. A senha é opcional — sem ela, qualquer pessoa com o link pode entrar na sala."</p>
+            <p class="subtext">"Escolha um nick, uma cor e um nome. Defina uma senha ou marque a sala como pública — qualquer pessoa com o link entra numa sala pública."</p>
 
             <form on:submit=create_room>
                 <label class="field">
@@ -72,12 +73,21 @@ pub fn HomePage() -> impl IntoView {
                         on:input:target=move |ev| set_room_name.set(ev.target().value())
                     />
                 </label>
-                <label class="field">
-                    <span class="field__label">"Senha da sala (opcional)"</span>
+                <label class="checkbox-field">
+                    <input
+                        type="checkbox"
+                        prop:checked=public_room
+                        on:change:target=move |ev| set_public_room.set(ev.target().checked())
+                    />
+                    "Sala pública (sem senha)"
+                </label>
+                <label class="field" class:hidden=move || public_room.get()>
+                    <span class="field__label">"Senha da sala"</span>
                     <input
                         class="field__input"
                         type="password"
                         prop:value=password
+                        disabled=move || public_room.get()
                         on:input:target=move |ev| set_password.set(ev.target().value())
                     />
                 </label>

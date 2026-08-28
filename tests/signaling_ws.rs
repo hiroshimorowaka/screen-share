@@ -6,10 +6,11 @@ async fn spawn_test_server() -> String {
     use axum::routing::get;
     use axum::Router;
     use screen_share::signaling::registry::Registry;
+    use screen_share::signaling::state::SignalingState;
     use screen_share::signaling::ws::ws_handler;
 
-    let registry = Registry::new();
-    let app = Router::new().route("/ws", get(ws_handler)).with_state(registry);
+    let signaling_state = SignalingState { registry: Registry::new(), turn: None };
+    let app = Router::new().route("/ws", get(ws_handler)).with_state(signaling_state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

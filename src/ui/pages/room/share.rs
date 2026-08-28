@@ -206,6 +206,11 @@ pub(super) fn stop_sharing(
     for (_, pc) in conn.outgoing.borrow_mut().drain() {
         pc.close();
     }
+    // Each viewer's Auto poll (if any) would otherwise keep firing against
+    // a connection that's already closed.
+    for viewer_peer_id in conn.quality_auto_intervals.borrow().keys().cloned().collect::<Vec<_>>() {
+        super::quality::stop_auto_polling(conn, &viewer_peer_id);
+    }
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&crate::signaling::protocol::ClientMessage::StopShare);
     }

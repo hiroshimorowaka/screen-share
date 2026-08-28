@@ -7,7 +7,7 @@ use super::media_controls::{
 };
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use super::RoomMember;
-use crate::signaling::protocol::MAX_MEMBERS;
+use crate::signaling::protocol::{QualityLevel, MAX_MEMBERS};
 use crate::ui::components::icons::{
     icon_eye, icon_maximize, icon_pip, icon_screen_off, icon_volume, icon_volume_off,
 };
@@ -31,6 +31,7 @@ pub(super) struct MemberCardSignals {
     pub(super) volume_by_peer: RwSignal<std::collections::HashMap<String, f64>>,
     pub(super) muted_by_peer: RwSignal<std::collections::HashSet<String>>,
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
+    pub(super) quality_by_peer: RwSignal<std::collections::HashMap<String, crate::signaling::protocol::QualityLevel>>,
 }
 
 /// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"
@@ -47,6 +48,26 @@ fn ping_color_var(ms: u32) -> &'static str {
         "--warning"
     } else {
         "--error"
+    }
+}
+
+/// `<option value=...>` <-> `QualityLevel`, kept next to each other since
+/// they only ever need to agree with one another, not with anything else.
+fn quality_option_value(quality: QualityLevel) -> &'static str {
+    match quality {
+        QualityLevel::Auto => "auto",
+        QualityLevel::High => "high",
+        QualityLevel::Medium => "medium",
+        QualityLevel::Low => "low",
+    }
+}
+
+fn quality_from_option_value(value: &str) -> QualityLevel {
+    match value {
+        "high" => QualityLevel::High,
+        "medium" => QualityLevel::Medium,
+        "low" => QualityLevel::Low,
+        _ => QualityLevel::Auto,
     }
 }
 
@@ -68,6 +89,7 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
         volume_by_peer,
         muted_by_peer,
         latency_by_peer,
+        quality_by_peer,
     } = signals;
 
     (0..MAX_MEMBERS)
@@ -133,6 +155,16 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                     .and_then(|m| volume_by_peer.get().get(&m.peer_id).copied())
                     .unwrap_or(1.0);
                 (volume * 100.0).round()
+            };
+            let current_quality = move || {
+                member_at()
+                    .and_then(|m| quality_by_peer.get().get(&m.peer_id).copied())
+                    .unwrap_or(QualityLevel::Auto)
+            };
+            let set_quality = super::quality::set_quality_handler(conn.clone(), members, quality_by_peer, i);
+            let quality_change = move |ev: leptos::ev::Event| {
+                let target = event_target::<leptos::web_sys::HtmlSelectElement>(&ev);
+                set_quality(quality_from_option_value(&target.value()));
             };
             let mute_toggle_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
@@ -269,6 +301,20 @@ pub(super) fn member_cards(conn: RoomConnection, signals: MemberCardSignals) -> 
                             >
                                 {icon_pip}
                             </button>
+                            <select
+                                class="quality-select"
+                                class:hidden=move || !is_watching_this()
+                                title="Qualidade do vídeo"
+                                aria-label="Qualidade do vídeo"
+                                on:click=move |ev: leptos::ev::MouseEvent| ev.stop_propagation()
+                                prop:value=move || quality_option_value(current_quality())
+                                on:change=quality_change
+                            >
+                                <option value="auto">"Auto"</option>
+                                <option value="high">"Alta"</option>
+                                <option value="medium">"Média"</option>
+                                <option value="low">"Baixa"</option>
+                            </select>
                             <div
                                 class="volume-control"
                                 class:hidden=move || !is_watching_this()
