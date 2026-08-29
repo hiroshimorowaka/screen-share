@@ -42,6 +42,8 @@ fn fresh_signals() -> (RoomSignals, Reads) {
     let connection_errors = RwSignal::new(HashSet::<String>::new());
     let latency_by_peer = RwSignal::new(HashMap::<String, u32>::new());
     let turn_credentials = RwSignal::new(None::<TurnCredentials>);
+    let audio_preset = RwSignal::new(crate::session::audio::AudioPreset::default());
+    let video_mode = RwSignal::new(crate::session::video_mode::VideoMode::default());
 
     let signals = RoomSignals {
         set_status,
@@ -57,6 +59,8 @@ fn fresh_signals() -> (RoomSignals, Reads) {
         connection_errors,
         latency_by_peer,
         turn_credentials,
+        audio_preset,
+        video_mode,
     };
     let reads = Reads {
         my_peer_id,

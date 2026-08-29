@@ -103,6 +103,8 @@ pub(crate) fn build_message_handler(
         connection_errors,
         latency_by_peer,
         turn_credentials,
+        audio_preset,
+        video_mode,
         ..
     } = signals;
 
@@ -117,6 +119,8 @@ pub(crate) fn build_message_handler(
             latencies,
             turn,
         } => {
+            let present_peer_ids: Vec<String> =
+                joined_members.iter().map(|m| m.peer_id.clone()).collect();
             apply_joined_snapshot(
                 JoinedSnapshot {
                     room_code: room,
@@ -130,6 +134,10 @@ pub(crate) fn build_message_handler(
                 },
                 signals,
             );
+            // If this `Joined` is a reconnect's rejoin, re-assert what we
+            // were doing before the drop (sharing, watching); a no-op on a
+            // first join.
+            super::reconnect::replay_intent_after_rejoin(&conn, signals, &present_peer_ids);
         }
         ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
         ServerMessage::RoomNotFound => {
@@ -396,6 +404,17 @@ pub(crate) fn build_message_handler(
                     }
                 }
 
+                // Establish the screen-tuned encoding (bitrate/scale/fps
+                // ceiling, then the sharer's video mode and audio preset)
+                // before the offer is built, so every viewer connection
+                // starts from it even if that viewer never touches the
+                // quality menu. A later explicit tier or Auto poll re-runs
+                // `apply_tier`; `apply_video_mode` owns degradation
+                // preference and is re-asserted after each of those.
+                let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
+                let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
+                let _ = super::audio::apply_audio_preset(&pc, audio_preset.get_untracked()).await;
+
                 let target_id = from.clone();
                 // Unlike the `Offer` branch: here the remote peer is the
                 // viewer, not the stream owner. `stream_owner` must be my
@@ -469,6 +488,15 @@ pub(crate) fn build_message_handler(
                     if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
                         spawn_local(async move {
                             let _ = super::quality::apply_tier(&pc, tier).await;
+                            // `apply_tier` round-trips the encoding params;
+                            // re-assert the video mode's degradation
+                            // preference on top so a quality change never
+                            // silently reverts Motion mode.
+                            let _ = super::video_mode::apply_video_mode(
+                                &pc,
+                                video_mode.get_untracked(),
+                            )
+                            .await;
                         });
                     }
                 }

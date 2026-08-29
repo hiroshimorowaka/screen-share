@@ -1,4 +1,6 @@
-#![recursion_limit = "256"]
+// Leptos builds one deeply-nested type per `view!`; `RoomPage`'s is large
+// enough (control bar + grid + gate panels) to need this above the default.
+#![recursion_limit = "512"]
 
 pub mod app;
 pub mod components;

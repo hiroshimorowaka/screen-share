@@ -52,6 +52,19 @@ fn status_meta_classifies_the_known_sentences() {
 }
 
 #[test]
+fn status_meta_treats_an_in_progress_reconnect_as_busy_not_an_error() {
+    assert_eq!(
+        status_meta("Reconectando... (tentativa 2 de 8)"),
+        ("busy", "RECONECTANDO")
+    );
+    // But once the retries are exhausted, the give-up sentence is an error.
+    assert_eq!(
+        status_meta("Conexão perdida. Recarregue a página para tentar de novo."),
+        ("error", "ERRO")
+    );
+}
+
+#[test]
 fn status_meta_classifies_error_sentences_by_prefix() {
     assert_eq!(
         status_meta("Sala não encontrada: XYZ"),

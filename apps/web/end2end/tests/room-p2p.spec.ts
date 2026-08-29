@@ -129,6 +129,37 @@ test('a watcher reload mid-session silently rejoins and keeps the roster', async
   await bobCtx.close();
 });
 
+test('a watcher whose connection drops reconnects on its own and rewatches', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+
+  const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala queda');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+
+  await ana.getByRole('button', { name: SHARE_BUTTON }).click();
+  await watchSharer(bob, 'Ana');
+
+  // Bob's network drops for a moment, then comes back — no reload.
+  await bobCtx.setOffline(true);
+  await expect(bob.locator('.stage-header')).toContainText(/Reconectando|Conexão perdida/, {
+    timeout: 10_000,
+  });
+  await bob.waitForTimeout(1_000);
+  await bobCtx.setOffline(false);
+
+  // The roster comes back without a nick gate, and the watch re-establishes
+  // itself (replayed intent) so frames flow again.
+  await expect(bob.getByRole('heading', { name: 'Entrar na sala' })).toBeHidden();
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+  await expect
+    .poll(async () => (await videoState(bob, 'Ana')).readyState, { timeout: MEDIA_SETTLE_MS })
+    .toBeGreaterThanOrEqual(2);
+
+  await anaCtx.close();
+  await bobCtx.close();
+});
+
 test('one watcher stopping does not disturb another watching the same sharer', async ({ browser }) => {
   const anaCtx = await browser.newContext();
   const bobCtx = await browser.newContext();
