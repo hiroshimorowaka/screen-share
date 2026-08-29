@@ -36,7 +36,11 @@ describe('preload bridges', () => {
     expect([...exposed.keys()]).toEqual(
       expect.arrayContaining(['desktopShare', 'picker', 'desktopAudio']),
     );
-    expect(Object.keys(exposed.get('desktopShare') ?? {})).toEqual(['linkReady', 'memberJoined']);
+    expect(Object.keys(exposed.get('desktopShare') ?? {})).toEqual([
+      'linkReady',
+      'memberJoined',
+      'sharingChanged',
+    ]);
     expect(Object.keys(exposed.get('picker') ?? {})).toEqual(
       expect.arrayContaining(['onSources', 'select', 'listAudioApps']),
     );
@@ -54,6 +58,9 @@ describe('preload bridges', () => {
 
     share.memberJoined('Bia');
     expect(ipc.send).toHaveBeenCalledWith('desktop-share:member-joined', 'Bia');
+
+    share.sharingChanged(true);
+    expect(ipc.send).toHaveBeenCalledWith('desktop-share:sharing-changed', true);
 
     (exposed.get('picker') as Record<string, (arg: unknown) => void>).select({ sourceId: 's' });
     expect(ipc.send).toHaveBeenCalledWith('picker:selected', { sourceId: 's' });

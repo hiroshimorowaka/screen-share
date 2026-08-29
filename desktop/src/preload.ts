@@ -9,6 +9,11 @@ import type { AudioShareTarget, PickerChoice, PickerSource } from '#ipc/types.js
 contextBridge.exposeInMainWorld('desktopShare', {
   linkReady: (link: string) => ipcRenderer.send('desktop-share:link-ready', link),
   memberJoined: (nick: string) => ipcRenderer.send('desktop-share:member-joined', nick),
+  // Drives the tray icon's idle (green) / live (red) state — channel name
+  // must match `main/tray.ts` exactly (see the linkReady comment above for
+  // why these are literals).
+  sharingChanged: (isSharing: boolean) =>
+    ipcRenderer.send('desktop-share:sharing-changed', isSharing),
 });
 
 contextBridge.exposeInMainWorld('picker', {

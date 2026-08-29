@@ -463,7 +463,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: desktop-windows
-          path: desktop/release/*.exe
+          # `latest.yml` is electron-updater's Windows update feed — it has
+          # to land in the GitHub release next to the installer, or the
+          # installed app can't discover a newer version.
+          path: |
+            desktop/release/*.exe
+            desktop/release/latest.yml
           if-no-files-found: error
 
   publish-desktop-release:

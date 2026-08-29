@@ -5,6 +5,7 @@ import { registerDisplayMediaHandler } from '#features/screen-share/display-medi
 import { registerQuickShareIpcHandlers } from '#features/screen-share/quick-share.js';
 import { markQuitting } from '#main/lifecycle.js';
 import { createTray } from '#main/tray.js';
+import { setupAutoUpdates } from '#main/updates.js';
 import { createMainWindow } from '#main/window.js';
 
 app.on('before-quit', () => {
@@ -21,6 +22,7 @@ app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
   createMainWindow();
   createTray();
+  setupAutoUpdates();
   registerQuickShareIpcHandlers();
   await registerAudioIpcHandlers();
   await registerDisplayMediaHandler();

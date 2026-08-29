@@ -3,7 +3,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const m = vi.hoisted(() => ({
   setToolTip: vi.fn(),
   setContextMenu: vi.fn(),
+  setImage: vi.fn(),
   trayOn: vi.fn(),
+  ipcOn: vi.fn(),
   buildFromTemplate: vi.fn((t: unknown) => ({ __menu: t })),
   showMainWindow: vi.fn(),
   startQuickShare: vi.fn(),
@@ -14,9 +16,11 @@ vi.mock('electron', () => ({
   Tray: class {
     setToolTip = m.setToolTip;
     setContextMenu = m.setContextMenu;
+    setImage = m.setImage;
     on = m.trayOn;
   },
   Menu: { buildFromTemplate: m.buildFromTemplate },
+  ipcMain: { on: m.ipcOn },
 }));
 vi.mock('#main/window.js', () => ({
   showMainWindow: m.showMainWindow,
@@ -54,5 +58,20 @@ describe('createTray', () => {
     const clickHandler = m.trayOn.mock.calls.find(([evt]) => evt === 'click')?.[1] as () => void;
     clickHandler();
     expect(m.showMainWindow).toHaveBeenCalledOnce();
+  });
+
+  it('swaps the tray icon to the live (red) dot while sharing and back to idle after', () => {
+    createTray();
+    m.setImage.mockClear();
+
+    const onSharingChanged = m.ipcOn.mock.calls.find(
+      ([channel]) => channel === 'desktop-share:sharing-changed',
+    )?.[1] as (event: unknown, isSharing: boolean) => void;
+
+    onSharingChanged({}, true);
+    expect(m.setImage).toHaveBeenLastCalledWith(expect.stringContaining('tray-live.png'));
+
+    onSharingChanged({}, false);
+    expect(m.setImage).toHaveBeenLastCalledWith(expect.stringContaining('tray-idle.png'));
   });
 });

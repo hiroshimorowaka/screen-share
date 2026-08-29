@@ -11,6 +11,18 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.0
+
+- O app agora se atualiza sozinho no Windows: quando sai uma versão nova,
+  ele baixa em segundo plano, avisa com uma notificação e instala na
+  próxima vez que você fechar o app. (A versão portátil e o Linux
+  continuam sendo atualizados baixando a release nova na mão.)
+- Quando um programa volta a tocar som depois de um tempo em silêncio, o
+  áudio dele entra na transmissão mais rápido — quase sem perder o
+  comecinho do som.
+- O ícone na bandeja agora mostra o estado: bolinha verde parada, bolinha
+  vermelha enquanto você está transmitindo.
+
 ## 0.2.0
 
 - O compartilhamento rápido pela bandeja agora avisa, com uma notificação
