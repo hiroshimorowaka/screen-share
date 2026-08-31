@@ -14,18 +14,37 @@ fn reading(limitation_is_bad: bool, sent_total: f64, lost_total: f64) -> RawRead
 
 #[test]
 fn preset_bitrate_strictly_decreases_from_high_to_low() {
-    let (high, _) = preset_for(Tier::High);
-    let (medium, _) = preset_for(Tier::Medium);
-    let (low, _) = preset_for(Tier::Low);
-    assert!(high > medium && medium > low);
+    assert!(
+        preset_for(Tier::High).max_bitrate_bps > preset_for(Tier::Medium).max_bitrate_bps
+            && preset_for(Tier::Medium).max_bitrate_bps > preset_for(Tier::Low).max_bitrate_bps
+    );
 }
 
 #[test]
 fn preset_scale_down_never_decreases_from_high_to_low() {
-    let (_, high) = preset_for(Tier::High);
-    let (_, medium) = preset_for(Tier::Medium);
-    let (_, low) = preset_for(Tier::Low);
-    assert!(high <= medium && medium <= low);
+    assert!(
+        preset_for(Tier::High).scale_down <= preset_for(Tier::Medium).scale_down
+            && preset_for(Tier::Medium).scale_down <= preset_for(Tier::Low).scale_down
+    );
+}
+
+#[test]
+fn preset_framerate_never_increases_from_high_to_low() {
+    assert!(
+        preset_for(Tier::High).max_framerate >= preset_for(Tier::Medium).max_framerate
+            && preset_for(Tier::Medium).max_framerate >= preset_for(Tier::Low).max_framerate
+    );
+}
+
+#[test]
+fn every_preset_caps_framerate_at_a_sane_positive_rate() {
+    for tier in [Tier::High, Tier::Medium, Tier::Low] {
+        let fps = preset_for(tier).max_framerate;
+        assert!(
+            fps > 0.0 && fps <= 60.0,
+            "{tier:?} framerate {fps} outside (0, 60]"
+        );
+    }
 }
 
 #[test]

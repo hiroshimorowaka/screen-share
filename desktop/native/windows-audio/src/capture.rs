@@ -12,11 +12,16 @@ use crate::process_identity::list_active_audio_processes;
 
 const SAMPLE_RATE: usize = 48_000;
 const CHANNELS: usize = 2;
-// Matches the Linux implementation's own `scanAndLink` cadence — frequent
-// enough that a process starting to make sound mid-share is picked up
-// "within about a second" (this plan's own requirement), infrequent enough
-// not to matter for CPU cost.
-const POLL_INTERVAL: Duration = Duration::from_secs(1);
+// How often the poll loop re-checks which processes have an active WASAPI
+// session. This design captures per process (not the endpoint), so it has
+// no "endpoint loopback delivers nothing during silence" bug and needs no
+// silent-render keepalive — but a process whose session flips from
+// Inactive to Active (a game or browser tab that had gone quiet, then
+// plays a sound) isn't captured until the next poll, so the first sound
+// after such a gap can lose up to this long. 250ms keeps that clip
+// inaudible in practice while still being a trivial background cost
+// (enumerating a handful of audio sessions four times a second).
+const POLL_INTERVAL: Duration = Duration::from_millis(250);
 // Matches Task 1's proven `MediaStreamTrackGenerator` chunk size.
 const MIX_TICK: Duration = Duration::from_millis(20);
 const MIX_TICK_FRAMES: usize = SAMPLE_RATE / 50;

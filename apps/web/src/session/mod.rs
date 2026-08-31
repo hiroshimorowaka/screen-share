@@ -1,7 +1,12 @@
+pub mod audio;
+pub mod audio_health;
 pub mod handler;
 pub mod latency;
 pub mod media;
 pub mod quality;
+pub mod reconnect;
+pub mod sdp;
+pub mod video_mode;
 
 use leptos::prelude::*;
 
@@ -40,6 +45,13 @@ pub struct RoomSession {
     // against a sender that's gone.
     pub(crate) quality_auto_intervals:
         std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, i32>>>,
+    // `true` from the moment an unexpected socket close starts a reconnect
+    // until the rejoin's `Joined` snapshot lands (or we give up). Guards
+    // against stacking two reconnect loops, and tells the `Joined` handler
+    // to replay this member's share/watch intent rather than treat it as a
+    // first join. See `session::reconnect`.
+    pub(crate) reconnecting: std::rc::Rc<std::cell::Cell<bool>>,
+    pub(crate) backoff: std::rc::Rc<std::cell::RefCell<crate::session::reconnect::BackoffPolicy>>,
 }
 
 #[cfg(feature = "hydrate")]
@@ -53,6 +65,8 @@ impl RoomSession {
             expected_close: Default::default(),
             last_ping_sent_at: Default::default(),
             quality_auto_intervals: Default::default(),
+            reconnecting: Default::default(),
+            backoff: Default::default(),
         }
     }
 }
@@ -96,6 +110,15 @@ pub(crate) struct RoomSignals {
     /// `signaling::turn`. `None` on a deployment with no TURN server
     /// configured.
     pub(crate) turn_credentials: RwSignal<Option<screen_share_protocol::TurnCredentials>>,
+    /// The sharer's chosen outgoing audio quality. Read when opening a new
+    /// viewer connection so it starts at the current preset; the live
+    /// control updates every open connection itself (see `session::audio`).
+    pub(crate) audio_preset: RwSignal<crate::session::audio::AudioPreset>,
+    /// The sharer's chosen video mode (protect detail vs. motion). Same
+    /// lifecycle as `audio_preset` — read when opening a connection, and
+    /// re-applied over the top of every `apply_tier` (see
+    /// `session::video_mode`).
+    pub(crate) video_mode: RwSignal<crate::session::video_mode::VideoMode>,
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -150,17 +173,12 @@ pub(crate) fn setup_room_connection(
                         }
                     }
                 });
-                ws.on_close({
-                    let conn = conn.clone();
-                    move || {
-                        if !conn.expected_close.get() {
-                            set_status.set(
-                                "Conexão perdida. Recarregue a página para tentar de novo."
-                                    .to_string(),
-                            );
-                        }
-                    }
-                });
+                crate::session::reconnect::install_close_handler(
+                    &ws,
+                    conn.clone(),
+                    signals,
+                    room_code.clone(),
+                );
                 *conn.ws.borrow_mut() = Some(ws);
                 save_profile(&Profile { nick, color });
             }
@@ -189,8 +207,6 @@ pub(crate) fn adopt_pending_session(
 
     use crate::session::handler::{apply_joined_snapshot, build_message_handler, JoinedSnapshot};
 
-    let RoomSignals { set_status, .. } = signals;
-
     let Some(mut session) = session::take(&room_code) else {
         return;
     };
@@ -198,15 +214,12 @@ pub(crate) fn adopt_pending_session(
 
     let on_message = build_message_handler(conn.clone(), signals);
     session.ws.set_on_message(on_message);
-    session.ws.on_close({
-        let conn = conn.clone();
-        move || {
-            if !conn.expected_close.get() {
-                set_status
-                    .set("Conexão perdida. Recarregue a página para tentar de novo.".to_string());
-            }
-        }
-    });
+    crate::session::reconnect::install_close_handler(
+        &session.ws,
+        conn.clone(),
+        signals,
+        room_code.clone(),
+    );
 
     // A pending session always comes from the home page creating a new
     // room — it never has a viewer yet.

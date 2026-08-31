@@ -70,6 +70,30 @@ pub fn notify_desktop_member_joined(nick: &str) {
     let _ = member_joined.call1(&bridge, &JsValue::from_str(nick));
 }
 
+/// Tells the desktop shell's `window.desktopShare.sharingChanged` bridge
+/// whether this member is currently sharing, so the tray icon can switch
+/// between its idle (green) and live (red) state. No-op in a plain browser
+/// tab.
+pub fn notify_desktop_sharing_changed(is_sharing: bool) {
+    if !is_desktop_app() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
+        return;
+    };
+    let Ok(sharing_changed) = js_sys::Reflect::get(&bridge, &JsValue::from_str("sharingChanged"))
+    else {
+        return;
+    };
+    let Ok(sharing_changed) = sharing_changed.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = sharing_changed.call1(&bridge, &JsValue::from_bool(is_sharing));
+}
+
 pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let window = web_sys::window()
         .ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
@@ -81,6 +105,10 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let promise = media_devices.get_display_media_with_constraints(&constraints)?;
     let stream = JsFuture::from(promise).await?;
     let video_stream = stream.dyn_into::<MediaStream>()?;
+    // The video track's `contentHint` (and the sender's degradation
+    // preference) is owned by `session::video_mode` — applied per viewer
+    // connection when it opens and re-applied whenever the sharer changes
+    // mode. Nothing to set here at capture time.
 
     // The Windows desktop app bridges captured PCM over IPC instead of
     // exposing a capturable device — same intent as the Linux path below
@@ -343,6 +371,10 @@ pub async fn create_offer(pc: &RtcPeerConnection) -> Result<String, JsValue> {
     let sdp = js_sys::Reflect::get(&offer, &JsValue::from_str("sdp"))?
         .as_string()
         .ok_or_else(|| JsValue::from_str("offer has no sdp"))?;
+    // Negotiate music-grade stereo Opus — the browser otherwise settles on
+    // a mono voice profile, which is wrong for shared system audio. The
+    // same edited SDP is set locally and sent, so both sides agree.
+    let sdp = crate::session::sdp::tune_opus_for_music(&sdp);
 
     let desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
     desc.set_sdp(&sdp);
@@ -360,6 +392,9 @@ pub async fn create_answer(pc: &RtcPeerConnection, offer_sdp: &str) -> Result<St
     let sdp = js_sys::Reflect::get(&answer, &JsValue::from_str("sdp"))?
         .as_string()
         .ok_or_else(|| JsValue::from_str("answer has no sdp"))?;
+    // Match the offerer's Opus tuning so the negotiated direction is stereo
+    // both ways (see `create_offer`).
+    let sdp = crate::session::sdp::tune_opus_for_music(&sdp);
 
     let local_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
     local_desc.set_sdp(&sdp);

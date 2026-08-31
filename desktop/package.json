@@ -1,6 +1,6 @@
 {
   "name": "screen-share-desktop",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Desktop app for Screen Share — persistent, password-protected screen sharing rooms with system audio.",
   "author": {
     "name": "hiroshimorowaka",
@@ -19,9 +19,9 @@
   "scripts": {
     "build": "tsc",
     "start": "tsc && electron .",
-    "dist": "tsc && electron-builder",
-    "dist:linux": "tsc && electron-builder --linux",
-    "dist:win": "tsc && electron-builder --win",
+    "dist": "tsc && electron-builder --publish never",
+    "dist:linux": "tsc && electron-builder --linux --publish never",
+    "dist:win": "tsc && electron-builder --win --publish never",
     "check": "biome check",
     "check:fix": "biome check --write",
     "format": "biome format --write",
@@ -30,6 +30,9 @@
     "test:cov": "vitest run --coverage",
     "test:e2e": "tsc && playwright test --config e2e/playwright.config.ts",
     "test:mutation": "stryker run"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.10",
@@ -50,6 +53,13 @@
     "directories": {
       "output": "release"
     },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "hiroshimorowaka",
+        "repo": "screen-share"
+      }
+    ],
     "files": [
       "dist/**/*",
       "static/**/*",
@@ -72,7 +82,8 @@
         "nsis",
         "portable"
       ],
-      "icon": "icons/app-icon.png"
+      "icon": "icons/app-icon.png",
+      "verifyUpdateCodeSignature": false
     },
     "nsis": {
       "oneClick": false,

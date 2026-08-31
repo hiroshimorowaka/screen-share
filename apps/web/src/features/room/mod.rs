@@ -16,7 +16,9 @@ use leptos_router::hooks::use_params_map;
 use crate::session::latency::setup_ping_loop;
 #[cfg(feature = "hydrate")]
 use crate::session::media::start_sharing;
-use crate::session::media::{share_supported, share_toggle_handler};
+use crate::session::media::{
+    share_supported, share_toggle_handler, sharing_can_have_audio, switch_source_handler,
+};
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 #[cfg(feature = "hydrate")]
 use invite::build_invite_link;
@@ -30,9 +32,10 @@ use watch::leave_room;
 
 use crate::components::color_picker::ColorPicker;
 use crate::components::icons::{
-    icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off,
-    icon_video_off,
+    icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_switch,
+    icon_video_off, icon_volume, icon_volume_off,
 };
+use crate::components::menu_select::{MenuIcon, MenuOption, MenuSelect};
 use crate::components::status::status_meta;
 use crate::components::status_message::StatusMessage;
 use crate::session::{
@@ -69,6 +72,12 @@ pub fn RoomPage() -> impl IntoView {
     let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
     let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
     let turn_credentials = RwSignal::new(None::<screen_share_protocol::TurnCredentials>);
+    let audio_preset = RwSignal::new(crate::session::audio::AudioPreset::default());
+    let video_mode = RwSignal::new(crate::session::video_mode::VideoMode::default());
+    // Whether the sharer has silenced their own outgoing audio (the track
+    // stays published, viewers just hear silence). Reset to `false` when a
+    // share ends — see the effect below.
+    let audio_muted = RwSignal::new(false);
     let own_preview_hidden = RwSignal::new(false);
     let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
     let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
@@ -77,9 +86,15 @@ pub fn RoomPage() -> impl IntoView {
         screen_share_protocol::QualityLevel,
     >::new());
     let hide_idle = RwSignal::new(false);
+    // Set by the audio self-test once a share of ours has been probed (see
+    // the effect below); `None` means "nothing wrong / not checked yet".
+    let audio_warning = RwSignal::new(None::<&'static str>);
     let controls_visible = RwSignal::new(true);
     let invite_copied = RwSignal::new(false);
     let can_share = share_supported();
+    // Only the desktop shell captures system audio; a plain browser tab
+    // shares video only, so the audio-quality / mute controls stay hidden.
+    let sharing_has_audio = sharing_can_have_audio();
 
     let conn = RoomSession::new();
     let room_signals = RoomSignals {
@@ -96,6 +111,8 @@ pub fn RoomPage() -> impl IntoView {
         connection_errors,
         latency_by_peer,
         turn_credentials,
+        audio_preset,
+        video_mode,
     };
 
     let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
@@ -212,6 +229,36 @@ pub fn RoomPage() -> impl IntoView {
         expanded,
     );
     let invite_click = invite_click_handler(initial_code.clone(), invite_copied);
+    let set_audio_preset =
+        crate::session::audio::set_audio_preset_handler(conn.clone(), audio_preset);
+    let set_video_mode =
+        crate::session::video_mode::set_video_mode_handler(conn.clone(), video_mode);
+    let video_options: Vec<MenuOption> = crate::session::video_mode::VideoMode::ALL
+        .iter()
+        .map(|mode| MenuOption {
+            value: mode.value(),
+            label: mode.label(),
+            hint: mode.hint(),
+        })
+        .collect();
+    let audio_options: Vec<MenuOption> = crate::session::audio::AudioPreset::ALL
+        .iter()
+        .map(|preset| MenuOption {
+            value: preset.value(),
+            label: preset.label(),
+            hint: preset.hint(),
+        })
+        .collect();
+    let switch_source = switch_source_handler(
+        conn.clone(),
+        set_is_sharing,
+        own_preview_hidden,
+        set_status,
+        my_peer_id,
+        expanded,
+        audio_muted.read_only(),
+        video_mode.read_only(),
+    );
     let leave_or_stop_watching = leave_or_stop_watching_handler(
         conn.clone(),
         watching,
@@ -223,6 +270,55 @@ pub fn RoomPage() -> impl IntoView {
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
     setup_ping_loop(conn.clone());
+
+    // Audio self-test: whenever a share of ours starts, tap the captured
+    // stream for a couple of seconds and warn the sharer if no sound came
+    // through (capture failed, muted device, silent source). Cleared as
+    // soon as sharing stops.
+    #[cfg(feature = "hydrate")]
+    {
+        let conn_for_probe = conn.clone();
+        Effect::new(move |_| {
+            if !is_sharing.get() {
+                audio_warning.set(None);
+                return;
+            }
+            let Some(stream) = conn_for_probe.local_stream.borrow().clone() else {
+                return;
+            };
+            leptos::task::spawn_local(async move {
+                let audio_expected = crate::infra::webrtc::is_desktop_app();
+                let health =
+                    crate::session::audio_health::probe_share_audio(&stream, audio_expected).await;
+                audio_warning.set(health.warning());
+            });
+        });
+
+        // Applying/clearing the outgoing audio mute. Also resets the toggle
+        // when a share ends, so the next share starts un-muted.
+        let conn_for_mute = conn.clone();
+        Effect::new(move |_| {
+            let muted = audio_muted.get();
+            if !is_sharing.get() {
+                if muted {
+                    audio_muted.set(false);
+                }
+                return;
+            }
+            crate::session::audio::set_shared_audio_muted(&conn_for_mute, muted);
+        });
+
+        // Copy the invite link the moment a share of ours goes live, so
+        // there's something ready to paste — the quick-share flow already
+        // does this via the desktop shell, so skip it there.
+        let quick_share_active = crate::quick_share::requested();
+        let room_code_for_copy = initial_code.clone();
+        Effect::new(move |_| {
+            if is_sharing.get() && !quick_share_active {
+                invite::copy_invite_link(&room_code_for_copy, invite_copied);
+            }
+        });
+    }
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -274,6 +370,24 @@ pub fn RoomPage() -> impl IntoView {
                 <span class=lamp_class></span>
                 <span class="status-row__meta">{move || room_name.get().unwrap_or_default()}</span>
                 <span class="room-member-count">{move || format!("{}/{}", members.get().len(), MAX_MEMBERS)}</span>
+                <span
+                    class="audio-chip"
+                    class:audio-chip--muted=audio_muted
+                    class:hidden=move || !(sharing_has_audio && is_sharing.get())
+                    aria-live="polite"
+                >
+                    <span class="audio-chip__dot" aria-hidden="true"></span>
+                    {move || if audio_muted.get() { "Áudio mudo" } else { "Áudio ligado" }}
+                </span>
+                // Surface the status sentence only while something is off or
+                // in progress (reconnecting, an error) — the steady "Conectado."
+                // state stays silent, represented by the lamp alone.
+                <span
+                    class="stage-header__status"
+                    class:hidden=move || matches!(status_meta(&status.get()).0, "idle" | "live")
+                >
+                    {move || status.get()}
+                </span>
                 <span class="status-row__spacer"></span>
                 <button
                     class="invite-btn"
@@ -287,6 +401,12 @@ pub fn RoomPage() -> impl IntoView {
                 </button>
                 <span class="status-text status-text--error" class:hidden=move || can_share>
                     "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
+                </span>
+                <span
+                    class="status-text status-text--error"
+                    class:hidden=move || audio_warning.get().is_none()
+                >
+                    {move || audio_warning.get().unwrap_or_default()}
                 </span>
             </div>
             <div id="member-grid" class="grid" class:grid--focused=move || expanded.get().is_some()>
@@ -326,6 +446,15 @@ pub fn RoomPage() -> impl IntoView {
                     </button>
                     <button
                         class="icon-btn icon-btn--neutral"
+                        class:hidden=move || !is_sharing.get()
+                        title="Trocar a tela ou janela compartilhada"
+                        aria-label="Trocar a tela ou janela compartilhada"
+                        on:click=switch_source.clone()
+                    >
+                        {icon_switch}
+                    </button>
+                    <button
+                        class="icon-btn icon-btn--neutral"
                         class:icon-btn--active=hide_idle
                         title=move || if hide_idle.get() { "Mostrar todo mundo" } else { "Ocultar quem não está transmitindo" }
                         aria-label="Ocultar quem não está transmitindo"
@@ -342,6 +471,38 @@ pub fn RoomPage() -> impl IntoView {
                         on:click=move |_| own_preview_hidden.update(|v| *v = !*v)
                     >
                         {icon_video_off}
+                    </button>
+                    <div class="control-group__menu" class:hidden=move || !is_sharing.get()>
+                        <MenuSelect
+                            label="Modo de vídeo"
+                            icon=MenuIcon::Levels
+                            options=video_options
+                            selected=Signal::derive(move || video_mode.get().value())
+                            on_select=set_video_mode
+                        />
+                    </div>
+                    <div
+                        class="control-group__menu"
+                        class:hidden=move || !(sharing_has_audio && is_sharing.get())
+                    >
+                        <MenuSelect
+                            label="Qualidade do áudio"
+                            icon=MenuIcon::Volume
+                            options=audio_options
+                            selected=Signal::derive(move || audio_preset.get().value())
+                            on_select=set_audio_preset
+                        />
+                    </div>
+                    <button
+                        class="icon-btn icon-btn--neutral"
+                        class:icon-btn--active=audio_muted
+                        class:hidden=move || !(sharing_has_audio && is_sharing.get())
+                        title=move || if audio_muted.get() { "Reativar o áudio compartilhado" } else { "Silenciar o áudio compartilhado" }
+                        aria-label="Silenciar ou reativar o áudio compartilhado"
+                        aria-pressed=move || audio_muted.get().to_string()
+                        on:click=move |_| audio_muted.update(|m| *m = !*m)
+                    >
+                        {move || if audio_muted.get() { icon_volume_off().into_any() } else { icon_volume().into_any() }}
                     </button>
                 </div>
                 <div class="control-group control-group--danger">

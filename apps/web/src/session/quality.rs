@@ -35,10 +35,10 @@ impl Tier {
     }
 }
 
-/// (maxBitrate in bps, scaleResolutionDownBy) per tier. Screen-share content
-/// (sharp text/UI edges) needs a much higher bitrate per pixel than typical
-/// webcam presets before it looks blocky, so these run well above generic
-/// WebRTC quality-preset numbers found elsewhere.
+/// maxBitrate in bps per tier. Screen-share content (sharp text/UI edges)
+/// needs a much higher bitrate per pixel than typical webcam presets before
+/// it looks blocky, so these run well above generic WebRTC quality-preset
+/// numbers found elsewhere.
 #[cfg(any(test, feature = "hydrate"))]
 const HIGH_MAX_BITRATE_BPS: u32 = 4_000_000;
 #[cfg(any(test, feature = "hydrate"))]
@@ -46,12 +46,56 @@ const MEDIUM_MAX_BITRATE_BPS: u32 = 1_200_000;
 #[cfg(any(test, feature = "hydrate"))]
 const LOW_MAX_BITRATE_BPS: u32 = 400_000;
 
+/// `scaleResolutionDownBy` per tier — 1.0 keeps native resolution, higher
+/// values shrink the encoded frame so a starved connection stays legible.
 #[cfg(any(test, feature = "hydrate"))]
-fn preset_for(tier: Tier) -> (u32, f32) {
+const HIGH_SCALE_DOWN: f32 = 1.0;
+#[cfg(any(test, feature = "hydrate"))]
+const MEDIUM_SCALE_DOWN: f32 = 1.5;
+#[cfg(any(test, feature = "hydrate"))]
+const LOW_SCALE_DOWN: f32 = 3.0;
+
+/// `maxFramerate` per tier. The top tier allows a full 60 so a member
+/// sharing video or a game gets smooth motion; `contentHint = "detail"` on
+/// the captured track plus `degradationPreference = "maintain-resolution"`
+/// (set together in `configure_encoding`) keep a mostly-static screen from
+/// spending bitrate on frames it doesn't need. The lower tiers cap motion
+/// hard so a squeezed connection puts its budget into staying sharp, not
+/// fluid.
+#[cfg(any(test, feature = "hydrate"))]
+const HIGH_MAX_FRAMERATE: f64 = 60.0;
+#[cfg(any(test, feature = "hydrate"))]
+const MEDIUM_MAX_FRAMERATE: f64 = 30.0;
+#[cfg(any(test, feature = "hydrate"))]
+const LOW_MAX_FRAMERATE: f64 = 15.0;
+
+/// The `RTCRtpSender` encoding knobs one quality tier pins.
+#[cfg(any(test, feature = "hydrate"))]
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct EncodingPreset {
+    pub max_bitrate_bps: u32,
+    pub scale_down: f32,
+    pub max_framerate: f64,
+}
+
+#[cfg(any(test, feature = "hydrate"))]
+fn preset_for(tier: Tier) -> EncodingPreset {
     match tier {
-        Tier::High => (HIGH_MAX_BITRATE_BPS, 1.0),
-        Tier::Medium => (MEDIUM_MAX_BITRATE_BPS, 1.5),
-        Tier::Low => (LOW_MAX_BITRATE_BPS, 3.0),
+        Tier::High => EncodingPreset {
+            max_bitrate_bps: HIGH_MAX_BITRATE_BPS,
+            scale_down: HIGH_SCALE_DOWN,
+            max_framerate: HIGH_MAX_FRAMERATE,
+        },
+        Tier::Medium => EncodingPreset {
+            max_bitrate_bps: MEDIUM_MAX_BITRATE_BPS,
+            scale_down: MEDIUM_SCALE_DOWN,
+            max_framerate: MEDIUM_MAX_FRAMERATE,
+        },
+        Tier::Low => EncodingPreset {
+            max_bitrate_bps: LOW_MAX_BITRATE_BPS,
+            scale_down: LOW_SCALE_DOWN,
+            max_framerate: LOW_MAX_FRAMERATE,
+        },
     }
 }
 
@@ -221,11 +265,30 @@ impl Default for AdaptiveQuality {
 #[cfg(feature = "hydrate")]
 const AUTO_POLL_INTERVAL_MS: i32 = 3_000;
 
+/// Applies `preset` to one `RTCRtpSender` encoding: bitrate ceiling,
+/// resolution scale, and frame-rate cap. web-sys has no typed setter for
+/// `maxFramerate`, so it goes straight onto the encoding dict; the browser
+/// reads it there. `degradationPreference` (drop frames vs. resolution
+/// under pressure) is *not* set here — it's the sharer's `VideoMode`
+/// choice, owned by `session::video_mode` and applied over the top of this.
+#[cfg(feature = "hydrate")]
+fn configure_encoding(encoding: &web_sys::RtcRtpEncodingParameters, preset: EncodingPreset) {
+    use wasm_bindgen::JsValue;
+
+    encoding.set_max_bitrate(preset.max_bitrate_bps);
+    encoding.set_scale_resolution_down_by(preset.scale_down);
+    let _ = js_sys::Reflect::set(
+        encoding,
+        &JsValue::from_str("maxFramerate"),
+        &JsValue::from_f64(preset.max_framerate),
+    );
+}
+
 /// Finds the video `RTCRtpSender` on `pc` (there's at most one — this app
 /// never sends more than a single video track per connection) and pins it
-/// to `tier`'s bitrate/scale. A no-op if sharing hasn't actually started
-/// yet (no sender), which can happen if a quality change races the initial
-/// track being added.
+/// to `tier`'s bitrate/scale/frame-rate. A no-op if sharing hasn't actually
+/// started yet (no sender), which can happen if a quality change races the
+/// initial track being added.
 #[cfg(feature = "hydrate")]
 pub(crate) async fn apply_tier(
     pc: &web_sys::RtcPeerConnection,
@@ -243,18 +306,16 @@ pub(crate) async fn apply_tier(
 
     let params = sender.get_parameters();
     let encodings = params.get_encodings().unwrap_or_else(js_sys::Array::new);
-    let (max_bitrate, scale) = preset_for(tier);
+    let preset = preset_for(tier);
 
     if encodings.length() == 0 {
         let encoding = web_sys::RtcRtpEncodingParameters::new();
-        encoding.set_max_bitrate(max_bitrate);
-        encoding.set_scale_resolution_down_by(scale);
+        configure_encoding(&encoding, preset);
         encodings.push(&encoding);
     } else {
         for entry in encodings.iter() {
             let encoding: web_sys::RtcRtpEncodingParameters = entry.unchecked_into();
-            encoding.set_max_bitrate(max_bitrate);
-            encoding.set_scale_resolution_down_by(scale);
+            configure_encoding(&encoding, preset);
         }
     }
     params.set_encodings(&encodings);
@@ -439,3 +500,7 @@ pub(crate) fn set_quality_handler(
 #[cfg(test)]
 #[path = "quality_tests.rs"]
 mod tests;
+
+#[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
+#[path = "quality_wasm_tests.rs"]
+mod wasm_tests;

@@ -1,3 +1,8 @@
+// The bin monomorphises the lib's `view!` types when it renders routes;
+// `RoomPage`'s is deep enough to need this above the default (see the same
+// attribute on `lib.rs`).
+#![recursion_limit = "512"]
+
 #[cfg(feature = "ssr")]
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

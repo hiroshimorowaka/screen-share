@@ -85,7 +85,7 @@ pub(crate) fn exit_fullscreen_if_showing(peer_id: &str) -> bool {
 }
 
 #[cfg(not(feature = "hydrate"))]
-pub(super) fn blur_active_element() {}
+pub(crate) fn blur_active_element() {}
 
 /// Drops focus from whatever element currently holds it. The quality menu
 /// stays open while it has `:focus-within`, so after a click on one of its
@@ -93,7 +93,7 @@ pub(super) fn blur_active_element() {}
 /// button) until the user clicks elsewhere — blurring lets it close as
 /// soon as the pointer leaves, like a normal menu.
 #[cfg(feature = "hydrate")]
-pub(super) fn blur_active_element() {
+pub(crate) fn blur_active_element() {
     use wasm_bindgen::JsCast;
 
     let Some(active) = web_sys::window()

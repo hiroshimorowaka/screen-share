@@ -129,6 +129,45 @@ test('a watcher reload mid-session silently rejoins and keeps the roster', async
   await bobCtx.close();
 });
 
+test('a watcher whose connection drops reconnects on its own and rewatches', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+
+  // Sever Bob's signaling socket on demand while the server stays up.
+  // CDP offline emulation (`setOffline`) does not close a live WebSocket
+  // and the protocol has no heartbeat, so the only way to exercise the
+  // reconnect path from a test is to route the socket and close it.
+  let severBobSocket: (() => Promise<void>) | undefined;
+  await bobCtx.routeWebSocket(/\/ws(\?|$)/, (ws) => {
+    ws.connectToServer();
+    severBobSocket = () => ws.close();
+  });
+
+  const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala queda');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+
+  await ana.getByRole('button', { name: SHARE_BUTTON }).click();
+  await watchSharer(bob, 'Ana');
+
+  // Bob's connection drops — the client should notice and start retrying.
+  await severBobSocket?.();
+  await expect(bob.locator('.stage-header')).toContainText(/Reconectando|Conexão perdida/, {
+    timeout: 10_000,
+  });
+
+  // The roster comes back without a nick gate, and the watch re-establishes
+  // itself (replayed intent) so frames flow again.
+  await expect(bob.getByRole('heading', { name: 'Entrar na sala' })).toBeHidden();
+  await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
+  await expect
+    .poll(async () => (await videoState(bob, 'Ana')).readyState, { timeout: MEDIA_SETTLE_MS })
+    .toBeGreaterThanOrEqual(2);
+
+  await anaCtx.close();
+  await bobCtx.close();
+});
+
 test('one watcher stopping does not disturb another watching the same sharer', async ({ browser }) => {
   const anaCtx = await browser.newContext();
   const bobCtx = await browser.newContext();

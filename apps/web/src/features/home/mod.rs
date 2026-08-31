@@ -57,6 +57,27 @@ pub fn HomePage() -> impl IntoView {
     let join_room = join_room_handler(join_input, set_join_status);
 
     view! {
+        <div class="home">
+        <section class="home-intro">
+            <h1 class="home-intro__title">"Compartilhe sua tela com o grupo"</h1>
+            <p class="home-intro__sub">
+                "Uma sala que fica de pé — direto no navegador, sem instalar nada. "
+                "Qualquer pessoa na sala compartilha a própria tela quando quiser."
+            </p>
+            <ol class="home-steps">
+                <li>
+                    <b>"Crie ou entre numa sala."</b>
+                    "Escolha um nick e uma cor. Defina uma senha ou marque como pública."
+                </li>
+                <li>
+                    <b>"Compartilhe quando quiser."</b>
+                    "Clique em compartilhar e escolha a tela ou a janela — o link da sala vai pra sua área de transferência."</li>
+                <li>
+                    <b>"Assistir é individual."</b>
+                    "Cada um escolhe quem assistir, sem afetar os outros. No app desktop, o áudio do sistema vai junto."
+                </li>
+            </ol>
+        </section>
         <div class="home-layout">
         <div class="panel">
             <h1>"Criar sala"</h1>
@@ -170,6 +191,7 @@ pub fn HomePage() -> impl IntoView {
                     }
                 </For>
             </div>
+        </div>
         </div>
         </div>
     }
