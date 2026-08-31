@@ -133,6 +133,16 @@ test('a watcher whose connection drops reconnects on its own and rewatches', asy
   const anaCtx = await browser.newContext();
   const bobCtx = await browser.newContext();
 
+  // Sever Bob's signaling socket on demand while the server stays up.
+  // CDP offline emulation (`setOffline`) does not close a live WebSocket
+  // and the protocol has no heartbeat, so the only way to exercise the
+  // reconnect path from a test is to route the socket and close it.
+  let severBobSocket: (() => Promise<void>) | undefined;
+  await bobCtx.routeWebSocket(/\/ws(\?|$)/, (ws) => {
+    ws.connectToServer();
+    severBobSocket = () => ws.close();
+  });
+
   const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala queda');
   const bob = await joinRoom(bobCtx, url, 'Bob');
   await expect(bob.locator('.card__nick', { hasText: 'Ana' })).toBeVisible();
@@ -140,13 +150,11 @@ test('a watcher whose connection drops reconnects on its own and rewatches', asy
   await ana.getByRole('button', { name: SHARE_BUTTON }).click();
   await watchSharer(bob, 'Ana');
 
-  // Bob's network drops for a moment, then comes back — no reload.
-  await bobCtx.setOffline(true);
+  // Bob's connection drops — the client should notice and start retrying.
+  await severBobSocket?.();
   await expect(bob.locator('.stage-header')).toContainText(/Reconectando|Conexão perdida/, {
     timeout: 10_000,
   });
-  await bob.waitForTimeout(1_000);
-  await bobCtx.setOffline(false);
 
   // The roster comes back without a nick gate, and the watch re-establishes
   // itself (replayed intent) so frames flow again.

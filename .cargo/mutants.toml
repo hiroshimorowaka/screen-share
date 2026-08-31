@@ -33,6 +33,16 @@ minimum_test_timeout = 60
 # ("-> None", "delete !") can only be caught by mutating process-global
 # env vars, which is racy under parallel tests and `unsafe` in edition
 # 2024. The logic that matters is covered; the plumbing is excluded.
+#
+# `configure_encoding` / `apply_tier` in `session/quality.rs` are
+# `#[cfg(feature = "hydrate")]` `RTCRtpSender` glue in an otherwise
+# ssr-live file (the pure `AdaptiveQuality` hysteresis lives alongside
+# them and stays mutated). The `screen_share` mutants runs are
+# `--features ssr`, where these two are cfg'd out entirely, so no ssr
+# test can ever kill their mutants — their real coverage is
+# `quality_wasm_tests.rs`, which cargo-mutants doesn't drive.
 exclude_re = [
     "TurnConfig::from_env",
+    "configure_encoding",
+    "apply_tier",
 ]
