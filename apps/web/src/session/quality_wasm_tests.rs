@@ -67,3 +67,19 @@ async fn apply_tier_is_a_noop_when_no_video_sender_exists_yet() {
     // No track added — must resolve Ok rather than panic or reject.
     apply_tier(&pc, Tier::High).await.unwrap();
 }
+
+#[wasm_bindgen_test]
+fn is_auto_polling_reflects_whether_a_viewers_auto_poll_is_registered() {
+    let conn = crate::session::RoomSession::new();
+    assert!(!is_auto_polling(&conn, "viewer-1"));
+
+    conn.quality_auto_intervals
+        .borrow_mut()
+        .insert("viewer-1".to_string(), 42);
+    assert!(is_auto_polling(&conn, "viewer-1"));
+
+    // A fixed-tier switch tears the poll down — `is_auto_polling` must then
+    // report false so renegotiation won't re-assert `High` over the choice.
+    stop_auto_polling(&conn, "viewer-1");
+    assert!(!is_auto_polling(&conn, "viewer-1"));
+}

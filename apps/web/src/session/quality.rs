@@ -373,15 +373,32 @@ async fn read_reading(pc: &web_sys::RtcPeerConnection) -> Option<RawReading> {
     })
 }
 
-/// Starts polling `viewer_peer_id`'s connection and adapting its quality —
-/// applies `Tier::High` immediately (matching a fresh `AdaptiveQuality`'s
-/// starting assumption) so the sender and the monitor agree on the tier
-/// from the first tick, then re-evaluates every `AUTO_POLL_INTERVAL_MS`.
-/// Idempotent-ish: callers should `stop_auto_polling` first if one might
-/// already be running for this viewer, or two intervals end up fighting
-/// over the same sender.
+/// Whether [`start_auto_polling`] should pin the sender to `Tier::High`
+/// before its first poll.
 #[cfg(feature = "hydrate")]
-pub(crate) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_id: String) {
+pub(crate) enum InitialTier {
+    /// Re-apply `High` now — the sender may currently be pinned to a lower
+    /// tier (a manual switch back to `Auto`).
+    ResetToHigh,
+    /// The caller already established the encoding this run (and re-asserted
+    /// the video mode over it); skip the redundant apply so it can't race
+    /// the offer that's about to be built.
+    AlreadyApplied,
+}
+
+/// Starts polling `viewer_peer_id`'s connection and adapting its quality
+/// every `AUTO_POLL_INTERVAL_MS`. `initial` decides whether `Tier::High` is
+/// applied up front (see [`InitialTier`]); either way a fresh
+/// `AdaptiveQuality` assumes `High`, so the monitor and the sender agree
+/// from the first tick. Idempotent-ish: callers should `stop_auto_polling`
+/// first if one might already be running for this viewer, or two intervals
+/// end up fighting over the same sender.
+#[cfg(feature = "hydrate")]
+pub(crate) fn start_auto_polling(
+    conn: crate::session::RoomSession,
+    viewer_peer_id: String,
+    initial: InitialTier,
+) {
     use std::cell::RefCell;
     use std::rc::Rc;
 
@@ -395,13 +412,19 @@ pub(crate) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_
 
     let monitor = Rc::new(RefCell::new(AdaptiveQuality::new()));
 
-    let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() else {
+    // Nothing to poll if the connection isn't up yet.
+    if !conn.outgoing.borrow().contains_key(&viewer_peer_id) {
         return;
-    };
-    let starting_tier = monitor.borrow().tier();
-    spawn_local(async move {
-        let _ = apply_tier(&pc, starting_tier).await;
-    });
+    }
+
+    if let InitialTier::ResetToHigh = initial {
+        if let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() {
+            let starting_tier = monitor.borrow().tier();
+            spawn_local(async move {
+                let _ = apply_tier(&pc, starting_tier).await;
+            });
+        }
+    }
     let on_tick = Closure::<dyn FnMut()>::new({
         let conn = conn.clone();
         let viewer_peer_id = viewer_peer_id.clone();
@@ -435,6 +458,18 @@ pub(crate) fn start_auto_polling(conn: crate::session::RoomSession, viewer_peer_
     conn.quality_auto_intervals
         .borrow_mut()
         .insert(viewer_peer_id, interval_id);
+}
+
+/// Whether an Auto quality poll is currently registered for `viewer_peer_id`.
+/// True only while that viewer's quality is `Auto`: picking a fixed tier
+/// runs [`stop_auto_polling`], so this doubles as "is this viewer still
+/// being adapted?" — used after renegotiation to decide whether re-asserting
+/// `Tier::High` would stomp a deliberate fixed-tier choice.
+#[cfg(feature = "hydrate")]
+pub(crate) fn is_auto_polling(conn: &crate::session::RoomSession, viewer_peer_id: &str) -> bool {
+    conn.quality_auto_intervals
+        .borrow()
+        .contains_key(viewer_peer_id)
 }
 
 /// Stops `viewer_peer_id`'s Auto poll if one is running — safe to call even

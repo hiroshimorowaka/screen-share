@@ -1,19 +1,70 @@
-//! SDP rewriting for the one thing the browser won't do on its own: make
-//! the negotiated Opus stream music-grade.
+//! SDP rewriting for two things the browser won't do well on its own:
+//! music-grade Opus, and a sane *starting* video bitrate. Both edit
+//! `a=fmtp` lines just before the description is set, and the sharer applies
+//! them to *both* descriptions of each viewer connection — its local offer
+//! (`create_offer`) and the answer it gets back (`accept_answer`) — because
+//! Chrome reads a codec's `x-google-*` / Opus fmtp parameters, for the
+//! direction it is *sending*, from the **remote** description, and strips
+//! them from the answer it generates.
 //!
-//! `getDisplayMedia` system audio is music, not a voice call, but Opus in
-//! WebRTC negotiates a mono ~32 kbit/s voice profile by default. The
-//! `a=fmtp` line for the Opus payload type has to be edited — before
-//! `setLocalDescription` and before the SDP goes on the wire — to turn on
-//! stereo and raise the bitrate ceiling. The sharer's live audio-quality
-//! preset then picks the actual send rate at or below that ceiling via
+//! **Opus.** `getDisplayMedia` system audio is music, not a voice call, but
+//! Opus in WebRTC negotiates a mono ~32 kbit/s voice profile by default.
+//! The `a=fmtp` line for the Opus payload type is edited to turn on stereo
+//! and raise the bitrate ceiling. The sharer's live audio-quality preset
+//! then picks the actual send rate at or below that ceiling via
 //! `RTCRtpSender.setParameters` (no renegotiation); this module only
 //! decides how high it is allowed to go.
+//!
+//! **Video start bitrate.** WebRTC's send-side bandwidth estimator opens
+//! every new connection at a stock ~300 kbit/s and ramps up over 10–30 s,
+//! so a viewer who just clicked "assistir" watches a smeared image slowly
+//! sharpen. Screen content is mostly static and cheap to send, so the
+//! video codecs' `a=fmtp` lines get Chrome's `x-google-start-bitrate`
+//! (plus a matching min/max) to open near the top and let the estimator —
+//! and `QualityLevel::Auto` — trim *down* only if the link can't hold it.
+//! The hint only reaches the encoder via the sharer's remote description
+//! (the answer), so munging just the offer — as this module first did — was
+//! a no-op that left the ramp-up in place.
 
 /// Opus `maxaveragebitrate`, in bits per second, negotiated as the stream's
 /// ceiling. 256 kbit/s is transparent stereo for music — past it Opus gains
 /// nothing audible, and it stays well under what a small P2P mesh can move.
 pub const OPUS_MAX_AVERAGE_BITRATE_BPS: u32 = 256_000;
+
+/// `x-google-start-bitrate`, in kbit/s: the rate the send-side estimator
+/// assumes before it has measured the link. Deliberately *below*
+/// [`VIDEO_MAX_BITRATE_KBPS`] so a weak connection isn't hit with a
+/// full-ceiling burst on connect that it then has to claw back — but far
+/// above Chrome's ~300 kbit/s stock start, so the picture opens sharp
+/// instead of crawling up from a smear.
+pub const VIDEO_START_BITRATE_KBPS: u32 = 2_500;
+/// `x-google-min-bitrate`, in kbit/s — left at Chrome's own low floor so a
+/// genuinely starved link is never wedged above what it can carry.
+pub const VIDEO_MIN_BITRATE_KBPS: u32 = 300;
+/// `x-google-max-bitrate`, in kbit/s. Matches the `High` tier ceiling in
+/// [`crate::session::quality`] (`HIGH_MAX_BITRATE_BPS`, 4 Mbit/s); the live
+/// per-tier `maxBitrate` from `apply_tier` still applies on top via
+/// `setParameters`, so `Auto`/manual tier stepping keeps working — this
+/// only stops a codec's low *default* max from capping the top tier.
+pub const VIDEO_MAX_BITRATE_KBPS: u32 = 4_000;
+
+/// Primary video codecs (`a=rtpmap:<pt> <name>/90000`) whose `a=fmtp` line
+/// carries the `x-google-*` bitrate hints. Excludes `rtx`, `red`,
+/// `ulpfec`/`flexfec` — retransmission/FEC payloads, not encoders.
+const PRIMARY_VIDEO_CODECS: [&str; 5] = ["VP8", "VP9", "H264", "AV1", "AV1X"];
+
+/// The Chrome-only `x-google-*` bitrate hints forced onto every primary
+/// video codec's `a=fmtp` line — see the module docs for why.
+fn forced_video_bitrate_keys() -> [(&'static str, String); 3] {
+    [
+        (
+            "x-google-start-bitrate",
+            VIDEO_START_BITRATE_KBPS.to_string(),
+        ),
+        ("x-google-min-bitrate", VIDEO_MIN_BITRATE_KBPS.to_string()),
+        ("x-google-max-bitrate", VIDEO_MAX_BITRATE_KBPS.to_string()),
+    ]
+}
 
 /// The `a=fmtp` keys this module forces on, in the order they're emitted
 /// when a fresh `a=fmtp` line has to be synthesised. Existing keys not in
@@ -43,28 +94,64 @@ fn forced_fmtp_keys() -> [(&'static str, String); 6] {
 /// declares no Opus codec it is returned unchanged. Line endings (`\r\n`
 /// vs `\n`) are preserved per line.
 pub fn tune_opus_for_music(sdp: &str) -> String {
-    let opus_pts = opus_payload_types(sdp);
-    if opus_pts.is_empty() {
+    force_fmtp_keys(
+        sdp,
+        &opus_payload_types(sdp),
+        rtpmap_opus_payload_type,
+        &forced_fmtp_keys(),
+    )
+}
+
+/// Adds Chrome's `x-google-start-bitrate` / `x-google-min-bitrate` /
+/// `x-google-max-bitrate` to every primary video codec's `a=fmtp` line
+/// (synthesising one where the codec has none, as VP8 usually does), so a
+/// freshly-connected viewer starts near full quality instead of watching
+/// the send-side estimator crawl up from its ~300 kbit/s default. Same
+/// guarantees as [`tune_opus_for_music`]: idempotent, per-line endings and
+/// every non-video line untouched, SDP with no video returned unchanged.
+pub fn tune_video_start_bitrate(sdp: &str) -> String {
+    force_fmtp_keys(
+        sdp,
+        &video_payload_types(sdp),
+        rtpmap_video_payload_type,
+        &forced_video_bitrate_keys(),
+    )
+}
+
+/// Shared core of the two `tune_*` entry points: merges `forced` into the
+/// `a=fmtp` line of every payload type in `target_pts`, synthesising one
+/// right after the codec's `a=rtpmap` when it has none. `rtpmap_target_pt`
+/// pulls a target payload type out of an `a=rtpmap` line body (and returns
+/// `None` for anything else). Returns `sdp` untouched when `target_pts` is
+/// empty; otherwise every other line is copied through verbatim, endings
+/// and all.
+fn force_fmtp_keys(
+    sdp: &str,
+    target_pts: &[u32],
+    rtpmap_target_pt: impl Fn(&str) -> Option<u32>,
+    forced: &[(&'static str, String)],
+) -> String {
+    if target_pts.is_empty() {
         return sdp.to_string();
     }
     let pts_with_fmtp = payload_types_with_fmtp(sdp);
 
-    let mut out: Vec<String> = Vec::with_capacity(sdp.split('\n').count() + opus_pts.len());
+    let mut out: Vec<String> = Vec::with_capacity(sdp.split('\n').count() + target_pts.len());
     for line in sdp.split('\n') {
         let (body, ending) = split_line_ending(line);
 
         if let Some(pt) = fmtp_payload_type(body) {
-            if opus_pts.contains(&pt) {
-                out.push(format!("{}{ending}", rewrite_fmtp_line(body, pt)));
+            if target_pts.contains(&pt) {
+                out.push(format!("{}{ending}", rewrite_fmtp_line(body, pt, forced)));
                 continue;
             }
         }
 
         out.push(line.to_string());
 
-        if let Some(pt) = rtpmap_opus_payload_type(body) {
+        if let Some(pt) = rtpmap_target_pt(body) {
             if !pts_with_fmtp.contains(&pt) {
-                out.push(format!("{}{ending}", synthesise_fmtp_line(pt)));
+                out.push(format!("{}{ending}", synthesise_fmtp_line(pt, forced)));
             }
         }
     }
@@ -95,6 +182,27 @@ fn payload_types_with_fmtp(sdp: &str) -> Vec<u32> {
         .collect()
 }
 
+/// Payload types declared as a primary video codec
+/// (`a=rtpmap:<pt> VP8|VP9|H264|AV1|AV1X/90000`), matched case-insensitively.
+fn video_payload_types(sdp: &str) -> Vec<u32> {
+    sdp.split('\n')
+        .filter_map(|line| rtpmap_video_payload_type(split_line_ending(line).0))
+        .collect()
+}
+
+/// `Some(pt)` if `line` is `a=rtpmap:<pt> <name>/90000` and `<name>` is one
+/// of [`PRIMARY_VIDEO_CODECS`] — i.e. an encoder, not `rtx`/`red`/FEC.
+fn rtpmap_video_payload_type(line: &str) -> Option<u32> {
+    let rest = line.strip_prefix("a=rtpmap:")?;
+    let (pt, descr) = rest.split_once(' ')?;
+    let name = descr.split('/').next()?;
+    PRIMARY_VIDEO_CODECS
+        .iter()
+        .any(|codec| codec.eq_ignore_ascii_case(name))
+        .then(|| pt.parse().ok())
+        .flatten()
+}
+
 /// `Some(pt)` if `line` is `a=rtpmap:<pt> opus/48000/2` (codec name matched
 /// case-insensitively, as RFC 4566 allows).
 fn rtpmap_opus_payload_type(line: &str) -> Option<u32> {
@@ -115,9 +223,9 @@ fn fmtp_payload_type(line: &str) -> Option<u32> {
     pt.parse().ok()
 }
 
-fn synthesise_fmtp_line(pt: u32) -> String {
-    let params = forced_fmtp_keys()
-        .into_iter()
+fn synthesise_fmtp_line(pt: u32, forced: &[(&'static str, String)]) -> String {
+    let params = forced
+        .iter()
         .map(|(key, value)| format!("{key}={value}"))
         .collect::<Vec<_>>()
         .join(";");
@@ -127,13 +235,12 @@ fn synthesise_fmtp_line(pt: u32) -> String {
 /// Merges the forced keys into an existing `a=fmtp:<pt> ...` line, keeping
 /// any unrelated keys and their original order, overriding a forced key in
 /// place if it's already there and appending it otherwise.
-fn rewrite_fmtp_line(line: &str, pt: u32) -> String {
+fn rewrite_fmtp_line(line: &str, pt: u32, forced: &[(&'static str, String)]) -> String {
     let existing = line
         .strip_prefix(&format!("a=fmtp:{pt}"))
         .map(str::trim_start)
         .unwrap_or("");
 
-    let forced = forced_fmtp_keys();
     let mut tokens: Vec<(String, String)> = Vec::new();
     for token in existing.split(';').filter(|t| !t.is_empty()) {
         let (key, value) = match token.split_once('=') {
@@ -153,7 +260,7 @@ fn rewrite_fmtp_line(line: &str, pt: u32) -> String {
             .iter()
             .any(|(key, _)| key.eq_ignore_ascii_case(forced_key))
         {
-            tokens.push((forced_key.to_string(), forced_value));
+            tokens.push((forced_key.to_string(), forced_value.clone()));
         }
     }
 

@@ -93,6 +93,9 @@ explaining **why that value**.
 
 ## Testing
 
+- Every new feature and every bug fix ships with tests — see `CLAUDE.md`
+  §"Testing approach" → "Tests are mandatory" for the rule and the
+  impossible-to-test exception.
 - Unit-test plain logic (parsing, validation, the status classifier,
   room-code generation, the signaling protocol's (de)serialization, the
   registry's behavior).
@@ -102,10 +105,14 @@ explaining **why that value**.
   capture, audio, and the browser's own share controls are still checked
   by hand (see `CLAUDE.md` §"Testing approach").
 - Arrange-Act-Assert. No commented-out tests.
-- **Mutation:** `cargo mutants --in-diff … -p screen-share-protocol -p
-  screen-share-signaling` is a blocking CI check — a change to those
-  crates must not add an uncaught mutant. Run it locally on the changed
-  area before pushing. `apps/web` mutation is report-only for now.
+- Run the suites via `scripts/test-all.sh --no-mutants` — never
+  individual test commands by hand (`CLAUDE.md` §"Testing approach" →
+  "Running tests"). To narrow while iterating, pass a target
+  (`scripts/test-all.sh rust`, `… e2e-web`, `… lint`; `--help` lists
+  them); the full `--no-mutants` run still gates the change. Mutation (`cargo mutants --in-diff … -p
+  screen-share-protocol -p screen-share-signaling`) is a blocking CI
+  check for those two crates and runs in CI, not locally; `apps/web`
+  mutation is report-only.
 - After Phase 4 of the architecture refactor, tests live in each crate's
   `tests/` directory, not in `#[cfg(test)]` modules inside source files
   (see the refactor roadmap).
@@ -167,13 +174,12 @@ explaining **why that value**.
 
 ## Before committing
 
-- [ ] Tests pass — `cargo test -p screen_share --features ssr` (or the
-      relevant `-p <crate>` after the workspace split).
-- [ ] No compiler warnings.
-- [ ] `cargo clippy --all-targets -- -D warnings` clean.
-- [ ] `cargo fmt --check` clean.
-- [ ] If Rust that feeds the WASM bundle changed, rebuild via
-      `cargo leptos build`.
+- [ ] `scripts/test-all.sh --no-mutants` passes — the full run (default
+      target `all`) is the gate: fmt, clippy, `cargo leptos build`, Rust /
+      WASM / Playwright. Per-group targets (`e2e`, `lint`, …) are for
+      iterating only. See `CLAUDE.md` §"Testing approach" → "Running tests".
+- [ ] The change ships with tests for the new behavior or the fixed bug
+      (`CLAUDE.md` §"Testing approach" → "Tests are mandatory").
 - [ ] Public items have doc comments.
 - [ ] No commented-out code, debug statements, or hardcoded credentials.
 

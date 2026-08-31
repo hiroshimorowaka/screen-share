@@ -18,6 +18,7 @@ target/
 
 # Node / Playwright
 node_modules/
+/test-results/
 /apps/web/end2end/test-results/
 /apps/web/end2end/playwright-report/
 /apps/web/end2end/blob-report/

@@ -95,11 +95,32 @@ pub(super) fn stop_watching_click_handler(
 /// cancelled-picker path (`share::start_sharing`'s `on_cancelled`).
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
-pub(super) fn leave_room(_conn: &RoomSession, _room_code: &str) {}
+pub(super) fn leave_room(
+    _conn: &RoomSession,
+    _room_code: &str,
+    _my_peer_id: ReadSignal<Option<String>>,
+) {
+}
 
 #[cfg(feature = "hydrate")]
-pub(super) fn leave_room(conn: &RoomSession, room_code: &str) {
+pub(super) fn leave_room(
+    conn: &RoomSession,
+    room_code: &str,
+    my_peer_id: ReadSignal<Option<String>>,
+) {
     use leptos_router::hooks::use_navigate;
+
+    // Leaving while still sharing otherwise strands Chrome's native
+    // "you're sharing" bar / tab indicator — the capture tracks are never
+    // stopped and the preview `<video>` keeps its `srcObject`. Run the same
+    // teardown a deliberate "stop sharing" does before disconnecting. Bind
+    // the `borrow()` to a local first so it is released before
+    // `teardown_local_share` takes its own `borrow_mut()`.
+    let was_sharing = conn.local_stream.borrow().is_some();
+    if was_sharing {
+        let me = my_peer_id.get_untracked();
+        crate::session::media::teardown_local_share(conn, me.as_deref());
+    }
 
     crate::infra::storage::clear_room_session(room_code);
     // A deliberate leave: mark the close expected so the reconnect loop
@@ -136,7 +157,7 @@ pub(super) fn leave_or_stop_watching_handler(
 
     move |_| {
         let Some(focused_peer_id) = expanded.get_untracked() else {
-            leave_room(&conn, &room_code);
+            leave_room(&conn, &room_code, my_peer_id);
             return;
         };
 

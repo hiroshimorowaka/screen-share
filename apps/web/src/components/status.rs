@@ -4,11 +4,9 @@
 pub fn status_meta(status: &str) -> (&'static str, &'static str) {
     match status {
         "Pronto para compartilhar." => ("idle", "PRONTO"),
-        "Selecione a tela para compartilhar..."
-        | "Selecione a nova tela para compartilhar..."
-        | "Conectando..." => ("busy", "CONECTANDO"),
+        "Conectando..." => ("busy", "CONECTANDO"),
         s if s.starts_with("Reconectando") => ("busy", "RECONECTANDO"),
-        "Compartilhando! Envie o link para seus amigos." | "Conectado." => ("live", "AO VIVO"),
+        "Conectado." => ("live", "AO VIVO"),
         "Compartilhamento encerrado." | "O compartilhamento foi encerrado." => {
             ("idle", "ENCERRADO")
         }

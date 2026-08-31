@@ -22,10 +22,10 @@ pub enum VideoMode {
 }
 
 impl VideoMode {
-    /// Every mode, in the order the segmented control lists them.
+    /// Every mode, in the order the picker lists them.
     pub const ALL: [VideoMode; 2] = [VideoMode::Detail, VideoMode::Motion];
 
-    /// Stable identity used by the segmented control and by any persisted
+    /// Stable identity used by the picker and by any persisted
     /// preference — never shown to the user.
     pub fn value(self) -> &'static str {
         match self {
@@ -151,7 +151,7 @@ pub(crate) fn set_video_mode_handler(
     move |_| {}
 }
 
-/// Click handler for the video-mode segmented control: parse the chosen
+/// Click handler for the video-mode picker: parse the chosen
 /// value, update the signal, and re-apply live to every viewer connection.
 #[cfg(feature = "hydrate")]
 pub(crate) fn set_video_mode_handler(

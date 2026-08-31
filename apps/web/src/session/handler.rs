@@ -351,12 +351,28 @@ pub(crate) fn build_message_handler(
         }
         ServerMessage::Answer { from, sdp } => {
             if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
+                let conn = conn.clone();
                 spawn_local(async move {
                     if let Err(err) = accept_answer(&pc, &sdp).await {
                         web_sys::console::error_2(
                             &wasm_bindgen::JsValue::from_str("accept_answer failed:"),
                             &err,
                         );
+                        return;
+                    }
+                    // `setRemoteDescription` re-derives the encoder config
+                    // from the negotiated SDP — where the answer's
+                    // `x-google-start-bitrate` finally reaches the encoder —
+                    // and can drop the per-encoding bitrate/scale/framerate
+                    // set before the offer. Re-assert them for a viewer still
+                    // on `Auto`; one who picked a fixed tier already had it
+                    // applied by `QualityRequested` (which also stopped the
+                    // poll), so leave that alone.
+                    if super::quality::is_auto_polling(&conn, &from) {
+                        let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
+                        let _ =
+                            super::video_mode::apply_video_mode(&pc, video_mode.get_untracked())
+                                .await;
                     }
                 });
             }
@@ -414,6 +430,20 @@ pub(crate) fn build_message_handler(
                 let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
                 let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
                 let _ = super::audio::apply_audio_preset(&pc, audio_preset.get_untracked()).await;
+
+                // `Auto` is the default and every card shows it selected, but
+                // nothing sends a `SetQuality` for it — without this a plain
+                // "assistir" would pin `High` forever and never actually
+                // adapt. Start the poll here, where the connection exists
+                // (unlike a racing `QualityRequested`); `AlreadyApplied`
+                // because the `apply_tier` + `apply_video_mode` above just
+                // set the encoding — a redundant re-apply here would race
+                // the offer built just below.
+                super::quality::start_auto_polling(
+                    conn.clone(),
+                    from.clone(),
+                    super::quality::InitialTier::AlreadyApplied,
+                );
 
                 let target_id = from.clone();
                 // Unlike the `Offer` branch: here the remote peer is the
@@ -500,7 +530,13 @@ pub(crate) fn build_message_handler(
                         });
                     }
                 }
-                None => super::quality::start_auto_polling(conn.clone(), from),
+                // A deliberate switch back to `Auto`: the sender may be
+                // pinned to a lower tier right now, so re-apply `High`.
+                None => super::quality::start_auto_polling(
+                    conn.clone(),
+                    from,
+                    super::quality::InitialTier::ResetToHigh,
+                ),
             }
         }
     }

@@ -1,116 +1,150 @@
-/* The home page stacks a short intro over the two cards; `<main>` centers
-   this single child. */
-.home {
+/* The lobby (home page) and the 404 page — the entry surfaces. Same dark
+   palette as the room; they just add a hero and the wordmark on top of
+   base.css's shared primitives. See docs/decisions/0006-visual-redesign.md. */
+
+.lobby {
+  width: 100%;
+  max-width: 62rem;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  width: 100%;
+  gap: 2.75rem;
 }
 
-/* --- intro / how it works --- */
+/* --- top bar: wordmark + a live readout --- */
 
-.home-intro {
-  width: 100%;
-  max-width: 64rem;
-  text-align: center;
-  margin-bottom: 2.25rem;
-}
-
-.home-intro__title {
-  font-size: clamp(1.6rem, 4vw, 2rem);
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  margin: 0 0 0.6rem;
-}
-
-.home-intro__sub {
-  color: var(--text-dim);
-  max-width: 44rem;
-  margin: 0 auto 1.75rem;
-  font-size: 0.98rem;
-}
-
-.home-steps {
-  list-style: none;
-  counter-reset: step;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.lobby__bar {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
   gap: 1rem;
-  padding: 0;
-  margin: 0;
-  text-align: left;
 }
 
-@media (max-width: 46rem) {
-  .home-steps {
-    grid-template-columns: 1fr;
-  }
-}
-
-.home-steps li {
-  counter-increment: step;
-  position: relative;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 0.85rem;
-  padding: 1rem 1.1rem 1.1rem 3rem;
-  font-size: 0.88rem;
-  color: var(--text-dim);
-  line-height: 1.5;
-}
-
-.home-steps li::before {
-  content: counter(step);
-  position: absolute;
-  left: 1rem;
-  top: 1rem;
-  width: 1.55rem;
-  height: 1.55rem;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--accent);
-  color: var(--accent-ink);
-  font-size: 0.8rem;
+.wordmark {
+  font-family: var(--font-display);
   font-weight: 700;
-}
-
-.home-steps b {
-  display: block;
-  margin-bottom: 0.25rem;
+  font-size: 1.1rem;
+  letter-spacing: -0.02em;
   color: var(--text);
 }
 
-/* Home: the "create room" and "join a room" cards sit side by side when
-   there's room, stacked below that — each `.panel` stays capped at 30rem,
-   so on wide screens the two fit side by side within the container's
-   `max-width`. */
-.home-layout {
-  width: 100%;
-  max-width: 64rem;
+.wordmark__dot {
+  display: inline-block;
+  width: 0.4em;
+  height: 0.4em;
+  margin-left: 0.35em;
+  border-radius: 50%;
+  background: var(--sig-live);
+  /* Space Grotesk sits the baseline low for a dot this size — lift it a
+     hair so it reads as centred on the wordmark. */
+  vertical-align: 0.05em;
+}
+
+/* Instrument readout — the one live element on the page. Real data: the
+   recent rooms this browser knows about that are currently up. */
+.lobby__readout {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+/* --- hero: the thesis, in one headline and one line --- */
+
+.hero {
+  max-width: 40rem;
+}
+
+.hero__title {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(2rem, 6vw, 3.25rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  text-wrap: balance;
+  margin: 0;
+  color: var(--text);
+}
+
+.hero__lead {
+  margin: 1rem 0 0;
+  max-width: 46ch;
+  font-size: 1.05rem;
+  line-height: 1.6;
+  color: var(--text-dim);
+}
+
+/* --- 404 (router fallback) — reuses the `.lobby` shell --- */
+
+.not-found__body {
+  max-width: 34rem;
+  padding-top: 4vh;
+}
+
+/* On the 404 the signal reads "something is wrong", so the code line and
+   the wordmark dot go red instead of the usual live-green. */
+.not-found__code {
+  margin: 0 0 0.8rem;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--error);
+}
+
+.not-found .wordmark__dot {
+  background: var(--error);
+}
+
+.not-found__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: clamp(1.8rem, 5vw, 2.6rem);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text);
+}
+
+.not-found__lead {
+  margin: 0.9rem 0 1.9rem;
+  font-size: 1.02rem;
+  color: var(--text-dim);
+}
+
+.not-found__cta {
+  display: inline-flex;
+  width: auto;
+  text-decoration: none;
+}
+
+/* --- the two cards: create a room / enter one --- */
+
+.lobby__cards {
   display: flex;
   flex-wrap: wrap;
   align-items: flex-start;
   gap: 1.5rem;
-  justify-content: center;
 }
 
-.home-layout .panel {
+.lobby__cards .panel {
   flex: 1 1 26rem;
+  margin: 0;
 }
 
-.invite__label {
-  font-size: 0.78rem;
-  color: var(--text-dim);
-  margin: 0 0 0.5rem;
-}
-
-/* --- recent rooms --- */
+/* --- recent rooms (inside the "enter" card) --- */
 
 .recent-rooms {
   margin-top: 1.5rem;
   padding-top: 1.25rem;
   border-top: 1px solid var(--border);
+}
+
+.recent-rooms__label {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin: 0 0 0.5rem;
 }
 
 .recent-room {
@@ -128,7 +162,7 @@
 }
 
 .recent-room:hover {
-  border-color: var(--accent-strong);
+  border-color: var(--accent);
 }
 
 .recent-room__name {
@@ -138,16 +172,16 @@
   white-space: nowrap;
 }
 
-.recent-room__code {
-  font-family: var(--font-mono);
-  font-size: 0.75rem;
-  color: var(--text-dim);
-  flex-shrink: 0;
-}
-
 .recent-room__meta {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  flex-shrink: 0;
+}
+
+.recent-room__code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--text-dim);
   flex-shrink: 0;
 }

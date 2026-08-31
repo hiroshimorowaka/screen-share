@@ -12,17 +12,24 @@ pub(crate) fn share_supported() -> bool {
     crate::infra::webrtc::is_display_media_supported()
 }
 
-/// Whether a share started here can carry system audio at all — only the
-/// desktop shell captures it (a plain browser tab shares video only), so
-/// the audio-quality / mute controls are hidden otherwise.
+/// Whether a share started here can carry audio at all. The desktop shell
+/// captures system audio through its own backend; a plain browser tab can
+/// still capture *its own* tab audio via the `getDisplayMedia` picker. Only
+/// a browser without `getDisplayMedia` (which also can't share video) has
+/// no way to — the audio-quality / mute controls stay hidden there.
+///
+/// SSR can't know the browser, so it assumes the capable case (like
+/// [`share_supported`]) and lets the `hydrate` value below correct it —
+/// keeping the server and first client render structurally identical for
+/// the common browser, which is the one that does have `getDisplayMedia`.
 #[cfg(not(feature = "hydrate"))]
 pub(crate) fn sharing_can_have_audio() -> bool {
-    false
+    true
 }
 
 #[cfg(feature = "hydrate")]
 pub(crate) fn sharing_can_have_audio() -> bool {
-    crate::infra::webrtc::is_desktop_app()
+    crate::infra::webrtc::is_desktop_app() || crate::infra::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -130,11 +137,11 @@ pub(crate) fn start_sharing(
     use screen_share_protocol::ClientMessage;
 
     let my_peer_id_value = my_peer_id.get_untracked();
-    set_status.set("Selecione a tela para compartilhar...".to_string());
 
     spawn_local(async move {
         let stream = match capture_display().await {
             Ok(stream) => stream,
+            // Cancelling the OS picker rejects here; keep the status clean.
             Err(_) => {
                 set_status.set("Conectado.".to_string());
                 on_cancelled();
@@ -177,11 +184,10 @@ pub(crate) fn start_sharing(
             ws.send(&ClientMessage::StartShare);
         }
 
-        // Store the same `stream` handle used above, not a `.clone()` of
-        // it — cloning here and letting this original drop at the end of
-        // the block was enough, on its own, to keep Chrome's native
-        // "sharing" indicator from ever releasing later, even though the
-        // clone kept working fine for playback and `stop()`.
+        // Hold the exact `stream` captured above, not a clone: if a clone
+        // is stored and this original drops here, Chrome's native "sharing"
+        // indicator stays lit until the tab closes — even though playback
+        // and `stop()` keep working fine on the clone.
         *conn.local_stream.borrow_mut() = Some(stream);
 
         crate::infra::webrtc::notify_desktop_sharing_changed(true);
@@ -262,16 +268,23 @@ pub(crate) async fn replace_outgoing_tracks(
     swapped
 }
 
+/// Releases this member's outgoing share: stops the desktop audio loopback,
+/// detaches the shared tracks from every viewer connection, stops and
+/// unlinks the local capture tracks, clears the self-preview `<video>`,
+/// closes the viewer connections, halts any Auto-quality polling, and tells
+/// the server. Everything here is browser/registry teardown with no
+/// reactive state — [`stop_sharing`] layers the `is_sharing` / preview /
+/// focus signal resets on top, and `leave_room` reuses it so leaving
+/// mid-share doesn't strand Chrome's native "you're sharing" indicator.
 #[cfg(feature = "hydrate")]
-pub(crate) fn stop_sharing(
-    conn: &RoomSession,
-    set_is_sharing: WriteSignal<bool>,
-    own_preview_hidden: RwSignal<bool>,
-    expanded: RwSignal<Option<String>>,
-    my_peer_id: ReadSignal<Option<String>>,
-) {
-    use leptos::task::spawn_local;
+pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>) {
     use wasm_bindgen::JsCast;
+    // `wasm_bindgen_futures::spawn_local`, not `leptos::task`'s: this is a
+    // detached cleanup future that touches no reactive state, and the
+    // wasm-bindgen primitive needs only the JS microtask queue — no global
+    // executor, so `teardown_local_share` stays callable from a plain
+    // `wasm-bindgen-test`.
+    use wasm_bindgen_futures::spawn_local;
 
     // Always attempt this — it's a no-op in Electron if no audio
     // session was ever started, and this path also runs in a plain
@@ -309,7 +322,7 @@ pub(crate) fn stop_sharing(
     // alone is enough to keep the native sharing indicator (red dot on the
     // tab + "stop sharing" bar) visible. Clearing `srcObject` removes the
     // last reference and actually releases the indicator.
-    if let Some(peer_id) = my_peer_id.get_untracked() {
+    if let Some(peer_id) = my_peer_id {
         if let Some(document) = web_sys::window().and_then(|w| w.document()) {
             if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
                 let video: web_sys::HtmlVideoElement = video.unchecked_into();
@@ -321,27 +334,42 @@ pub(crate) fn stop_sharing(
         pc.close();
     }
     // Each viewer's Auto poll (if any) would otherwise keep firing against
-    // a connection that's already closed.
-    for viewer_peer_id in conn
+    // a connection that's already closed. Collect into a `let` binding
+    // first: a `for … in conn.…borrow().keys()…` keeps the borrow alive for
+    // the whole loop, and `stop_auto_polling` takes `borrow_mut()`.
+    let auto_poll_viewers: Vec<String> = conn
         .quality_auto_intervals
         .borrow()
         .keys()
         .cloned()
-        .collect::<Vec<_>>()
-    {
+        .collect();
+    for viewer_peer_id in auto_poll_viewers {
         super::quality::stop_auto_polling(conn, &viewer_peer_id);
     }
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);
     }
+    crate::infra::webrtc::notify_desktop_sharing_changed(false);
+}
+
+#[cfg(feature = "hydrate")]
+pub(crate) fn stop_sharing(
+    conn: &RoomSession,
+    set_is_sharing: WriteSignal<bool>,
+    own_preview_hidden: RwSignal<bool>,
+    expanded: RwSignal<Option<String>>,
+    my_peer_id: ReadSignal<Option<String>>,
+) {
+    let me = my_peer_id.get_untracked();
+    teardown_local_share(conn, me.as_deref());
+
     set_is_sharing.set(false);
     own_preview_hidden.set(false);
-    crate::infra::webrtc::notify_desktop_sharing_changed(false);
     // The server only sends `PeerStoppedSharing` to the other members, so
     // nobody else collapses the focus for us — without this the grid would
     // stay stuck in `grid--focused` with an empty card.
     expanded.update(|current| {
-        if *current == my_peer_id.get_untracked() {
+        if current.as_deref() == me.as_deref() {
             *current = None;
         }
     });
@@ -395,7 +423,6 @@ pub(crate) fn switch_source_handler(
         }
         let conn = conn.clone();
         let my_peer_id_value = my_peer_id.get_untracked();
-        set_status.set("Selecione a nova tela para compartilhar...".to_string());
 
         spawn_local(async move {
             // Release the old desktop audio loopback first so re-capturing

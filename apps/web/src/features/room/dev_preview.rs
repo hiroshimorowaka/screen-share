@@ -283,7 +283,13 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                         class:hidden=move || !is_sharing.get()
                         title=move || if own_preview_hidden.get() { "Mostrar meu preview" } else { "Esconder meu preview" }
                         aria-label="Esconder meu preview"
-                        on:click=move |_| own_preview_hidden.update(|v| *v = !*v)
+                        on:click=move |_| {
+                            let now_hidden = !own_preview_hidden.get_untracked();
+                            own_preview_hidden.set(now_hidden);
+                            if now_hidden && expanded.get_untracked() == my_peer_id.get_untracked() {
+                                expanded.set(None);
+                            }
+                        }
                     >
                         {icon_video_off}
                     </button>

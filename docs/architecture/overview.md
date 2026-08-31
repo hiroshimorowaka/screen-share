@@ -41,6 +41,7 @@ invariants" for the enforced rules.
 | Why peer-to-peer WebRTC, and the `RoomSession` seam | [0003](../decisions/0003-webrtc-p2p-and-roomsession.md) |
 | Why Electron (not Tauri), and Rust/napi for Windows audio | [0004](../decisions/0004-desktop-electron-and-windows-native-audio.md) |
 | Layered automated tests, mutation testing, CI as the gate | [0005](../decisions/0005-quality-gate.md) |
+| Visual language: "Patchbay" dark identity, `--sig-live` vs `--sig-patch`, Space Grotesk/Mono | [0006](../decisions/0006-visual-redesign.md) |
 
 ## Runtime shape
 

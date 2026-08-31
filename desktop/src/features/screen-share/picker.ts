@@ -14,8 +14,8 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
           fetchWindowIcons: true,
         });
       } catch (err) {
-        // Previously swallowed silently — the picker would just open
-        // empty with no indication anything had gone wrong.
+        // Log and fall back to an empty list — an unlogged failure here
+        // just opens the picker empty with no clue why.
         console.error('desktopCapturer.getSources failed:', err);
         sources = [];
       }

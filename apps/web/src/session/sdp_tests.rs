@@ -139,3 +139,114 @@ fn matches_opus_codec_name_case_insensitively() {
     let out = tune_opus_for_music(sdp);
     assert!(out.contains("a=fmtp:111 stereo=1;"));
 }
+
+/// A trimmed video m-section as Chrome emits it: VP8 with no `a=fmtp`, VP9
+/// with one, plus VP8's RTX payload (its own rtpmap + `apt=` fmtp).
+const OFFER_WITH_VIDEO: &str = "v=0\r\n\
+o=- 1 2 IN IP4 127.0.0.1\r\n\
+s=-\r\n\
+t=0 0\r\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96 97 98\r\n\
+a=rtpmap:96 VP8/90000\r\n\
+a=rtpmap:97 rtx/90000\r\n\
+a=fmtp:97 apt=96\r\n\
+a=rtpmap:98 VP9/90000\r\n\
+a=fmtp:98 profile-id=0\r\n";
+
+#[test]
+fn leaves_sdp_without_video_untouched() {
+    let sdp = "m=audio 9 UDP/TLS/RTP/SAVPF 111\r\na=rtpmap:111 opus/48000/2\r\n";
+    assert_eq!(tune_video_start_bitrate(sdp), sdp);
+}
+
+#[test]
+fn synthesises_a_video_fmtp_line_with_the_google_bitrate_hints() {
+    let out = tune_video_start_bitrate(OFFER_WITH_VIDEO);
+    let params = params_of(&fmtp_line_for(&out, "96"));
+    assert_eq!(
+        params.get("x-google-start-bitrate").map(String::as_str),
+        Some(VIDEO_START_BITRATE_KBPS.to_string().as_str())
+    );
+    assert_eq!(
+        params.get("x-google-min-bitrate").map(String::as_str),
+        Some(VIDEO_MIN_BITRATE_KBPS.to_string().as_str())
+    );
+    assert_eq!(
+        params.get("x-google-max-bitrate").map(String::as_str),
+        Some(VIDEO_MAX_BITRATE_KBPS.to_string().as_str())
+    );
+}
+
+#[test]
+fn merges_the_hints_into_an_existing_video_fmtp_keeping_its_own_keys() {
+    let out = tune_video_start_bitrate(OFFER_WITH_VIDEO);
+    let params = params_of(&fmtp_line_for(&out, "98"));
+    assert_eq!(params.get("profile-id").map(String::as_str), Some("0"));
+    assert_eq!(
+        params.get("x-google-start-bitrate").map(String::as_str),
+        Some(VIDEO_START_BITRATE_KBPS.to_string().as_str())
+    );
+}
+
+#[test]
+fn leaves_rtx_and_other_payloads_alone() {
+    let out = tune_video_start_bitrate(OFFER_WITH_VIDEO);
+    assert!(
+        out.contains("a=fmtp:97 apt=96\r\n"),
+        "rtx fmtp untouched: {out}"
+    );
+    assert!(!out.contains("apt=96;x-google"), "no hints on rtx: {out}");
+}
+
+#[test]
+fn video_start_bitrate_is_idempotent() {
+    let once = tune_video_start_bitrate(OFFER_WITH_VIDEO);
+    let twice = tune_video_start_bitrate(&once);
+    assert_eq!(once, twice);
+}
+
+#[test]
+fn video_tuning_preserves_endings_and_leaves_audio_to_the_opus_pass() {
+    let out = tune_video_start_bitrate(OFFER_WITH_VIDEO);
+    assert!(out.contains("\r\n"));
+    assert!(!out.contains("\n\n"));
+    assert!(out.starts_with("v=0\r\n"));
+    assert!(out.contains("m=video 9 UDP/TLS/RTP/SAVPF 96 97 98\r\n"));
+    // Untouched by the video pass — Opus is `tune_opus_for_music`'s job.
+    assert_eq!(
+        tune_video_start_bitrate("a=rtpmap:111 opus/48000/2\r\n"),
+        "a=rtpmap:111 opus/48000/2\r\n"
+    );
+}
+
+/// A trimmed video m-section as Chrome emits it in an *answer*: one
+/// negotiated codec, `recvonly` (the viewer only ever receives the sharer's
+/// screen), and — as Chrome does — none of the offer's `x-google-*` hints
+/// echoed back.
+const ANSWER_WITH_VIDEO: &str = "v=0\r\n\
+o=- 3 4 IN IP4 127.0.0.1\r\n\
+s=-\r\n\
+t=0 0\r\n\
+m=video 9 UDP/TLS/RTP/SAVPF 96 97\r\n\
+a=recvonly\r\n\
+a=rtpmap:96 VP8/90000\r\n\
+a=rtpmap:97 rtx/90000\r\n\
+a=fmtp:97 apt=96\r\n";
+
+#[test]
+fn tunes_the_bitrate_hint_onto_an_answer_since_that_is_the_senders_remote_sdp() {
+    let out = tune_video_start_bitrate(ANSWER_WITH_VIDEO);
+    let params = params_of(&fmtp_line_for(&out, "96"));
+    assert_eq!(
+        params.get("x-google-start-bitrate").map(String::as_str),
+        Some(VIDEO_START_BITRATE_KBPS.to_string().as_str())
+    );
+    assert!(
+        out.contains("a=recvonly\r\n"),
+        "direction attribute kept: {out}"
+    );
+    assert!(
+        out.contains("a=fmtp:97 apt=96\r\n"),
+        "rtx payload untouched: {out}"
+    );
+}

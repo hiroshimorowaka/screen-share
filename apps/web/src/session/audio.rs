@@ -29,7 +29,7 @@ pub enum AudioPreset {
 }
 
 impl AudioPreset {
-    /// Every preset, in the order the segmented control lists them.
+    /// Every preset, in the order the picker lists them.
     pub const ALL: [AudioPreset; 3] = [
         AudioPreset::Voice,
         AudioPreset::Balanced,
@@ -47,7 +47,7 @@ impl AudioPreset {
         }
     }
 
-    /// Stable identity used by the segmented control — never shown.
+    /// Stable identity used by the picker — never shown.
     pub fn value(self) -> &'static str {
         match self {
             AudioPreset::Voice => "voice",
@@ -137,7 +137,7 @@ pub(crate) fn set_audio_preset_handler(
     move |_| {}
 }
 
-/// Click handler for the audio-quality segmented control: parse the chosen
+/// Click handler for the audio-quality picker: parse the chosen
 /// value, update the signal, and re-apply live to every viewer connection.
 #[cfg(feature = "hydrate")]
 pub(crate) fn set_audio_preset_handler(

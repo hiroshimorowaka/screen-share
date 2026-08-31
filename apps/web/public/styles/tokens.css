@@ -1,0 +1,62 @@
+/* Design tokens — the single source of truth for colour and type.
+   See docs/decisions/0006-visual-redesign.md.
+
+   Space Grotesk (display) and Space Mono (data readouts) are pulled from
+   Google Fonts via a <link> in the document head (app.rs `shell`), not
+   vendored.
+
+   One dark ground everywhere. The generic primitive names (--surface,
+   --text, --accent, ...) are the shared vocabulary base.css is written
+   against; they resolve to the dark palette below. */
+
+:root {
+  /* --- type --- */
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-display: "Space Grotesk", var(--font-sans);
+  --font-mono:
+    "Space Mono", ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono",
+    Menlo, Consolas, monospace;
+
+  /* Modular scale, 1.25 ratio. */
+  --step--1: 0.8rem;
+  --step-0: 1rem;
+  --step-1: 1.25rem;
+  --step-2: 1.563rem;
+  --step-3: 1.953rem;
+  --step-4: 2.441rem;
+
+  /* --- signal system --- */
+  --sig-live: #46d17f; /* someone is sharing — a hot wire */
+  --sig-patch: #8b7ff2; /* you are watching this — your patch */
+  --sig-live-ink: #0d0f12; /* text on a --sig-live fill */
+  --sig-patch-ink: #ffffff; /* text on a --sig-patch fill */
+
+  /* --- dark ground --- */
+  --ink-0: #0d0f12; /* the monitor wall behind the cards */
+  --ink-1: #16191e; /* room surface: header, card backing, control pills */
+  --ink-2: #20242b; /* raised: popovers, pressed state */
+
+  /* One translucent-dark recipe for every badge/pill that floats on video
+     (nick tag, watcher count, ping, menu triggers) — replaces a handful of
+     one-off rgba(0,0,0,.55) values. */
+  --pill-bg: rgba(9, 11, 14, 0.62);
+  --pill-bg-strong: rgba(9, 11, 14, 0.82);
+
+  /* --- shared primitive vocabulary --- */
+  --bg: var(--ink-0);
+  --bg-glow: var(--sig-patch);
+  --surface: var(--ink-1);
+  --surface-2: var(--ink-2);
+  --border: rgba(255, 255, 255, 0.08);
+  --text: #eceef1;
+  --text-dim: #8a929d;
+  /* Accent = the viewer's own actions (watch, focus) — the patch colour. */
+  --accent: var(--sig-patch);
+  --accent-strong: #a79bff;
+  --accent-ink: #ffffff;
+  --error: #e0484d;
+  --success: var(--sig-live);
+  --warning: #f0b232;
+}

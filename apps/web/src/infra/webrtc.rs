@@ -94,13 +94,30 @@ pub fn notify_desktop_sharing_changed(is_sharing: bool) {
     let _ = sharing_changed.call1(&bridge, &JsValue::from_bool(is_sharing));
 }
 
+/// The `getDisplayMedia` constraints for a capture started here.
+///
+/// `desktop` (the Electron shell) captures audio through its own platform
+/// backend and only ever wants video from `getDisplayMedia`. A plain
+/// browser tab has no such backend, so it asks for audio here too: Chrome's
+/// own picker then offers a "share tab audio" checkbox, and a ticked box
+/// puts an audio track on the returned stream (browser capture only carries
+/// the audio of a shared *tab*, never a window or the whole system).
+fn display_media_constraints(desktop: bool) -> DisplayMediaStreamConstraints {
+    let constraints = DisplayMediaStreamConstraints::new();
+    constraints.set_video_bool(true);
+    if !desktop {
+        constraints.set_audio_bool(true);
+    }
+    constraints
+}
+
 pub async fn capture_display() -> Result<MediaStream, JsValue> {
     let window = web_sys::window()
         .ok_or_else(|| JsValue::from_str("no window: not running in a browser"))?;
     let media_devices = window.navigator().media_devices()?;
 
-    let constraints = DisplayMediaStreamConstraints::new();
-    constraints.set_video_bool(true);
+    let desktop = is_desktop_app();
+    let constraints = display_media_constraints(desktop);
 
     let promise = media_devices.get_display_media_with_constraints(&constraints)?;
     let stream = JsFuture::from(promise).await?;
@@ -109,6 +126,13 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
     // preference) is owned by `session::video_mode` — applied per viewer
     // connection when it opens and re-applied whenever the sharer changes
     // mode. Nothing to set here at capture time.
+
+    // A plain browser tab's audio, when the sharer opted into it in the
+    // picker, is already a track on this stream; the desktop-only bridge
+    // paths below don't apply.
+    if !desktop {
+        return Ok(video_stream);
+    }
 
     // The Windows desktop app bridges captured PCM over IPC instead of
     // exposing a capturable device — same intent as the Linux path below
@@ -375,6 +399,12 @@ pub async fn create_offer(pc: &RtcPeerConnection) -> Result<String, JsValue> {
     // a mono voice profile, which is wrong for shared system audio. The
     // same edited SDP is set locally and sent, so both sides agree.
     let sdp = crate::session::sdp::tune_opus_for_music(&sdp);
+    // Carry the `x-google-*` bitrate hints in the offer too. Chrome reads
+    // them for the sending direction from the *remote* description
+    // (re-applied in `accept_answer`), not this one, so this is belt-and-
+    // braces — it matters only if the far end ever sends video back — but
+    // keeping both descriptions symmetric avoids a confusing diff.
+    let sdp = crate::session::sdp::tune_video_start_bitrate(&sdp);
 
     let desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
     desc.set_sdp(&sdp);
@@ -404,8 +434,20 @@ pub async fn create_answer(pc: &RtcPeerConnection, offer_sdp: &str) -> Result<St
 }
 
 pub async fn accept_answer(pc: &RtcPeerConnection, answer_sdp: &str) -> Result<(), JsValue> {
+    // The sharer is the offerer, so this answer becomes the *remote*
+    // description its own encoder reads codec parameters from. Chrome honours
+    // `x-google-start-bitrate` (and the Opus fmtp tuning) only from the
+    // remote description on the sending side, and strips both from the answer
+    // it generates — re-assert them here, before `setRemoteDescription`, or
+    // the video encoder opens at Chrome's ~300 kbit/s default and crawls up
+    // for 10-30 s while `QualityLevel::Auto` sits pinned at `High` waiting
+    // for a link it never actually tried to fill. Both passes are idempotent,
+    // so a Chrome build that already echoed the keys back is unaffected.
+    let sdp = crate::session::sdp::tune_opus_for_music(answer_sdp);
+    let sdp = crate::session::sdp::tune_video_start_bitrate(&sdp);
+
     let remote_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
-    remote_desc.set_sdp(answer_sdp);
+    remote_desc.set_sdp(&sdp);
     JsFuture::from(pc.set_remote_description(&remote_desc)).await?;
     Ok(())
 }
