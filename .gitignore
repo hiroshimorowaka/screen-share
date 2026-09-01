@@ -38,3 +38,6 @@ node_modules/
 
 # Local security-audit report artifacts (not part of the repo)
 /docs/security-audit/
+
+# Agent session briefings (local hand-off notes, not part of the repo)
+/.handoff/
