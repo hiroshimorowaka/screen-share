@@ -226,11 +226,25 @@ test('the transmission menu hides the audio rows when the share carries no audio
   browser,
 }) => {
   const anaCtx = await browser.newContext();
+  // The fake capture always hands back an audio track; a real whole-screen
+  // or window share never does (Chrome only offers "share tab audio" for a
+  // shared tab). Strip audio from the captured stream to reproduce that.
+  await anaCtx.addInitScript(() => {
+    const devices = navigator.mediaDevices;
+    const original = devices.getDisplayMedia.bind(devices);
+    devices.getDisplayMedia = async (...args: Parameters<typeof original>) => {
+      const stream = await original(...args);
+      for (const track of stream.getAudioTracks()) {
+        track.stop();
+        stream.removeTrack(track);
+      }
+      return stream;
+    };
+  });
   const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala sem audio');
   await startSharing(ana);
 
-  // The fake capture picks "Entire screen", which never carries audio —
-  // the header chip is the sharer-visible confirmation of that.
+  // The header chip is the sharer-visible confirmation there is no audio.
   await expect(ana.locator('.audio-chip')).toContainText('Áudio desligado');
 
   await ana.mouse.move(300, 300);
