@@ -171,13 +171,23 @@
   color: var(--text);
   font-size: 0.75rem;
   font-weight: 500;
-  white-space: nowrap;
+  /* One watcher per line: a comma-joined row got truncated once more than
+     ~4 people were watching, hiding the rest. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.1rem;
   max-width: 12rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.12s ease;
+}
+
+.watcher-badge__name {
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
 .watcher-badge:hover .watcher-badge__tooltip {

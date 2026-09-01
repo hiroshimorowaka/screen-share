@@ -251,7 +251,12 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                         {icon_eye}
                         <span>{move || watcher_ids().len()}</span>
                         <div class="watcher-badge__tooltip" class:hidden=move || watcher_names().is_empty()>
-                            {move || watcher_names().join(", ")}
+                            {move || {
+                                watcher_names()
+                                    .into_iter()
+                                    .map(|name| view! { <span class="watcher-badge__name">{name}</span> })
+                                    .collect::<Vec<_>>()
+                            }}
                         </div>
                     </div>
                     <div class="card__corner-start">

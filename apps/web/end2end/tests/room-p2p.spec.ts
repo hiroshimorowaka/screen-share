@@ -5,6 +5,7 @@ import {
   SHARE_BUTTON,
   createPublicRoom,
   joinRoom,
+  memberCard,
   videoState,
   watchSharer,
 } from './helpers';
@@ -175,6 +176,38 @@ test('one watcher stopping does not disturb another watching the same sharer', a
     .poll(async () => (await videoState(caio, 'Ana')).readyState, { timeout: 5_000 })
     .toBeGreaterThanOrEqual(2);
   expect((await videoState(caio, 'Ana')).width).toBeGreaterThan(0);
+
+  await anaCtx.close();
+  await bobCtx.close();
+  await caioCtx.close();
+});
+
+test('the watcher badge lists each viewer on its own line', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+  const caioCtx = await browser.newContext();
+
+  const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala espectadores');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+  const caio = await joinRoom(caioCtx, url, 'Caio');
+
+  await ana.getByRole('button', { name: SHARE_BUTTON }).click();
+  await watchSharer(bob, 'Ana');
+  await watchSharer(caio, 'Ana');
+
+  const badge = memberCard(ana, 'Ana').locator('.watcher-badge');
+  await expect(badge.locator('span').first()).toHaveText('2');
+
+  await badge.hover();
+  const names = badge.locator('.watcher-badge__name');
+  await expect(names).toHaveCount(2);
+  expect((await names.allTextContents()).sort()).toEqual(['Bob', 'Caio']);
+
+  // Stacked vertically: the second name sits below the first, not beside it.
+  const first = await names.nth(0).boundingBox();
+  const second = await names.nth(1).boundingBox();
+  if (!first || !second) throw new Error('no bounding box for a watcher name');
+  expect(second.y).toBeGreaterThanOrEqual(first.y + first.height);
 
   await anaCtx.close();
   await bobCtx.close();
