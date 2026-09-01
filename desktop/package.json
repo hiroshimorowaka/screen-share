@@ -49,7 +49,7 @@
   "build": {
     "appId": "com.hiroshimorowaka.screenshare",
     "productName": "Screen Share",
-    "asar": false,
+    "asar": true,
     "directories": {
       "output": "release"
     },
@@ -83,7 +83,7 @@
         "portable"
       ],
       "icon": "icons/app-icon.png",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": true
     },
     "nsis": {
       "oneClick": false,

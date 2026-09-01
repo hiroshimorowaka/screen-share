@@ -78,3 +78,27 @@ invariant.
 New wire variants: `ServerMessage::AlreadyInRoom`,
 `ServerMessage::ServerAtCapacity` (round-tripped in `protocol` tests;
 surfaced as a status line in the web client).
+
+### F04 / F18 — desktop auto-update integrity
+
+`desktop/package.json`:
+
+- `build.win.verifyUpdateCodeSignature` was `false`, which told the NSIS
+  updater to skip the publisher-signature check — trust in an update came
+  down to "it was HTTPS from our GitHub". Now `true`: an update whose
+  installer isn't Authenticode-signed by the same publisher as the
+  running app is refused. A signed release build is therefore required
+  for Windows auto-update to *apply* — CI must supply `CSC_LINK` /
+  `CSC_KEY_PASSWORD`; an unsigned build still runs and simply never
+  self-updates (the safe failure mode). `updates.ts`'s doc block records
+  this.
+- `build.asar` was `false` (F18) — the packaged app's files sat loose on
+  disk with no integrity boundary. Now `true`.
+
+Both flags have no runtime code surface, so the regression guard is a
+vitest test (`packaging-security.test.ts`) asserting the manifest keeps
+these values.
+
+Not done here (ops, not code): provisioning the Windows signing
+certificate in CI. Until that lands, packaged Windows auto-update is
+inert by design rather than insecure.
