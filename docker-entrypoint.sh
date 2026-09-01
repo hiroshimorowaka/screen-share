@@ -42,6 +42,20 @@ if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
   # allocation's throughput, --bps-capacity bounds the whole server's.
   # Defaults are generous for a 10-member room yet finite; override via
   # env if a deployment needs more.
+  #
+  # TLS (finding F16): the media itself is always SRTP-encrypted, but the
+  # STUN/TURN control channel is plaintext unless a cert is supplied. Set
+  # TURN_TLS_CERT and TURN_TLS_KEY (paths to a mounted cert/key for
+  # TURN_REALM's hostname) to also listen for `turns:` on 5349 — add the
+  # matching `turns:` URL to TURN_URLS and open port 5349 in fly.toml.
+  # Without them coturn stays plaintext-only, as before.
+  if [ -n "$TURN_TLS_CERT" ] && [ -n "$TURN_TLS_KEY" ]; then
+    tls_args="--tls-listening-port=${TURN_TLS_PORT:-5349} --cert=$TURN_TLS_CERT --pkey=$TURN_TLS_KEY"
+  else
+    tls_args="--no-tls --no-dtls"
+  fi
+
+  # shellcheck disable=SC2086 # tls_args is an intentional word-split list
   turnserver \
     --no-cli \
     --fingerprint \
@@ -68,8 +82,7 @@ if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
     --max-bps="${TURN_MAX_BPS:-2000000}" \
     --bps-capacity="${TURN_BPS_CAPACITY:-40000000}" \
     --log-file=stdout \
-    --no-tls \
-    --no-dtls &
+    $tls_args &
 fi
 
 exec ./screen_share

@@ -1,7 +1,20 @@
 # 0008 — Security hardening sweep (audit P1–P3)
 
-Status: in progress
+Status: accepted
 Date: 2026-09-01
+
+## Coverage
+
+All 19 findings (F01–F19) addressed. Two carry a residual that is ops, not
+code, and is called out in the relevant section:
+
+- **F04 / F16** — need a certificate provisioned in CI / on the relay; the
+  code and config paths are in place and inert until then.
+- **F12** — the CSP must be smoke-tested in a real browser before it is
+  trusted; that was not possible in the environment this work was done in.
+
+F14 is a documented risk acceptance (the audit offers this, gated on the
+F12 CSP being in place).
 
 ## Context
 
@@ -257,3 +270,24 @@ anyone can mint credentials for. `TURN_REALM` is now set explicitly in
 `fly.toml` instead of relying on the public `screenshare` default; the
 `docker-entrypoint.sh` fallback stays only for a bare local `docker run`.
 Covered by `turn_tests.rs`.
+
+### F14 — room password in `sessionStorage`
+
+Accepted, not replaced (the audit offers this explicitly, gated on CSP).
+`RoomSession.password` is still persisted so a same-tab reload rejoins
+silently; `sessionStorage` is tab-scoped and auto-clearing. The mitigation
+is the CSP added in F12 (keeps injected script off the origin) plus the
+desktop `senderFrame` guard (F11). The `RoomSession` doc comment records
+the tradeoff and points at this ADR; a short-lived server-minted rejoin
+token is the escalation path if an XSS foothold on the origin ever becomes
+plausible.
+
+### F16 — TURN control channel over TLS
+
+The media is always SRTP-encrypted; only the STUN/TURN control channel was
+plaintext. `docker-entrypoint.sh` now adds a `turns:` listener on 5349
+when `TURN_TLS_CERT` / `TURN_TLS_KEY` are provided (paths to a mounted
+cert/key), and stays `--no-tls --no-dtls` otherwise. Actually closing F16
+needs a certificate provisioned for the relay hostname, the matching
+`turns:` URL in `TURN_URLS`, and port 5349 opened in `fly.toml` — an ops
+task; the mechanism is now in place.
