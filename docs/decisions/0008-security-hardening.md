@@ -167,11 +167,14 @@ Added a process-wide per-client sliding-window rate limiter
 bounded tracking map. Unit-tested in `rooms_status_tests.rs`; the `429`
 path has an integration test.
 
-Client fallout (acceptable): the room page shows no name until joined,
-and the home page's "N/10" badge on remembered rooms no longer appears
-(the fetch still runs for the liveness/pruning check). The `RoomStatus`
-wire shape keeps `name`/`member_count` as always-`None` fields for
-compatibility.
+Client fallout (accepted, and the now-dead client paths were removed):
+the pre-join screen shows only the room code until the `Joined` snapshot
+arrives with the name, and the home page dropped its per-room "N/10"
+occupancy badge. The liveness fetch still runs — it now feeds a plain
+"which remembered rooms are up" set that drives pruning and the lobby
+readout ("N salas recentes no ar"), with no count. The `RoomStatus` wire
+shape still carries `name`/`member_count` (always `None` from this
+endpoint); no client code reads them.
 
 ### F07 — peer-to-peer signaling requires a watch relationship
 

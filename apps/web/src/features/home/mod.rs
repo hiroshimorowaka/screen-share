@@ -2,7 +2,7 @@ mod create_room;
 mod join_room;
 mod recent_rooms;
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use leptos::prelude::*;
 
@@ -14,7 +14,6 @@ use recent_rooms::{load_recent_rooms_after_mount, prune_recent_rooms};
 
 use crate::components::color_picker::ColorPicker;
 use crate::components::status_message::StatusMessage;
-use screen_share_protocol::MAX_MEMBERS;
 
 #[component]
 pub fn HomePage() -> impl IntoView {
@@ -33,13 +32,13 @@ pub fn HomePage() -> impl IntoView {
     let (submitting, set_submitting) = signal(false);
     let (recent_rooms, set_recent_rooms) =
         signal(Vec::<crate::features::profile::RecentRoom>::new());
-    // Member count per room: unlike `recent_rooms`, this always comes from
-    // the server — it changes on every join/leave and is never persisted in
-    // the browser.
-    let (member_counts, set_member_counts) = signal(HashMap::<String, usize>::new());
+    // Which remembered rooms answered the liveness check as still up. From
+    // the server, never persisted; the status endpoint no longer exposes a
+    // member count (finding F06), so this is a plain set, not a count map.
+    let (live_rooms, set_live_rooms) = signal(HashSet::<String>::new());
 
     load_recent_rooms_after_mount(set_recent_rooms);
-    prune_recent_rooms(set_recent_rooms, set_member_counts);
+    prune_recent_rooms(set_recent_rooms, set_live_rooms);
 
     let create_room = create_room_handler(
         nick,
@@ -56,25 +55,21 @@ pub fn HomePage() -> impl IntoView {
     let (join_status, set_join_status) = signal(String::new());
     let join_room = join_room_handler(join_input, set_join_status);
 
-    // The one live element on the lobby: a mono readout of the recent
-    // rooms this browser knows about that are currently up (`member_counts`
-    // is only populated for rooms that answered the prune check).
+    // The one live element on the lobby: a mono readout of how many of the
+    // recent rooms this browser knows about are currently up (`live_rooms`
+    // only holds the ones that answered the prune check).
     let lobby_readout = move || {
-        let counts = member_counts.get();
-        let alive: Vec<_> = recent_rooms
+        let live = live_rooms.get();
+        let up = recent_rooms
             .get()
-            .into_iter()
-            .filter(|room| counts.contains_key(&room.code))
-            .collect();
-        if alive.is_empty() {
-            return String::new();
+            .iter()
+            .filter(|room| live.contains(&room.code))
+            .count();
+        match up {
+            0 => String::new(),
+            1 => "1 sala recente no ar".to_string(),
+            n => format!("{n} salas recentes no ar"),
         }
-        let online: usize = alive.iter().filter_map(|room| counts.get(&room.code)).sum();
-        let rooms = alive.len();
-        format!(
-            "{rooms} sala{} · {online} online",
-            if rooms == 1 { "" } else { "s" }
-        )
     };
 
     view! {
@@ -184,26 +179,12 @@ pub fn HomePage() -> impl IntoView {
             <div class="recent-rooms" class:hidden=move || recent_rooms.get().is_empty()>
                 <p class="recent-rooms__label">"Salas recentes"</p>
                 <For each=move || recent_rooms.get() key=|r| r.code.clone() let(room)>
-                    {
-                        let code_for_hidden = room.code.clone();
-                        let code_for_count = room.code.clone();
-                        view! {
-                            <a class="recent-room" href=format!("/r/{}", room.code)>
-                                <span class="recent-room__name">{room.name.clone()}</span>
-                                <div class="recent-room__meta">
-                                    <span class="recent-room__code">{room.code.clone()}</span>
-                                    <span
-                                        class="room-member-count"
-                                        class:hidden=move || !member_counts.get().contains_key(&code_for_hidden)
-                                    >
-                                        {move || {
-                                            member_counts.get().get(&code_for_count).map(|count| format!("{count}/{MAX_MEMBERS}")).unwrap_or_default()
-                                        }}
-                                    </span>
-                                </div>
-                            </a>
-                        }
-                    }
+                    <a class="recent-room" href=format!("/r/{}", room.code)>
+                        <span class="recent-room__name">{room.name.clone()}</span>
+                        <div class="recent-room__meta">
+                            <span class="recent-room__code">{room.code.clone()}</span>
+                        </div>
+                    </a>
                 </For>
             </div>
         </div>

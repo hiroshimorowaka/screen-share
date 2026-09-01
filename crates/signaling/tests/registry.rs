@@ -1396,6 +1396,38 @@ async fn create_room_rejects_a_client_past_its_per_client_room_cap() {
 }
 
 #[tokio::test]
+async fn create_room_does_not_count_an_emptied_room_against_the_per_client_cap() {
+    let registry = Registry::new();
+
+    // Fill the client's per-client budget, keeping the first room's handle.
+    let (first_code, first_snapshot) = registry
+        .create_room(create_request("busy-client"))
+        .expect("first create is under the cap");
+    for _ in 1..MAX_ROOMS_PER_CLIENT {
+        registry
+            .create_room(create_request("busy-client"))
+            .expect("still under the per-client cap");
+    }
+    assert!(
+        matches!(
+            registry.create_room(create_request("busy-client")),
+            Err(CreateRoomError::AtCapacity)
+        ),
+        "the client is at its per-client cap"
+    );
+
+    // Leaving empties that room (its creator was the only member). It now
+    // lingers only for the grace period and must free the client's slot,
+    // rather than blocking a fresh create until cleanup runs.
+    registry.leave_room(&first_code, &first_snapshot.peer_id);
+
+    assert!(
+        registry.create_room(create_request("busy-client")).is_ok(),
+        "an emptied room must not keep counting against the per-client cap"
+    );
+}
+
+#[tokio::test]
 async fn create_room_rejects_everyone_once_the_global_room_cap_is_reached() {
     let registry = Registry::new();
 

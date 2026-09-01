@@ -219,7 +219,6 @@ pub fn RoomPage() -> impl IntoView {
         initial_code.clone(),
         authenticated,
         set_room_exists,
-        set_room_name,
         set_requires_password,
     );
 
@@ -380,9 +379,9 @@ pub fn RoomPage() -> impl IntoView {
         // `Rc<RefCell<WsClient>>`, which is not.
         <div class="panel" class:hidden=move || authenticated.get() || room_exists.get() != Some(true)>
             <h1>"Entrar na sala"</h1>
-            <p class="status-row__meta">
-                {move || room_name.get().unwrap_or_default()} " — " {code}
-            </p>
+            // Just the code here: the room name isn't known until the
+            // `Joined` snapshot (finding F06), and this panel is pre-join.
+            <p class="status-row__meta">{code}</p>
             <form on:submit=manual_join.clone()>
                 <label class="field">
                     <span class="field__label">"Nick"</span>

@@ -266,9 +266,14 @@ impl Registry {
         if rooms.len() >= MAX_ROOMS {
             return Err(CreateRoomError::AtCapacity);
         }
+        // Count only rooms this client still has members in. An emptied
+        // room lingers in the map for `EMPTY_ROOM_GRACE_PERIOD` awaiting
+        // cleanup; it's on its way out and must not hold a slot, or a
+        // client that legitimately creates and leaves rooms in quick
+        // succession hits `AtCapacity` on rooms nobody is in.
         if rooms
             .values()
-            .filter(|room| room.owner_key == client_key)
+            .filter(|room| room.owner_key == client_key && !room.members.is_empty())
             .count()
             >= MAX_ROOMS_PER_CLIENT
         {

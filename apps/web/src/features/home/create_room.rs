@@ -40,14 +40,14 @@ pub fn create_room_handler(
     move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
 
-        use screen_share_protocol::validate::{clean_nick, clean_room_name};
+        use screen_share_protocol::validate::{clean_nick, clean_room_name, is_valid_color};
 
         let color_value = color.get_untracked();
         let password_value = password.get_untracked();
         let is_public = public_room.get_untracked();
 
-        // Mirror the relay's checks (F08) so a bad nick/name is caught
-        // before a round trip; the server still enforces them.
+        // Mirror the relay's checks (F08) so a bad nick/name/colour is
+        // caught before a round trip; the server still enforces them.
         let Ok(nick_value) = clean_nick(&nick.get_untracked()) else {
             set_status.set("Nick vazio, muito longo ou com caracteres não permitidos.".to_string());
             return;
@@ -58,6 +58,12 @@ pub fn create_room_handler(
             );
             return;
         };
+        // The picker only offers palette colours, so this is a guard
+        // against a tampered value, not something a normal flow hits.
+        if !is_valid_color(&color_value) {
+            set_status.set("Escolha uma cor da paleta.".to_string());
+            return;
+        }
         // A blank password is only valid as a *deliberate* public room —
         // otherwise it's someone forgetting to set one, not choosing to
         // skip it.

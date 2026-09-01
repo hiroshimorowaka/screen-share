@@ -5,17 +5,19 @@ pub(super) fn start_room_check(
     _room_code: String,
     _authenticated: ReadSignal<bool>,
     _set_room_exists: WriteSignal<Option<bool>>,
-    _set_room_name: WriteSignal<Option<String>>,
     _set_requires_password: WriteSignal<bool>,
 ) {
 }
 
+// The room name is deliberately not part of the unauthenticated
+// `GET /api/rooms/:code` response (finding F06) — it arrives in the
+// `Joined` snapshot once the member is in the room. So this check only
+// resolves existence and whether a password is needed.
 #[cfg(feature = "hydrate")]
 pub(super) fn start_room_check(
     room_code: String,
     authenticated: ReadSignal<bool>,
     set_room_exists: WriteSignal<Option<bool>>,
-    set_room_name: WriteSignal<Option<String>>,
     set_requires_password: WriteSignal<bool>,
 ) {
     use leptos::task::spawn_local;
@@ -31,7 +33,6 @@ pub(super) fn start_room_check(
         }
         match result {
             Some(status) if status.exists => {
-                set_room_name.set(status.name);
                 set_requires_password.set(status.requires_password.unwrap_or(false));
                 set_room_exists.set(Some(true));
             }

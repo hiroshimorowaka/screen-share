@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use leptos::prelude::*;
 
@@ -22,14 +22,18 @@ pub fn load_recent_rooms_after_mount(
 #[cfg(not(feature = "hydrate"))]
 pub fn prune_recent_rooms(
     _set_recent_rooms: WriteSignal<Vec<crate::features::profile::RecentRoom>>,
-    _set_member_counts: WriteSignal<HashMap<String, usize>>,
+    _set_live_rooms: WriteSignal<HashSet<String>>,
 ) {
 }
 
+/// Checks each remembered room against `GET /api/rooms/:code`: drops the
+/// ones that no longer exist, and records the ones still up in
+/// `live_rooms`. The status endpoint no longer returns a member count
+/// (finding F06), so this only tracks liveness, not occupancy.
 #[cfg(feature = "hydrate")]
 pub fn prune_recent_rooms(
     set_recent_rooms: WriteSignal<Vec<crate::features::profile::RecentRoom>>,
-    set_member_counts: WriteSignal<HashMap<String, usize>>,
+    set_live_rooms: WriteSignal<HashSet<String>>,
 ) {
     use leptos::task::spawn_local;
 
@@ -40,11 +44,9 @@ pub fn prune_recent_rooms(
         spawn_local(async move {
             if let Some(status) = check_room(&code).await {
                 if status.exists {
-                    if let Some(count) = status.member_count {
-                        set_member_counts.update(|counts| {
-                            counts.insert(code.clone(), count);
-                        });
-                    }
+                    set_live_rooms.update(|live| {
+                        live.insert(code.clone());
+                    });
                 } else {
                     remove_recent_room(&code);
                     set_recent_rooms.update(|rooms| rooms.retain(|r| r.code != code));
