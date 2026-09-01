@@ -12,6 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use screen_share::app::{shell, App};
+    use screen_share::http_security;
     use screen_share_signaling::handshake::HandshakeConfig;
     use screen_share_signaling::registry::Registry;
     use screen_share_signaling::rooms_status::{room_status_handler, RoomStatusLimiter};
@@ -51,7 +52,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options)
-        .merge(signaling_router);
+        .merge(signaling_router)
+        .layer(axum::middleware::from_fn(http_security::apply));
 
     log!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

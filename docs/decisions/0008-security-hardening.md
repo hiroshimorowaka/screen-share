@@ -226,3 +226,21 @@ F15, in `registry`:
 
 Covered by `protocol/tests/validate.rs`, a `wire` round-trip for
 `InvalidInput`, and three new `registry` tests.
+
+### F12 — HTTP security headers
+
+New `apps/web` `http_security` module (SSR only) — an
+`axum::middleware::from_fn` layer that stamps every response with
+`Content-Security-Policy`, `Strict-Transport-Security` (2 y),
+`Permissions-Policy` (`display-capture=(self)`, camera/mic/geo denied),
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
+`X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`.
+
+The CSP is intentionally loose where the stack needs it —
+`'wasm-unsafe-eval'` for the wasm-bindgen module, `style-src
+'unsafe-inline'` for Leptos's `style="--member: …"` bindings, the Google
+Fonts hosts — and `'self'` for everything else. **It must be smoke-tested
+in a real browser** (create / join / watch, no CSP violations logged)
+before it's trusted; it's the one header here that can break the UI, and
+that check was not possible in this environment. `tests/http_security.rs`
+asserts the header set and guards the CSP's required directives.
