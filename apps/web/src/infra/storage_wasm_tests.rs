@@ -132,3 +132,21 @@ fn ensure_device_id_generates_once_then_returns_the_same_value() {
     assert!(!first.is_empty());
     assert_eq!(ensure_device_id(), first);
 }
+
+#[wasm_bindgen_test]
+fn random_uuid_v4_has_the_canonical_shape_and_is_not_constant() {
+    let crypto = web_sys::window().unwrap().crypto().unwrap();
+    let id = random_uuid_v4(&crypto).unwrap();
+
+    // 8-4-4-4-12 hex, version nibble 4, variant nibble in 8..=b.
+    let groups: Vec<&str> = id.split('-').collect();
+    assert_eq!(
+        groups.iter().map(|g| g.len()).collect::<Vec<_>>(),
+        vec![8, 4, 4, 4, 12]
+    );
+    assert!(id.chars().all(|c| c == '-' || c.is_ascii_hexdigit()));
+    assert_eq!(groups[2].as_bytes()[0], b'4');
+    assert!(matches!(groups[3].as_bytes()[0], b'8' | b'9' | b'a' | b'b'));
+
+    assert_ne!(id, random_uuid_v4(&crypto).unwrap());
+}
