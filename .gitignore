@@ -35,3 +35,6 @@ node_modules/
 /desktop/.stryker-tmp/
 /desktop/reports/
 /desktop/stryker-setup-*.js
+
+# Local security-audit report artifacts (not part of the repo)
+/docs/security-audit/
