@@ -23,6 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let conf = get_configuration(None)?;
     let addr = conf.leptos_options.site_addr;
     let leptos_options = conf.leptos_options;
+    // Non-PROD => `cargo leptos watch`: its live-reload WebSocket needs a
+    // slightly looser CSP (see `http_security`).
+    let dev_csp = !matches!(leptos_options.env, leptos::config::Env::PROD);
     let routes = generate_route_list(App);
 
     // Abort startup on a misconfigured TURN secret rather than silently
@@ -55,7 +58,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .fallback(leptos_axum::file_and_error_handler(shell))
         .with_state(leptos_options)
         .merge(signaling_router)
-        .layer(axum::middleware::from_fn(http_security::apply));
+        .layer(axum::middleware::from_fn_with_state(
+            dev_csp,
+            http_security::apply,
+        ));
 
     log!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;

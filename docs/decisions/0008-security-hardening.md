@@ -271,6 +271,12 @@ logged); that wasn't possible in this environment.
 `tests/http_security.rs` asserts the header set and the CSP's required
 directives.
 
+Non-PROD runs (`cargo leptos watch`) get a variant that also allows
+plaintext `ws:` in `connect-src` — the dev server's live-reload socket
+runs on a second `ws://` port that the production policy correctly
+blocks. Selected from `leptos_options.env` at startup; production is
+unaffected.
+
 ### F13 — reject a weak `TURN_SECRET` at startup
 
 `TurnConfig::from_vars` now returns `Result<Option<Self>, TurnConfigError>`
