@@ -149,6 +149,26 @@ fn kicked_message_round_trips_through_json() {
 }
 
 #[test]
+fn already_in_room_message_round_trips_through_json() {
+    let msg = ServerMessage::AlreadyInRoom;
+    let json = serde_json::to_string(&msg).unwrap();
+    assert_eq!(json, r#"{"type":"already_in_room"}"#);
+
+    let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, msg);
+}
+
+#[test]
+fn server_at_capacity_message_round_trips_through_json() {
+    let msg = ServerMessage::ServerAtCapacity;
+    let json = serde_json::to_string(&msg).unwrap();
+    assert_eq!(json, r#"{"type":"server_at_capacity"}"#);
+
+    let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, msg);
+}
+
+#[test]
 fn watch_share_message_round_trips_through_json() {
     let msg = ClientMessage::WatchShare {
         sharer_id: "peer-1".to_string(),

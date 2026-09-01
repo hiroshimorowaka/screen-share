@@ -1,14 +1,52 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rand::RngExt;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::auth::{hash_password, verify_password};
 use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+
+/// Depth of one connection's outbound queue. Bounded so a member that
+/// stops reading its socket can't force the registry to buffer without
+/// limit while the rest of the room keeps broadcasting to it: sends here
+/// are a non-blocking `try_send` that drops once this many messages are
+/// outstanding, trading a wedged (already-broken) peer connection for a
+/// hard memory ceiling. Far above a healthy connection's steady state —
+/// it drains every message immediately.
+pub const OUTBOUND_CAPACITY: usize = 256;
+
+/// Hard cap on rooms the registry holds at once. Creating a room needs no
+/// prior auth, so without a ceiling one client can exhaust the small
+/// production VM's memory by creating rooms in a loop. Far above any
+/// realistic concurrent load for a small-group tool.
+pub const MAX_ROOMS: usize = 5_000;
+
+/// Hard cap on rooms one client (keyed by `client_key`, i.e. Fly's
+/// client-IP header) may hold open at once, so one abusive source can't
+/// consume the whole [`MAX_ROOMS`] budget by itself.
+pub const MAX_ROOMS_PER_CLIENT: usize = 50;
+
+/// Hard cap on concurrent signaling WebSocket connections across every
+/// room — a blunt backstop against a socket flood (slowloris) that opens
+/// connections faster than rooms fill up.
+pub const MAX_WS_CONNECTIONS: usize = 2_000;
+
+/// Sender half of one connection's bounded outbound queue.
+pub type MemberTx = mpsc::Sender<ServerMessage>;
+/// Receiver half of one connection's bounded outbound queue.
+pub type MemberRx = mpsc::Receiver<ServerMessage>;
+
+/// Builds one connection's bounded outbound channel. Production and tests
+/// both go through here so [`OUTBOUND_CAPACITY`] stays the single source
+/// of truth.
+pub fn member_channel() -> (MemberTx, MemberRx) {
+    mpsc::channel(OUTBOUND_CAPACITY)
+}
 
 /// How long a room stays reservable after its last member leaves before it's
 /// actually deleted — long enough to survive a page reload (the old
@@ -30,7 +68,7 @@ struct Member {
     nick: String,
     color: String,
     device_id: String,
-    sender: UnboundedSender<ServerMessage>,
+    sender: MemberTx,
     /// `None` until this member's first `Ping`/`Pong` round trip completes.
     latency_ms: Option<u32>,
 }
@@ -47,6 +85,9 @@ struct Room {
     /// Timestamps of recent wrong-password join attempts, keyed by client
     /// and pruned to `PASSWORD_ATTEMPT_WINDOW` on every check.
     failed_password_attempts: HashMap<String, Vec<Instant>>,
+    /// `client_key` (see `ws.rs`) of whoever created this room — used only
+    /// to enforce [`MAX_ROOMS_PER_CLIENT`].
+    owner_key: String,
 }
 
 #[derive(Debug)]
@@ -65,6 +106,21 @@ pub struct RoomSummary {
     pub requires_password: bool,
 }
 
+/// Everything about a client creating a room, bundled so `create_room`
+/// takes one argument instead of a long positional list — same idea as
+/// [`JoinRequest`].
+pub struct CreateRoomRequest {
+    pub nick: String,
+    pub color: String,
+    pub room_name: String,
+    pub password: Option<String>,
+    pub device_id: String,
+    /// See `client_key` in `ws.rs` — used to enforce
+    /// [`MAX_ROOMS_PER_CLIENT`].
+    pub client_key: String,
+    pub sender: MemberTx,
+}
+
 /// Everything about a client trying to join a room, bundled so `join_room`
 /// takes one argument for it instead of six — same idea as `JoinedSnapshot`.
 pub struct JoinRequest {
@@ -75,7 +131,7 @@ pub struct JoinRequest {
     /// See `client_key` in `ws.rs` — scopes the wrong-password lockout to
     /// this one client rather than the whole room.
     pub client_key: String,
-    pub sender: UnboundedSender<ServerMessage>,
+    pub sender: MemberTx,
 }
 
 #[derive(Debug, PartialEq)]
@@ -86,14 +142,59 @@ pub enum JoinError {
     TooManyAttempts,
 }
 
+/// Why [`Registry::create_room`] refused.
+#[derive(Debug, PartialEq)]
+pub enum CreateRoomError {
+    /// The global [`MAX_ROOMS`] cap, or this client's
+    /// [`MAX_ROOMS_PER_CLIENT`] cap, is already reached. The caller
+    /// should tell the user to try again later — an immediate retry
+    /// won't help.
+    AtCapacity,
+}
+
+/// Frees its [`Registry`] connection slot when dropped, so a slot is
+/// always released no matter how the socket task ends.
+pub struct ConnectionGuard {
+    connections: Arc<AtomicUsize>,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.connections.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct Registry {
     rooms: Arc<Mutex<HashMap<String, Room>>>,
+    /// Live signaling WebSocket connections, capped at [`MAX_WS_CONNECTIONS`].
+    connections: Arc<AtomicUsize>,
 }
 
 impl Registry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of rooms currently held. Used by tests and by the per-client
+    /// room cap.
+    pub fn room_count(&self) -> usize {
+        self.lock_rooms().len()
+    }
+
+    /// Tries to claim one of the [`MAX_WS_CONNECTIONS`] connection slots.
+    /// Returns a guard that frees the slot on drop, or `None` when the
+    /// server is already at the cap — the caller should then refuse the
+    /// WebSocket upgrade.
+    pub fn try_acquire_connection(&self) -> Option<ConnectionGuard> {
+        let previous = self.connections.fetch_add(1, Ordering::AcqRel);
+        if previous >= MAX_WS_CONNECTIONS {
+            self.connections.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(ConnectionGuard {
+            connections: Arc::clone(&self.connections),
+        })
     }
 
     /// Locks the room table. No code in this module panics while holding the
@@ -106,15 +207,26 @@ impl Registry {
             .expect("room registry mutex should never be poisoned")
     }
 
+    /// Registers a new room with `request`'s creator as its sole member.
+    ///
+    /// # Errors
+    ///
+    /// [`CreateRoomError::AtCapacity`] when the global [`MAX_ROOMS`] cap or
+    /// the creator's [`MAX_ROOMS_PER_CLIENT`] cap is already reached.
     pub fn create_room(
         &self,
-        nick: String,
-        color: String,
-        room_name: String,
-        password: Option<String>,
-        device_id: String,
-        sender: UnboundedSender<ServerMessage>,
-    ) -> (String, JoinedSnapshot) {
+        request: CreateRoomRequest,
+    ) -> Result<(String, JoinedSnapshot), CreateRoomError> {
+        let CreateRoomRequest {
+            nick,
+            color,
+            room_name,
+            password,
+            device_id,
+            client_key,
+            sender,
+        } = request;
+
         let room_code = generate_room_code();
         let peer_id = Uuid::new_v4().to_string();
         let password_hash = hash_optional_password(password);
@@ -132,6 +244,17 @@ impl Registry {
         );
 
         let mut rooms = self.lock_rooms();
+        if rooms.len() >= MAX_ROOMS {
+            return Err(CreateRoomError::AtCapacity);
+        }
+        if rooms
+            .values()
+            .filter(|room| room.owner_key == client_key)
+            .count()
+            >= MAX_ROOMS_PER_CLIENT
+        {
+            return Err(CreateRoomError::AtCapacity);
+        }
         rooms.insert(
             room_code.clone(),
             Room {
@@ -141,6 +264,7 @@ impl Registry {
                 sharers: HashSet::new(),
                 watchers: HashMap::new(),
                 failed_password_attempts: HashMap::new(),
+                owner_key: client_key,
             },
         );
 
@@ -156,7 +280,7 @@ impl Registry {
             watcher_info: vec![],
             latencies: vec![],
         };
-        (room_code, snapshot)
+        Ok((room_code, snapshot))
     }
 
     pub fn join_room(
@@ -198,7 +322,7 @@ impl Registry {
             .map(|(id, _)| id.clone())
         {
             if let Some(removed) = remove_member(room, &previous_peer_id) {
-                let _ = removed.sender.send(ServerMessage::Kicked);
+                let _ = removed.sender.try_send(ServerMessage::Kicked);
             }
         }
 
@@ -209,7 +333,7 @@ impl Registry {
         let peer_id = Uuid::new_v4().to_string();
 
         for member in room.members.values() {
-            let _ = member.sender.send(ServerMessage::PeerJoined {
+            let _ = member.sender.try_send(ServerMessage::PeerJoined {
                 peer_id: peer_id.clone(),
                 nick: nick.clone(),
                 color: color.clone(),
@@ -285,7 +409,7 @@ impl Registry {
             room.sharers.insert(peer_id.to_string());
             for (id, member) in room.members.iter() {
                 if id != peer_id {
-                    let _ = member.sender.send(ServerMessage::PeerStartedSharing {
+                    let _ = member.sender.try_send(ServerMessage::PeerStartedSharing {
                         peer_id: peer_id.to_string(),
                     });
                 }
@@ -300,7 +424,7 @@ impl Registry {
             room.watchers.remove(peer_id);
             for (id, member) in room.members.iter() {
                 if id != peer_id {
-                    let _ = member.sender.send(ServerMessage::PeerStoppedSharing {
+                    let _ = member.sender.try_send(ServerMessage::PeerStoppedSharing {
                         peer_id: peer_id.to_string(),
                     });
                 }
@@ -319,7 +443,7 @@ impl Registry {
             .or_default()
             .insert(viewer_id.to_string());
         if let Some(sharer) = room.members.get(sharer_id) {
-            let _ = sharer.sender.send(ServerMessage::WatchRequested {
+            let _ = sharer.sender.try_send(ServerMessage::WatchRequested {
                 from: viewer_id.to_string(),
             });
         }
@@ -336,7 +460,7 @@ impl Registry {
             watchers.remove(viewer_id);
         }
         if let Some(sharer) = room.members.get(sharer_id) {
-            let _ = sharer.sender.send(ServerMessage::WatchStopped {
+            let _ = sharer.sender.try_send(ServerMessage::WatchStopped {
                 from: viewer_id.to_string(),
             });
         }
@@ -358,7 +482,7 @@ impl Registry {
         member.latency_ms = Some(ms);
 
         for member in room.members.values() {
-            let _ = member.sender.send(ServerMessage::PeerLatency {
+            let _ = member.sender.try_send(ServerMessage::PeerLatency {
                 peer_id: peer_id.to_string(),
                 ms,
             });
@@ -369,7 +493,7 @@ impl Registry {
         let rooms = self.lock_rooms();
         if let Some(room) = rooms.get(room_code) {
             if let Some(member) = room.members.get(to) {
-                let _ = member.sender.send(message);
+                let _ = member.sender.try_send(message);
             }
         }
     }
@@ -455,11 +579,11 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
         .collect();
 
     for member in room.members.values() {
-        let _ = member.sender.send(ServerMessage::PeerLeft {
+        let _ = member.sender.try_send(ServerMessage::PeerLeft {
             peer_id: peer_id.to_string(),
         });
         if was_sharing {
-            let _ = member.sender.send(ServerMessage::PeerStoppedSharing {
+            let _ = member.sender.try_send(ServerMessage::PeerStoppedSharing {
                 peer_id: peer_id.to_string(),
             });
         }
@@ -478,7 +602,7 @@ fn broadcast_watchers_changed(room: &Room, sharer_id: &str) {
         .map(|w| w.iter().cloned().collect())
         .unwrap_or_default();
     for member in room.members.values() {
-        let _ = member.sender.send(ServerMessage::WatchersChanged {
+        let _ = member.sender.try_send(ServerMessage::WatchersChanged {
             sharer_id: sharer_id.to_string(),
             watchers: watchers.clone(),
         });

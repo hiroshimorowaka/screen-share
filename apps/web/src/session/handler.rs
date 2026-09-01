@@ -146,6 +146,14 @@ pub(crate) fn build_message_handler(
         ServerMessage::RoomFull => {
             set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string())
         }
+        ServerMessage::AlreadyInRoom => set_status.set(
+            "Esta conexão já está em uma sala. Recarregue a página para entrar em outra."
+                .to_string(),
+        ),
+        ServerMessage::ServerAtCapacity => set_status.set(
+            "O servidor está sem capacidade no momento. Tente novamente em alguns minutos."
+                .to_string(),
+        ),
         ServerMessage::TooManyAttempts => set_status.set(
             "Muitas tentativas de senha erradas. Aguarde um pouco antes de tentar de novo."
                 .to_string(),

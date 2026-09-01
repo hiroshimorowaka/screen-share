@@ -43,3 +43,38 @@ Verification is manual (`turnutils_uclient` against `169.254.169.254` and
 an RFC1918 address must fail; `--max-bps` visible in the running
 process) — coturn has no in-repo test harness. The TTL change is covered
 by `turn_tests.rs`.
+
+### F02 / F03 — signaling relay resource limits and connection-bind guards
+
+The relay had no ceiling on anything an unauthenticated socket could
+drive. Added, all as named `const`s in `signaling`:
+
+- `MAX_MESSAGE_BYTES` (256 KiB) via `WebSocketUpgrade::max_message_size` —
+  caps a text frame before axum-ws buffers up to its ~64 MiB default.
+- `IDLE_TIMEOUT` (90 s) around each `ws_receiver.next()` — reaps a
+  slowloris socket that connects and goes silent. The client pings every
+  5 s once joined, so this is far clear of a healthy connection.
+- `RATE_WINDOW` (10 s) / `MAX_MSGS_PER_WINDOW` (300) sliding-window
+  message-rate cap (pure `over_rate_limit` helper, unit-tested); a flood
+  loop trips it and the socket is closed.
+- `MAX_WS_CONNECTIONS` (2 000) via `Registry::try_acquire_connection`
+  returning an RAII `ConnectionGuard`; the upgrade is refused with 503
+  once at the cap.
+- `MAX_ROOMS` (5 000) global and `MAX_ROOMS_PER_CLIENT` (50, keyed by the
+  `client_key` IP header) enforced in `create_room`, which is now
+  fallible (`CreateRoomError::AtCapacity` -> `ServerMessage::ServerAtCapacity`).
+- The per-connection outbound channel is now **bounded**
+  (`OUTBOUND_CAPACITY` = 256, `mpsc::channel`); registry broadcasts use
+  `try_send`, so a member that stops reading its socket gets a hard
+  memory ceiling (messages drop) instead of an unbounded backlog. A
+  wedged peer connection was already broken; the trade is deliberate.
+
+F03: `CreateRoom`/`JoinRoom` on a socket that already holds a room are
+refused with `ServerMessage::AlreadyInRoom` instead of silently
+overwriting the connection's `room_code`/`peer_id` and leaking the first
+room's membership forever. One `peer_id` per connection is now an
+invariant.
+
+New wire variants: `ServerMessage::AlreadyInRoom`,
+`ServerMessage::ServerAtCapacity` (round-tripped in `protocol` tests;
+surfaced as a status line in the web client).

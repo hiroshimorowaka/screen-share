@@ -9,14 +9,25 @@ async fn spawn_test_server() -> String {
 }
 
 async fn spawn_test_server_with_turn(turn: Option<TurnConfig>) -> String {
+    let (url, _registry) = spawn_test_server_returning_registry(turn).await;
+    url
+}
+
+/// Like [`spawn_test_server`] but also hands back the `Registry` the
+/// server runs on, so a test can assert on server-side state (room count,
+/// membership) that isn't observable over the socket alone.
+async fn spawn_test_server_returning_registry(
+    turn: Option<TurnConfig>,
+) -> (String, screen_share_signaling::registry::Registry) {
     use axum::routing::get;
     use axum::Router;
     use screen_share_signaling::registry::Registry;
     use screen_share_signaling::state::SignalingState;
     use screen_share_signaling::ws::ws_handler;
 
+    let registry = Registry::new();
     let signaling_state = SignalingState {
-        registry: Registry::new(),
+        registry: registry.clone(),
         turn,
     };
     let app = Router::new()
@@ -32,7 +43,7 @@ async fn spawn_test_server_with_turn(turn: Option<TurnConfig>) -> String {
             .unwrap();
     });
 
-    format!("ws://{addr}/ws")
+    (format!("ws://{addr}/ws"), registry)
 }
 
 /// Upper bound on how long any single server message may take to arrive.
@@ -661,4 +672,148 @@ async fn join_room_reports_room_full_at_capacity() {
     )
     .await;
     assert_eq!(recv_json(&mut overflow_ws).await, ServerMessage::RoomFull);
+}
+
+#[tokio::test]
+async fn second_create_room_on_the_same_socket_is_refused() {
+    let (url, registry) = spawn_test_server_returning_registry(None).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    send_json(
+        &mut ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala da Ana".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_json(&mut ws).await,
+        ServerMessage::Joined { .. }
+    ));
+
+    send_json(
+        &mut ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Outra sala".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await, ServerMessage::AlreadyInRoom);
+    assert_eq!(
+        registry.room_count(),
+        1,
+        "a second CreateRoom on one socket must not create a second room"
+    );
+}
+
+#[tokio::test]
+async fn join_room_on_a_socket_that_already_created_one_is_refused() {
+    let (url, _registry) = spawn_test_server_returning_registry(None).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    send_json(
+        &mut ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala da Ana".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    assert!(matches!(
+        recv_json(&mut ws).await,
+        ServerMessage::Joined { .. }
+    ));
+
+    send_json(
+        &mut ws,
+        &ClientMessage::JoinRoom {
+            room: "SOMEROOM".to_string(),
+            nick: "Ana".to_string(),
+            password: None,
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    assert_eq!(recv_json(&mut ws).await, ServerMessage::AlreadyInRoom);
+}
+
+#[tokio::test]
+async fn repeated_join_on_one_socket_does_not_orphan_members() {
+    let (url, registry) = spawn_test_server_returning_registry(None).await;
+
+    let (mut host, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut host,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala da Ana".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    let room = match recv_json(&mut host).await {
+        ServerMessage::Joined { room, .. } => room,
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    let (mut joiner, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    for device in ["device-b1", "device-b2", "device-b3"] {
+        send_json(
+            &mut joiner,
+            &ClientMessage::JoinRoom {
+                room: room.clone(),
+                nick: "Bia".to_string(),
+                password: None,
+                color: "sky".to_string(),
+                device_id: device.to_string(),
+            },
+        )
+        .await;
+        let _ = recv_json(&mut joiner).await;
+    }
+
+    let summary = registry
+        .room_status(&room)
+        .expect("room should still exist");
+    assert_eq!(
+        summary.member_count, 2,
+        "extra JoinRoom messages on a bound socket must not add orphan members"
+    );
+}
+
+#[tokio::test]
+async fn a_frame_over_the_size_limit_closes_the_connection() {
+    use futures_util::SinkExt;
+
+    let url = spawn_test_server().await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    // Comfortably over MAX_MESSAGE_BYTES (256 KiB) in ws.rs — the server
+    // must reject the frame and close rather than buffer it.
+    let oversized = "x".repeat(300 * 1024);
+    ws.send(Message::Text(oversized.into())).await.unwrap();
+
+    // The next read either yields the server's close frame / an error, or
+    // the stream ends — any of which means the connection was dropped.
+    let closed = match tokio::time::timeout(RECV_TIMEOUT, ws.next()).await {
+        Ok(None) | Ok(Some(Err(_))) => true,
+        Ok(Some(Ok(Message::Close(_)))) => true,
+        Ok(Some(Ok(other))) => panic!("expected a close, got {other:?}"),
+        Err(_) => false,
+    };
+    assert!(closed, "an oversized frame must close the signaling socket");
 }
