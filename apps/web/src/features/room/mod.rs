@@ -579,7 +579,7 @@ pub fn RoomPage() -> impl IntoView {
                             on_video_mode=set_video_mode
                             audio_preset=audio_preset
                             on_audio_preset=set_audio_preset
-                            has_audio=sharing_has_audio
+                            has_audio=share_has_audio
                             audio_muted=audio_muted
                         />
                     </div>
