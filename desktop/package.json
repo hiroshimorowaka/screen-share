@@ -50,6 +50,10 @@
     "appId": "com.hiroshimorowaka.screenshare",
     "productName": "Screen Share",
     "asar": true,
+    "asarUnpack": [
+      "native/**/*.node",
+      "**/*.node"
+    ],
     "directories": {
       "output": "release"
     },
@@ -75,7 +79,8 @@
         "deb"
       ],
       "category": "Network",
-      "icon": "icons/app-icon.png"
+      "icon": "icons/app-icon.png",
+      "maintainer": "hiroshimorowaka <hiroshimorowaka@users.noreply.github.com>"
     },
     "win": {
       "target": [

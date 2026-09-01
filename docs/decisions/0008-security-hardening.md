@@ -106,11 +106,20 @@ surfaced as a status line in the web client).
   self-updates (the safe failure mode). `updates.ts`'s doc block records
   this.
 - `build.asar` was `false` (F18) — the packaged app's files sat loose on
-  disk with no integrity boundary. Now `true`.
+  disk with no integrity boundary. Now `true`, which required two
+  follow-ons found by building the packages:
+  - `build.asarUnpack` for `**/*.node` — a native addon can't be
+    `require`d from inside an asar archive, so the Windows `windows-audio`
+    binding must be unpacked or system-audio capture breaks on Windows.
+  - `build.linux.maintainer` set to a GitHub noreply alias — dropping
+    `author.email` for F19 left the `.deb` target with no Debian
+    `Maintainer`; electron-builder needs one there. The alias is
+    non-routable, so it satisfies F19's "project/alias, not personal".
 
 Both flags have no runtime code surface, so the regression guard is a
 vitest test (`packaging-security.test.ts`) asserting the manifest keeps
-these values.
+these values; the `.node` / maintainer bits are verified by
+`pnpm dist:linux` actually producing both packages.
 
 Not done here (ops, not code): provisioning the Windows signing
 certificate in CI. Until that lands, packaged Windows auto-update is
