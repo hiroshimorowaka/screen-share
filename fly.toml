@@ -32,6 +32,10 @@ primary_region = "gru"
   TURN_EXTERNAL_IP = "137.66.9.162"
   TURN_RELAY_IP = "172.19.29.58"
   TURN_URLS = "turn:137.66.9.162:3478"
+  # Set explicitly rather than falling back to the public `screenshare`
+  # default in docker-entrypoint.sh (finding F13). Any non-guessable
+  # string works; it just scopes coturn's auth realm.
+  TURN_REALM = "screen-share-h0rb5w.fly.dev"
 
 [http_service]
   internal_port = 8080

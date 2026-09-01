@@ -25,7 +25,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let leptos_options = conf.leptos_options;
     let routes = generate_route_list(App);
 
-    let turn = TurnConfig::from_env();
+    // Abort startup on a misconfigured TURN secret rather than silently
+    // running STUN-only or, worse, a relay with a weak secret (F13).
+    let turn = TurnConfig::from_env()?;
     log!(
         "TURN server: {}",
         if turn.is_some() {

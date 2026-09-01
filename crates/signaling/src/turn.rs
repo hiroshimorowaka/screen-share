@@ -1,3 +1,4 @@
+use std::fmt;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as BASE64;
@@ -6,6 +7,56 @@ use hmac::{Hmac, Mac};
 use sha1::Sha1;
 
 use screen_share_protocol::TurnCredentials;
+
+/// Shortest `TURN_SECRET` accepted. coturn's `use-auth-secret` scheme is
+/// only as strong as this secret — a short one is brute-forceable, so a
+/// misconfiguration should stop the process at boot rather than run a
+/// relay anyone can mint credentials for (finding F13). 32 hex chars is
+/// what the deploy docs already recommend (`openssl rand -hex 32` = 64).
+const MIN_TURN_SECRET_LEN: usize = 24;
+
+/// Obvious placeholder secrets, rejected regardless of length so a
+/// copy-pasted example can't reach production.
+const TURN_SECRET_DENYLIST: &[&str] = &[
+    "changeme",
+    "change-me",
+    "secret",
+    "turnsecret",
+    "turn-secret",
+    "password",
+    "screenshare",
+    "example",
+    "test",
+    "placeholder",
+];
+
+/// Why [`TurnConfig::from_vars`] refused a configured TURN setup. Returned
+/// (not swallowed as "STUN-only") so a deploy that *meant* to run TURN
+/// fails loudly instead of silently degrading.
+#[derive(Debug, PartialEq, Eq)]
+pub enum TurnConfigError {
+    /// `TURN_SECRET` is shorter than [`MIN_TURN_SECRET_LEN`].
+    SecretTooShort,
+    /// `TURN_SECRET` is a known placeholder (see [`TURN_SECRET_DENYLIST`]).
+    SecretIsPlaceholder,
+}
+
+impl fmt::Display for TurnConfigError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SecretTooShort => write!(
+                f,
+                "TURN_SECRET is too short (need at least {MIN_TURN_SECRET_LEN} characters; \
+                 use `openssl rand -hex 32`)"
+            ),
+            Self::SecretIsPlaceholder => {
+                write!(f, "TURN_SECRET is a well-known placeholder value")
+            }
+        }
+    }
+}
+
+impl std::error::Error for TurnConfigError {}
 
 /// How long a minted credential stays valid. Only gates *new* TURN
 /// allocations — coturn checks a credential's embedded expiry only at
@@ -32,7 +83,13 @@ pub struct TurnConfig {
 impl TurnConfig {
     /// `TURN_SECRET` and `TURN_URLS` (comma-separated `turn:`/`turns:` URLs)
     /// must both be set and non-empty, or this deployment runs STUN-only.
-    pub fn from_env() -> Option<Self> {
+    ///
+    /// # Errors
+    ///
+    /// [`TurnConfigError`] when TURN *is* configured but `TURN_SECRET`
+    /// fails validation — the process should abort rather than run a weak
+    /// relay.
+    pub fn from_env() -> Result<Option<Self>, TurnConfigError> {
         Self::from_vars(
             std::env::var("TURN_SECRET").ok(),
             std::env::var("TURN_URLS").ok(),
@@ -41,16 +98,43 @@ impl TurnConfig {
 
     /// The parsing/validation half of [`from_env`](Self::from_env), split
     /// out so it can be built directly in tests without mutating
-    /// process-global env vars. Both values must be present and non-empty;
-    /// `urls` is split on commas and each entry trimmed.
-    pub fn from_vars(secret: Option<String>, urls_raw: Option<String>) -> Option<Self> {
-        let secret = secret.filter(|s| !s.is_empty())?;
-        let urls_raw = urls_raw.filter(|s| !s.is_empty())?;
+    /// process-global env vars.
+    ///
+    /// Both values absent/empty ⇒ `Ok(None)` (STUN-only, a valid choice).
+    /// Both present ⇒ the secret is validated ([`MIN_TURN_SECRET_LEN`],
+    /// [`TURN_SECRET_DENYLIST`]) and `urls` is split on commas and
+    /// trimmed.
+    ///
+    /// # Errors
+    ///
+    /// [`TurnConfigError`] if a configured secret is too short or a known
+    /// placeholder.
+    pub fn from_vars(
+        secret: Option<String>,
+        urls_raw: Option<String>,
+    ) -> Result<Option<Self>, TurnConfigError> {
+        let (Some(secret), Some(urls_raw)) = (
+            secret.filter(|s| !s.is_empty()),
+            urls_raw.filter(|s| !s.is_empty()),
+        ) else {
+            return Ok(None);
+        };
+
+        if TURN_SECRET_DENYLIST
+            .iter()
+            .any(|weak| weak.eq_ignore_ascii_case(&secret))
+        {
+            return Err(TurnConfigError::SecretIsPlaceholder);
+        }
+        if secret.chars().count() < MIN_TURN_SECRET_LEN {
+            return Err(TurnConfigError::SecretTooShort);
+        }
+
         let urls: Vec<String> = urls_raw
             .split(',')
             .map(|url| url.trim().to_string())
             .collect();
-        Some(Self { secret, urls })
+        Ok(Some(Self { secret, urls }))
     }
 
     /// A time-limited credential per the REST API scheme coturn implements

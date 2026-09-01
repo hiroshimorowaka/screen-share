@@ -38,24 +38,43 @@ fn mint_credentials_username_is_a_future_unix_timestamp() {
     );
 }
 
+const STRONG_SECRET: &str = "0123456789abcdef0123456789abcdef";
+
 #[test]
-fn from_vars_needs_both_secret_and_urls_non_empty() {
-    assert!(TurnConfig::from_vars(None, Some("turn:x:3478".into())).is_none());
-    assert!(TurnConfig::from_vars(Some("s".into()), None).is_none());
-    assert!(TurnConfig::from_vars(Some(String::new()), Some("turn:x:3478".into())).is_none());
-    assert!(TurnConfig::from_vars(Some("s".into()), Some(String::new())).is_none());
-    assert!(TurnConfig::from_vars(Some("s".into()), Some("turn:x:3478".into())).is_some());
+fn from_vars_is_stun_only_unless_both_secret_and_urls_are_set() {
+    let stun_only = |s, u| matches!(TurnConfig::from_vars(s, u), Ok(None));
+    assert!(stun_only(None, Some("turn:x:3478".into())));
+    assert!(stun_only(Some(STRONG_SECRET.into()), None));
+    assert!(stun_only(Some(String::new()), Some("turn:x:3478".into())));
+    assert!(stun_only(Some(STRONG_SECRET.into()), Some(String::new())));
+    assert!(matches!(
+        TurnConfig::from_vars(Some(STRONG_SECRET.into()), Some("turn:x:3478".into())),
+        Ok(Some(_))
+    ));
+}
+
+#[test]
+fn from_vars_rejects_a_short_or_placeholder_secret() {
+    assert!(matches!(
+        TurnConfig::from_vars(Some("short".into()), Some("turn:x:3478".into())),
+        Err(TurnConfigError::SecretTooShort)
+    ));
+    assert!(matches!(
+        TurnConfig::from_vars(Some("ChangeMe".into()), Some("turn:x:3478".into())),
+        Err(TurnConfigError::SecretIsPlaceholder)
+    ));
 }
 
 #[test]
 fn from_vars_splits_and_trims_the_url_list() {
     let config = TurnConfig::from_vars(
-        Some("s3cr3t".into()),
+        Some(STRONG_SECRET.into()),
         Some(" turn:a.example:3478 , turns:b.example:5349 ".into()),
     )
+    .expect("valid config")
     .expect("both vars present and non-empty");
 
-    assert_eq!(config.secret, "s3cr3t");
+    assert_eq!(config.secret, STRONG_SECRET);
     assert_eq!(
         config.urls,
         vec![

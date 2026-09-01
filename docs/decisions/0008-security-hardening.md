@@ -244,3 +244,16 @@ in a real browser** (create / join / watch, no CSP violations logged)
 before it's trusted; it's the one header here that can break the UI, and
 that check was not possible in this environment. `tests/http_security.rs`
 asserts the header set and guards the CSP's required directives.
+
+### F13 — reject a weak `TURN_SECRET` at startup
+
+`TurnConfig::from_vars` now returns `Result<Option<Self>, TurnConfigError>`
+instead of `Option<Self>`. Both vars unset ⇒ `Ok(None)` (STUN-only, still
+valid). Both set ⇒ the secret is checked against
+`MIN_TURN_SECRET_LEN` (24) and a placeholder denylist
+(`changeme`, `secret`, `screenshare`, …); a bad one is `Err`, and
+`main.rs` propagates it so the process aborts rather than run a relay
+anyone can mint credentials for. `TURN_REALM` is now set explicitly in
+`fly.toml` instead of relying on the public `screenshare` default; the
+`docker-entrypoint.sh` fallback stays only for a bare local `docker run`.
+Covered by `turn_tests.rs`.

@@ -8,6 +8,11 @@
 # a real supervisor.
 set -e
 
+# The app process (screen_share, below) validates TURN_SECRET at startup
+# and aborts on a weak/placeholder value (finding F13) — coturn and the
+# app read the same TURN_SECRET, so that check covers both. TURN_REALM
+# should be set explicitly (see fly.toml); the :-screenshare fallback is
+# only for a bare `docker run` locally.
 if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
   # TURN_RELAY_IP: this machine's own private address (see the comment on
   # TURN_EXTERNAL_IP in fly.toml) — pins the actual relay sockets to one

@@ -448,9 +448,10 @@ async fn room_not_found_for_unknown_code() {
 #[tokio::test]
 async fn joined_carries_turn_credentials_when_the_deployment_has_turn_configured() {
     let turn = TurnConfig::from_vars(
-        Some("s3cr3t".to_string()),
+        Some("0123456789abcdef0123456789abcdef".to_string()),
         Some("turn:relay.example:3478".to_string()),
-    );
+    )
+    .expect("a 32-char secret and a URL are a valid TURN config");
     let url = spawn_test_server_with_turn(turn).await;
 
     let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
