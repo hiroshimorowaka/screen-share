@@ -113,6 +113,43 @@ fn attach_native_stop_listener(
     onended.forget();
 }
 
+/// Points `<video id="{element_id}">` at `stream` and starts playback,
+/// idempotently. `ontrack` fires once per track (a shared tab with audio
+/// gives video + audio, so twice); without the identity check the second
+/// `set_src_object` aborts the first `play()` and Chrome logs
+/// `AbortError: The play() request was interrupted by a new load request`.
+/// Any `AbortError` that a genuine rapid swap still produces is awaited and
+/// dropped rather than left as an unhandled promise rejection.
+#[cfg(feature = "hydrate")]
+pub(crate) fn play_stream_in(element_id: &str, stream: &web_sys::MediaStream, muted: bool) {
+    use wasm_bindgen::JsCast;
+
+    let Some(element) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id(element_id))
+    else {
+        return;
+    };
+    let video: web_sys::HtmlVideoElement = element.unchecked_into();
+    if muted {
+        video.set_muted(true);
+    }
+    if video.src_object().as_ref() != Some(stream) {
+        video.set_src_object(Some(stream));
+    }
+    if let Ok(promise) = video.play() {
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        });
+    }
+}
+
+/// [`play_stream_in`] for the sharer's own always-muted self-preview.
+#[cfg(feature = "hydrate")]
+fn play_stream_in_self_preview(peer_id: &str, stream: &web_sys::MediaStream) {
+    play_stream_in(&format!("video-self-{peer_id}"), stream, true);
+}
+
 /// Requests the display picker and, once a stream comes back, wires it up
 /// as this member's outgoing share. Split out of `share_toggle_handler` so
 /// the quick-share auto-trigger (`RoomPage`'s `quick_share`-driven effect)
@@ -131,7 +168,6 @@ pub(crate) fn start_sharing(
     on_cancelled: impl Fn() + 'static,
 ) {
     use leptos::task::spawn_local;
-    use wasm_bindgen::JsCast;
 
     use crate::infra::webrtc::capture_display;
     use screen_share_protocol::ClientMessage;
@@ -149,21 +185,12 @@ pub(crate) fn start_sharing(
             }
         };
 
+        // `play_stream_in` forces `.muted` on the element (the `muted`
+        // attribute only sets the parse-time default, so a stream whose
+        // audio track is attached later would still play out loud) — the
+        // sharer must never hear their own shared audio.
         if let Some(peer_id) = my_peer_id_value.as_deref() {
-            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
-                    let video: web_sys::HtmlVideoElement = video.unchecked_into();
-                    video.set_src_object(Some(&stream));
-                    // The `muted` attribute only sets the element's
-                    // *default* muted state at parse time — it doesn't
-                    // reflect the live `.muted` property, so a stream
-                    // with an audio track attached later can still play
-                    // out loud unless this is set explicitly. The
-                    // sharer must never hear their own shared audio.
-                    video.set_muted(true);
-                    let _ = video.play();
-                }
-            }
+            play_stream_in_self_preview(peer_id, &stream);
         }
         // Keep `set_is_sharing` and the `local_stream` assignment below in
         // the same synchronous run, with no `.await` between them: the
@@ -377,6 +404,7 @@ pub(crate) fn switch_source_handler(
     _expanded: RwSignal<Option<String>>,
     _audio_muted: ReadSignal<bool>,
     _video_mode: ReadSignal<crate::session::video_mode::VideoMode>,
+    _share_generation: RwSignal<u32>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
@@ -401,6 +429,7 @@ pub(crate) fn switch_source_handler(
     expanded: RwSignal<Option<String>>,
     audio_muted: ReadSignal<bool>,
     video_mode: ReadSignal<crate::session::video_mode::VideoMode>,
+    share_generation: RwSignal<u32>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -431,27 +460,7 @@ pub(crate) fn switch_source_handler(
             replace_outgoing_tracks(&conn, &new_stream).await;
 
             if let Some(peer_id) = my_peer_id_value.as_deref() {
-                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    if let Some(video) =
-                        document.get_element_by_id(&format!("video-self-{peer_id}"))
-                    {
-                        let video: web_sys::HtmlVideoElement = video.unchecked_into();
-                        video.set_src_object(Some(&new_stream));
-                        video.set_muted(true);
-                        let _ = video.play();
-                    }
-                }
-            }
-
-            // Stop the tracks of the stream we just switched away from and
-            // drop it, mirroring `stop_sharing`'s indicator-release dance,
-            // then hold onto the new one.
-            if let Some(old_stream) = conn.local_stream.borrow_mut().replace(new_stream.clone()) {
-                for entry in old_stream.get_tracks().iter() {
-                    let track: web_sys::MediaStreamTrack = entry.unchecked_into();
-                    track.stop();
-                    old_stream.remove_track(&track);
-                }
+                play_stream_in_self_preview(peer_id, &new_stream);
             }
 
             attach_native_stop_listener(
@@ -462,8 +471,26 @@ pub(crate) fn switch_source_handler(
                 expanded,
                 my_peer_id,
             );
+
+            // Release the stream we switched away from (stop + detach its
+            // tracks — the `stop_sharing` indicator dance), then store the
+            // *exact* new stream. Storing a clone and letting the original
+            // wrapper drop here leaves Chrome's native "sharing" indicator
+            // lit for that capture forever, so every switch stacked
+            // another bar (see the matching note in `start_sharing`).
+            let old_stream = conn.local_stream.borrow_mut().take();
+            if let Some(old_stream) = old_stream {
+                for entry in old_stream.get_tracks().iter() {
+                    let track: web_sys::MediaStreamTrack = entry.unchecked_into();
+                    track.stop();
+                    old_stream.remove_track(&track);
+                }
+            }
+            *conn.local_stream.borrow_mut() = Some(new_stream);
+
             super::audio::set_shared_audio_muted(&conn, audio_muted.get_untracked());
             super::video_mode::apply_video_mode_to_all(&conn, video_mode.get_untracked()).await;
+            share_generation.update(|generation| *generation = generation.wrapping_add(1));
             set_status.set("Conectado.".to_string());
         });
     }

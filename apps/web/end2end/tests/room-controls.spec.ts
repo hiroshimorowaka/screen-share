@@ -112,6 +112,38 @@ test('switching the shared source keeps the share alive and the viewer decoding'
   await bobCtx.close();
 });
 
+test('switching to an audio-less source updates the audio chip', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  // First getDisplayMedia keeps the fake audio track (shared "tab" with
+  // audio); the second strips it (switching to a whole-screen share).
+  await anaCtx.addInitScript(() => {
+    const devices = navigator.mediaDevices;
+    const original = devices.getDisplayMedia.bind(devices);
+    let call = 0;
+    devices.getDisplayMedia = async (...args: Parameters<typeof original>) => {
+      const stream = await original(...args);
+      if (++call >= 2) {
+        for (const track of stream.getAudioTracks()) {
+          track.stop();
+          stream.removeTrack(track);
+        }
+      }
+      return stream;
+    };
+  });
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala chip');
+
+  await startSharing(ana);
+  await expect(ana.locator('.audio-chip')).toContainText('Áudio ligado');
+
+  await ana.getByRole('button', { name: SWITCH_SOURCE }).click();
+  await expect(ana.locator('.share-chip')).toBeVisible();
+  // The chip must reflect the new source, not stay stuck on "ligado".
+  await expect(ana.locator('.audio-chip')).toContainText('Áudio desligado');
+
+  await anaCtx.close();
+});
+
 test('leaving the room navigates back to the home page', async ({ browser }) => {
   const anaCtx = await browser.newContext();
   const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida');

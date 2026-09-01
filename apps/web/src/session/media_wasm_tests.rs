@@ -156,3 +156,23 @@ async fn replace_outgoing_tracks_leaves_audio_senders_alone_when_the_new_stream_
     });
     assert!(audio_still_there, "the old audio sender keeps its track");
 }
+
+#[wasm_bindgen_test]
+fn play_stream_in_is_idempotent_across_repeat_calls() {
+    let doc = web_sys::window().unwrap().document().unwrap();
+    let video = doc.create_element("video").unwrap();
+    video.set_id("test-play-target");
+    doc.body().unwrap().append_child(&video).unwrap();
+
+    let stream = stream_of(&["video", "audio"]);
+
+    // `ontrack` fires once per track — call twice with the same stream and
+    // expect no panic and the element left pointing at that stream (the
+    // real fix also swallows the `play()` AbortError this would trigger).
+    crate::session::media::play_stream_in("test-play-target", &stream, false);
+    crate::session::media::play_stream_in("test-play-target", &stream, false);
+
+    let v: web_sys::HtmlVideoElement = video.unchecked_into();
+    assert_eq!(v.src_object().as_ref(), Some(&stream));
+    v.remove();
+}

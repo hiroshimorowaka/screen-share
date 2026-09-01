@@ -44,9 +44,14 @@ pub const CONTENT_SECURITY_POLICY_DEV: &str = "default-src 'self'; base-uri 'sel
 pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=63072000; includeSubDomains";
 
 /// The web app captures a tab via `getDisplayMedia` (gated by
-/// `display-capture`); it never uses the camera, mic, or geolocation.
+/// `display-capture`) and never uses geolocation. `camera` / `microphone`
+/// are left at `self` rather than fully denied: Chrome cross-checks those
+/// two feature policies when `getDisplayMedia({ audio: true })` runs (to
+/// offer "share tab audio"), so `=()` there logs a console policy
+/// violation on every share. `self` still blocks them in cross-origin
+/// subframes, which is the point.
 pub const PERMISSIONS_POLICY: &str =
-    "camera=(), microphone=(), geolocation=(), display-capture=(self)";
+    "camera=(self), microphone=(self), geolocation=(), display-capture=(self)";
 
 /// The headers this middleware sets, as `(name, value)`. `dev` swaps in
 /// the looser CSP for `cargo leptos watch`.

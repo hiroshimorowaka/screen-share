@@ -318,16 +318,14 @@ pub(crate) fn build_message_handler(
                 let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
                     move |event: RtcTrackEvent| {
                         if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
-                            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                                if let Some(video_el) =
-                                    document.get_element_by_id(&format!("video-{sharer_id}"))
-                                {
-                                    let video: web_sys::HtmlVideoElement =
-                                        video_el.unchecked_into();
-                                    video.set_src_object(Some(&stream));
-                                    let _ = video.play();
-                                }
-                            }
+                            // Fires once per track (video + tab audio =
+                            // twice); `play_stream_in` is idempotent and
+                            // swallows the resulting play/AbortError.
+                            crate::session::media::play_stream_in(
+                                &format!("video-{sharer_id}"),
+                                &stream,
+                                false,
+                            );
                         }
                     },
                 );

@@ -111,6 +111,11 @@ pub fn RoomPage() -> impl IntoView {
     // it drives the header audio chip's on/off wording. Reset when sharing
     // stops.
     let share_has_audio = RwSignal::new(false);
+    // Bumped on every source switch so the audio self-test effect below
+    // re-runs — `is_sharing` stays `true` across a switch, so without this
+    // the effect wouldn't re-read the new stream and the "Áudio ligado"
+    // chip would keep a stale value.
+    let share_generation = RwSignal::new(0u32);
     let controls_visible = RwSignal::new(true);
     // Touch device? Drives the tap-to-toggle chrome and the touch-only
     // auto-hide behaviour; everything else adapts in CSS. Starts `false`
@@ -271,6 +276,7 @@ pub fn RoomPage() -> impl IntoView {
         expanded,
         audio_muted.read_only(),
         video_mode.read_only(),
+        share_generation,
     );
     let leave_or_stop_watching = leave_or_stop_watching_handler(
         conn.clone(),
@@ -297,6 +303,8 @@ pub fn RoomPage() -> impl IntoView {
     {
         let conn_for_probe = conn.clone();
         Effect::new(move |_| {
+            // Re-run after a source switch (see `share_generation`).
+            share_generation.track();
             if !is_sharing.get() {
                 audio_warning.set(None);
                 share_has_audio.set(false);

@@ -254,7 +254,9 @@ Covered by `protocol/tests/validate.rs`, a `wire` round-trip for
 New `apps/web` `http_security` module (SSR only) — an
 `axum::middleware::from_fn` layer that stamps every response with
 `Content-Security-Policy`, `Strict-Transport-Security` (2 y),
-`Permissions-Policy` (`display-capture=(self)`, camera/mic/geo denied),
+`Permissions-Policy` (`display-capture=(self)`; `camera` / `microphone` at
+`self` — `=()` there makes Chrome log a policy violation on every
+`getDisplayMedia({ audio: true })`; `geolocation` denied),
 `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
 `X-Frame-Options: DENY`, `Cross-Origin-Opener-Policy: same-origin`.
 
