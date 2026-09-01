@@ -8,19 +8,26 @@ use axum::middleware::Next;
 use axum::response::Response;
 
 /// Directives are deliberately loose where the stack needs it:
-/// `'wasm-unsafe-eval'` for the wasm-bindgen module, `'unsafe-inline'` in
-/// `style-src` for Leptos's inline `style="--member: …"` bindings, and the
-/// Google Fonts hosts (see `app.rs` `shell`). Everything else is `'self'`.
 ///
-/// Must be smoke-tested in a real browser (create / join / watch, no CSP
-/// violations in the console) — it is the one header here that can break
-/// the UI.
+/// - `script-src` includes `'wasm-unsafe-eval'` (the wasm-bindgen module)
+///   and `'unsafe-inline'` — `leptos_meta::HydrationScripts` emits an
+///   inline `<script type="module">` bootstrap with no nonce (the `leptos`
+///   `nonce` feature isn't enabled), which a nonce-less / hash-less
+///   `script-src` would block, leaving the page un-hydrated. Tightening
+///   this to a nonce is a follow-up (enable the feature, inject the nonce
+///   into this header per request).
+/// - `style-src` includes `'unsafe-inline'` for Leptos's
+///   `style="--member: …"` bindings, plus the Google Fonts stylesheet
+///   host (see `app.rs` `shell`).
+///
+/// Everything else is `'self'`. Still worth smoke-testing in a real
+/// browser (create / join / watch, no CSP violations logged).
 pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; \
     object-src 'none'; frame-ancestors 'none'; form-action 'self'; \
     img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; \
     style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
-    script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https: wss:; \
-    media-src 'self' blob:; worker-src 'self' blob:";
+    script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; \
+    connect-src 'self' https: wss:; media-src 'self' blob:; worker-src 'self' blob:";
 
 /// Two years, per HSTS preload guidance. Safe: Fly terminates TLS and
 /// `force_https` already redirects, so the app is only ever reached over
