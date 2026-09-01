@@ -111,3 +111,7 @@ export function stopAudioLoopback(): void {
   audioSession.mixProcess.kill();
   audioSession = null;
 }
+
+export function isAudioLoopbackActive(): boolean {
+  return audioSession !== null;
+}

@@ -9,6 +9,7 @@ const handle = vi.hoisted(() => vi.fn());
 const backend = vi.hoisted(() => ({
   startAudioLoopback: vi.fn(),
   stopAudioLoopback: vi.fn(),
+  isAudioLoopbackActive: vi.fn(() => false),
   listDistinctAudioApps: vi.fn(),
   resolveAudioTarget: vi.fn(),
 }));
@@ -61,6 +62,17 @@ describe('registerAudioIpcHandlers', () => {
     expect(backend.startAudioLoopback).not.toHaveBeenCalled();
     expect(backend.listDistinctAudioApps).not.toHaveBeenCalled();
     expect(backend.stopAudioLoopback).not.toHaveBeenCalled();
+  });
+
+  it('audio-loopback-active returns the backend state to a trusted frame and rejects others', async () => {
+    const { registerAudioIpcHandlers } = await freshIpc();
+    await registerAudioIpcHandlers();
+
+    const active = handle.mock.calls.find(([c]) => c === 'audio-loopback-active')?.[1];
+    backend.isAudioLoopbackActive.mockReturnValue(true);
+    expect(active?.(FROM_APP)).toBe(true);
+
+    expect(() => active?.(FROM_EVIL)).toThrow(/untrusted sender/);
   });
 });
 

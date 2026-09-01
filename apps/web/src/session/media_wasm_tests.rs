@@ -135,7 +135,7 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
 }
 
 #[wasm_bindgen_test]
-async fn replace_outgoing_tracks_leaves_audio_senders_alone_when_the_new_stream_has_no_audio() {
+async fn replace_outgoing_tracks_clears_the_audio_sender_when_the_new_stream_has_no_audio() {
     let conn = crate::session::RoomSession::new();
 
     let old = stream_of(&["video", "audio"]);
@@ -145,16 +145,21 @@ async fn replace_outgoing_tracks_leaves_audio_senders_alone_when_the_new_stream_
     pc.add_track_0(&old_audio.clone().unwrap(), &old);
     conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
 
-    // New source is video-only.
+    // New source is video-only: the audio sender is cleared, not left
+    // holding the old (by then stopped) track (bug: a desktop switch that
+    // dropped audio kept sending a dead/mic track).
     let swapped = replace_outgoing_tracks(&conn, &stream_of(&["video"])).await;
 
-    assert_eq!(swapped, 1, "only the video sender is swapped");
+    assert_eq!(
+        swapped, 2,
+        "the video sender is swapped and the audio sender cleared"
+    );
     let pc = conn.outgoing.borrow().values().next().unwrap().clone();
-    let audio_still_there = pc.get_senders().iter().any(|entry| {
+    let any_audio_track = pc.get_senders().iter().any(|entry| {
         let sender: web_sys::RtcRtpSender = entry.unchecked_into();
         sender.track().map(|t| t.kind()) == Some("audio".to_string())
     });
-    assert!(audio_still_there, "the old audio sender keeps its track");
+    assert!(!any_audio_track, "no sender still carries an audio track");
 }
 
 #[wasm_bindgen_test]

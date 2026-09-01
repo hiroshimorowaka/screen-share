@@ -31,6 +31,11 @@ contextBridge.exposeInMainWorld('picker', {
 contextBridge.exposeInMainWorld('desktopAudio', {
   start: (target: AudioShareTarget) => ipcRenderer.invoke('start-audio-loopback', target),
   stop: () => ipcRenderer.invoke('stop-audio-loopback'),
+  // Resolves to whether a loopback is currently running — `webrtc.rs`
+  // (`desktop_audio_loopback_active`) checks this after the picker closes
+  // so an audio-less share doesn't probe for (and log about) a device
+  // that was never started.
+  active: () => ipcRenderer.invoke('audio-loopback-active'),
   // `webrtc.rs`'s `has_pcm_bridge()` uses this property's mere *existence*
   // as its signal for which track-construction path to run — it must
   // only be present on Windows, not merely inert elsewhere, or Linux

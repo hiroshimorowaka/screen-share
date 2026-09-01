@@ -37,6 +37,10 @@ export function stopAudioLoopback(): void {
   activeSession = null;
 }
 
+export function isAudioLoopbackActive(): boolean {
+  return activeSession !== null;
+}
+
 /** Every currently playing app, one entry per distinct resolved
  * executable name (already deduplicated on the Rust side) — what the
  * picker shows in its exclusion list. Mirrors Linux's

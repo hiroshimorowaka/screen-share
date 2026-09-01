@@ -247,14 +247,14 @@ fn video_and_audio_tracks(
     (video, audio)
 }
 
-/// Swaps the tracks every viewer connection is sending for `new_stream`'s,
-/// via `RTCRtpSender.replaceTrack` — no renegotiation, so viewers see only
-/// a source change, not a reconnect. A sender is only replaced if
-/// `new_stream` has a track of the same kind; a share that gains or loses
-/// audio on the switch keeps its old audio sender state until the next full
-/// re-share. Returns how many senders were swapped. Sender encoding params
-/// (tier, audio preset) survive `replaceTrack`, so nothing needs
-/// re-applying.
+/// Swaps the tracks every viewer connection is sending over to
+/// `new_stream`'s, via `RTCRtpSender.replaceTrack` — no renegotiation, so
+/// viewers see a source change, not a reconnect. The video sender takes
+/// the new video track; the audio sender takes the new audio track, or is
+/// cleared (`replaceTrack(null)`) when the new source carries none — a
+/// switch that drops audio must actually stop sending it, not leave the
+/// old (now stopped) track on the wire. Returns how many senders changed.
+/// Sender encoding params (tier, audio preset) survive `replaceTrack`.
 #[cfg(feature = "hydrate")]
 pub(crate) async fn replace_outgoing_tracks(
     conn: &RoomSession,
@@ -265,27 +265,27 @@ pub(crate) async fn replace_outgoing_tracks(
 
     let (new_video, new_audio) = video_and_audio_tracks(new_stream);
 
-    let mut replacements: Vec<(web_sys::RtcRtpSender, web_sys::MediaStreamTrack)> = Vec::new();
+    // `Option<Option<track>>`: outer `None` = not a sender we touch; inner
+    // `None` = clear this sender.
+    let mut replacements: Vec<(web_sys::RtcRtpSender, Option<web_sys::MediaStreamTrack>)> =
+        Vec::new();
     for pc in conn.outgoing.borrow().values() {
         for entry in pc.get_senders().iter() {
             let sender: web_sys::RtcRtpSender = entry.unchecked_into();
             let Some(kind) = sender.track().map(|t| t.kind()) else {
                 continue;
             };
-            let replacement = match kind.as_str() {
-                "video" => new_video.clone(),
-                "audio" => new_audio.clone(),
-                _ => None,
-            };
-            if let Some(track) = replacement {
-                replacements.push((sender, track));
+            match kind.as_str() {
+                "video" => replacements.push((sender, new_video.clone())),
+                "audio" => replacements.push((sender, new_audio.clone())),
+                _ => {}
             }
         }
     }
 
     let mut swapped = 0;
     for (sender, track) in replacements {
-        if JsFuture::from(sender.replace_track(Some(&track)))
+        if JsFuture::from(sender.replace_track(track.as_ref()))
             .await
             .is_ok()
         {
@@ -445,6 +445,22 @@ pub(crate) fn switch_source_handler(
         let my_peer_id_value = my_peer_id.get_untracked();
 
         spawn_local(async move {
+            // Stop the current outgoing audio track *before* its capture
+            // device goes away. The desktop loopback is torn down and
+            // re-created for the new source below; Chromium reroutes a
+            // still-live `getUserMedia` audio track whose device vanishes
+            // to the default microphone, and viewers then hear the mic
+            // (it stuck until the share was fully restarted). A stopped
+            // track can't be rerouted.
+            if let Some(stream) = conn.local_stream.borrow().as_ref() {
+                for entry in stream.get_tracks().iter() {
+                    let track: web_sys::MediaStreamTrack = entry.unchecked_into();
+                    if track.kind() == "audio" {
+                        track.stop();
+                    }
+                }
+            }
+
             // Release the old desktop audio loopback first so re-capturing
             // doesn't stack a second one; a no-op in a plain browser.
             let _ = stop_desktop_audio_loopback().await;

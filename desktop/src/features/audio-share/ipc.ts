@@ -11,7 +11,8 @@ import { isTrustedFrame } from '#main/ipc-guard.js';
 let stopActiveAudioLoopback: (() => void) | null = null;
 
 export async function registerAudioIpcHandlers(): Promise<void> {
-  const { startAudioLoopback, stopAudioLoopback, listDistinctAudioApps } = await loadAudioBackend();
+  const { startAudioLoopback, stopAudioLoopback, isAudioLoopbackActive, listDistinctAudioApps } =
+    await loadAudioBackend();
 
   stopActiveAudioLoopback = stopAudioLoopback;
 
@@ -26,6 +27,11 @@ export async function registerAudioIpcHandlers(): Promise<void> {
   ipcMain.handle('stop-audio-loopback', (event) => {
     if (!isTrustedFrame(event)) throw new Error('stop-audio-loopback: untrusted sender');
     stopAudioLoopback();
+  });
+
+  ipcMain.handle('audio-loopback-active', (event) => {
+    if (!isTrustedFrame(event)) throw new Error('audio-loopback-active: untrusted sender');
+    return isAudioLoopbackActive();
   });
 
   ipcMain.handle('list-audio-apps', (event) => {

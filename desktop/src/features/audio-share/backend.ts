@@ -11,6 +11,10 @@ import type { AudioShareTarget, ShareChoice } from '#ipc/types.js';
 export interface AudioBackend {
   startAudioLoopback(target: AudioShareTarget): Promise<void>;
   stopAudioLoopback(): void;
+  /** Whether a loopback session is currently running. The renderer checks
+   * this after the share picker closes to know whether to look for the
+   * captured audio at all (an audio-less share must not probe for it). */
+  isAudioLoopbackActive(): boolean;
   listDistinctAudioApps(): Promise<{ binary: string; label: string }[]>;
   resolveAudioTarget(chosen: ShareChoice): Promise<AudioShareTarget | null>;
 }

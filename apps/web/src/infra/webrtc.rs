@@ -134,12 +134,21 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
         return Ok(video_stream);
     }
 
+    // The share picker (Electron side) already decided whether this share
+    // includes audio, and started the platform loopback if so. Only probe
+    // for the captured audio when it's actually running — otherwise a
+    // deliberately audio-less share logs a spurious "device not found"
+    // and, worse, `getUserMedia` for a vanished device can be rerouted to
+    // the default mic.
+    if !desktop_audio_loopback_active().await {
+        return Ok(video_stream);
+    }
+
     // The Windows desktop app bridges captured PCM over IPC instead of
-    // exposing a capturable device — same intent as the Linux path below
-    // (audio was already decided inside the share picker; a missing
-    // bridge/device just means audio wasn't requested), different
-    // mechanism. `has_pcm_bridge()` is the one signal that distinguishes
-    // them, since it's never true outside the Windows desktop app.
+    // exposing a capturable device — same intent as the Linux path below,
+    // different mechanism. `has_pcm_bridge()` is the one signal that
+    // distinguishes them, since it's never true outside the Windows
+    // desktop app.
     if has_pcm_bridge() {
         return match build_track_from_pcm_bridge().await {
             Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
@@ -176,6 +185,36 @@ fn has_pcm_bridge() -> bool {
         return false;
     };
     js_sys::Reflect::has(&desktop_audio, &JsValue::from_str("onPcmChunk")).unwrap_or(false)
+}
+
+/// Whether the Electron shell currently has an audio loopback running for
+/// this share — i.e. the sharer ticked "compartilhar áudio" in the
+/// picker. `false` (its own default) on any error or outside the desktop
+/// app.
+async fn desktop_audio_loopback_active() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(desktop_audio) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))
+    else {
+        return false;
+    };
+    let Ok(active_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("active")) else {
+        return false;
+    };
+    let Ok(active_fn) = active_fn.dyn_into::<js_sys::Function>() else {
+        return false;
+    };
+    let Ok(result) = active_fn.call0(&desktop_audio) else {
+        return false;
+    };
+    let Ok(promise) = result.dyn_into::<js_sys::Promise>() else {
+        return false;
+    };
+    JsFuture::from(promise)
+        .await
+        .map(|value| value.is_truthy())
+        .unwrap_or(false)
 }
 
 // The mix the native Windows module (`desktop/native/windows-audio`)
