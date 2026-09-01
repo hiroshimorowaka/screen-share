@@ -21,6 +21,22 @@ if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
   # the stray "socket: Protocol not supported" lines at startup are for
   # addresses coturn can't bind (IPv6 ones this VM doesn't support) and are
   # harmless.
+  # --denied-peer-ip: coturn will refuse to relay packets toward these
+  # destinations. Without it, anyone holding a (freely handed out) TURN
+  # credential can make the relay reach the cloud metadata endpoint
+  # (169.254.169.254), the Fly 6PN private network (fdaa::/16, inside
+  # fc00::/7) and any RFC1918/CGNAT host — an SSRF vantage point on the
+  # infrastructure. Recent coturn denies loopback by default but NOT
+  # link-local or private ranges, so they are listed explicitly. Legit
+  # media peers are public browsers, so denying private space costs
+  # nothing.
+  #
+  # Quotas/bandwidth caps stop the same credential from turning the relay
+  # into a traffic amplifier billed to this account: --total-quota /
+  # --user-quota bound concurrent allocations, --max-bps bounds one
+  # allocation's throughput, --bps-capacity bounds the whole server's.
+  # Defaults are generous for a 10-member room yet finite; override via
+  # env if a deployment needs more.
   turnserver \
     --no-cli \
     --fingerprint \
@@ -32,6 +48,20 @@ if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
     --max-port="${TURN_MAX_PORT:-49300}" \
     --external-ip="$TURN_EXTERNAL_IP" \
     ${TURN_RELAY_IP:+--relay-ip="$TURN_RELAY_IP"} \
+    --denied-peer-ip=0.0.0.0-0.255.255.255 \
+    --denied-peer-ip=10.0.0.0-10.255.255.255 \
+    --denied-peer-ip=100.64.0.0-100.127.255.255 \
+    --denied-peer-ip=169.254.0.0-169.254.255.255 \
+    --denied-peer-ip=172.16.0.0-172.31.255.255 \
+    --denied-peer-ip=192.168.0.0-192.168.255.255 \
+    --denied-peer-ip=::1 \
+    --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
+    --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
+    --no-multicast-peers \
+    --total-quota="${TURN_TOTAL_QUOTA:-300}" \
+    --user-quota="${TURN_USER_QUOTA:-12}" \
+    --max-bps="${TURN_MAX_BPS:-2000000}" \
+    --bps-capacity="${TURN_BPS_CAPACITY:-40000000}" \
     --log-file=stdout \
     --no-tls \
     --no-dtls &

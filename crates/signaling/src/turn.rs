@@ -10,10 +10,14 @@ use screen_share_protocol::TurnCredentials;
 /// How long a minted credential stays valid. Only gates *new* TURN
 /// allocations — coturn checks a credential's embedded expiry only at
 /// allocation time, so this doesn't cut off media already flowing through
-/// an allocation made before it lapsed. Long enough to cover a room session
-/// without the client re-requesting one, short enough that a leaked
-/// credential stops being useful on its own.
-const CREDENTIAL_TTL: Duration = Duration::from_secs(6 * 60 * 60);
+/// an allocation made before it lapsed. One hour: comfortably longer than
+/// a room session (a fresh credential is minted on every `Joined`, i.e.
+/// every reconnect), short enough that a credential leaked from a `Joined`
+/// snapshot stops being a usable relay handle quickly. Was 6h; shortened
+/// as part of the coturn hardening (see docker-entrypoint.sh) so a leaked
+/// credential has a small window even before the peer-IP allowlist and
+/// quotas blunt what it can do.
+const CREDENTIAL_TTL: Duration = Duration::from_secs(60 * 60);
 
 /// A deployment's TURN setup, read once from the environment at startup.
 /// `None` (no `TurnConfig` at all) means this deployment has no TURN

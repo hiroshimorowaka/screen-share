@@ -30,11 +30,11 @@ fn mint_credentials_username_is_a_future_unix_timestamp() {
     assert!(expiry > now, "expiry should be in the future");
     // Literal, not `CREDENTIAL_TTL.as_secs()`: asserting against the const
     // would move with any mutation of its own arithmetic and never catch
-    // it. 6h = 21_600s; allow a second of slack for the clock read.
+    // it. 1h = 3_600s; allow a few seconds of slack for the clock read.
     let ttl = expiry - now;
     assert!(
-        (21_595..=21_600).contains(&ttl),
-        "credential TTL should be 6 hours, got {ttl}s"
+        (3_595..=3_600).contains(&ttl),
+        "credential TTL should be 1 hour, got {ttl}s"
     );
 }
 
