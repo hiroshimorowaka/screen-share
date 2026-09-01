@@ -882,6 +882,33 @@ async fn a_frame_over_the_size_limit_closes_the_connection() {
 }
 
 #[tokio::test]
+async fn a_large_but_under_limit_frame_is_still_processed() {
+    // ~200 KiB: over any degenerate cap (e.g. a mangled `256 * 1024`) but
+    // well under the real 256 KiB limit, so a valid message this size must
+    // still be parsed and answered.
+    let (url, _registry) = spawn_test_server_returning_registry(None).await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    send_json(
+        &mut ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala".to_string(),
+            color: "coral".to_string(),
+            // Not length-validated server-side; inflates the frame to ~200 KiB.
+            device_id: "d".repeat(200 * 1024),
+        },
+    )
+    .await;
+
+    assert!(matches!(
+        recv_json(&mut ws).await,
+        ServerMessage::Joined { .. }
+    ));
+}
+
+#[tokio::test]
 async fn handshake_is_rejected_from_an_origin_not_on_the_allowlist() {
     use screen_share_signaling::handshake::OriginPolicy;
     use tokio_tungstenite::tungstenite::http::Uri;

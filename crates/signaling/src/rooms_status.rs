@@ -58,6 +58,13 @@ impl RoomStatusLimiter {
         bucket.push(now);
         bucket.len() <= MAX_ROOM_STATUS_REQUESTS
     }
+
+    /// Number of distinct client keys currently tracked — lets a test
+    /// observe the [`MAX_TRACKED_CLIENTS`] sweep.
+    #[cfg(test)]
+    fn tracked_clients(&self) -> usize {
+        self.hits.lock().expect("poisoned").len()
+    }
 }
 
 /// `GET /api/rooms/:code` — just enough for the client's dead-link check

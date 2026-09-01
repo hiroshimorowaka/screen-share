@@ -1536,6 +1536,14 @@ async fn report_latency_drops_an_implausible_value() {
         "an implausible latency must not be rebroadcast"
     );
 
+    // The threshold itself is still plausible — dropped only when strictly
+    // above it (guards `>` vs `>=`).
+    registry.report_latency(&room_code, &snapshot.peer_id, MAX_PLAUSIBLE_LATENCY_MS);
+    assert!(matches!(
+        recv(&mut host_rx).await,
+        ServerMessage::PeerLatency { ms, .. } if ms == MAX_PLAUSIBLE_LATENCY_MS
+    ));
+
     registry.report_latency(&room_code, &snapshot.peer_id, 42);
     assert!(matches!(
         recv(&mut host_rx).await,

@@ -66,6 +66,33 @@ fn from_vars_rejects_a_short_or_placeholder_secret() {
 }
 
 #[test]
+fn from_vars_accepts_a_secret_exactly_at_the_minimum_length() {
+    // `MIN_TURN_SECRET_LEN` chars is the shortest that passes; one fewer
+    // is rejected (guards `<` vs `<=`).
+    let at_min: String = "a".repeat(MIN_TURN_SECRET_LEN);
+    let one_short: String = "a".repeat(MIN_TURN_SECRET_LEN - 1);
+
+    assert!(matches!(
+        TurnConfig::from_vars(Some(at_min), Some("turn:x:3478".into())),
+        Ok(Some(_))
+    ));
+    assert!(matches!(
+        TurnConfig::from_vars(Some(one_short), Some("turn:x:3478".into())),
+        Err(TurnConfigError::SecretTooShort)
+    ));
+}
+
+#[test]
+fn turn_config_error_messages_are_non_empty_and_specific() {
+    assert!(TurnConfigError::SecretTooShort
+        .to_string()
+        .contains("too short"));
+    assert!(TurnConfigError::SecretIsPlaceholder
+        .to_string()
+        .contains("placeholder"));
+}
+
+#[test]
 fn from_vars_splits_and_trims_the_url_list() {
     let config = TurnConfig::from_vars(
         Some(STRONG_SECRET.into()),
