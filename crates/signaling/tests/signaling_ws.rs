@@ -210,6 +210,29 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
         }
     );
 
+    // Establish the watch relationship the relay now requires (F07).
+    send_json(
+        &mut viewer_ws,
+        &ClientMessage::WatchShare {
+            sharer_id: sharer_id.clone(),
+        },
+    )
+    .await;
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::WatchRequested {
+            from: viewer_id.clone(),
+        }
+    );
+    assert!(matches!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::WatchersChanged { .. }
+    ));
+    assert!(matches!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::WatchersChanged { .. }
+    ));
+
     send_json(
         &mut sharer_ws,
         &ClientMessage::Offer {
@@ -505,6 +528,29 @@ async fn relays_the_remaining_peer_to_peer_message_types() {
             peer_id: sharer_id.clone(),
         }
     );
+
+    // Establish the watch relationship the relay now requires (F07).
+    send_json(
+        &mut viewer_ws,
+        &ClientMessage::WatchShare {
+            sharer_id: sharer_id.clone(),
+        },
+    )
+    .await;
+    assert_eq!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::WatchRequested {
+            from: viewer_id.clone(),
+        }
+    );
+    assert!(matches!(
+        recv_json(&mut sharer_ws).await,
+        ServerMessage::WatchersChanged { .. }
+    ));
+    assert!(matches!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::WatchersChanged { .. }
+    ));
 
     // Answer — relayed to `to`, stamped with the sender's id as `from`.
     send_json(
@@ -858,4 +904,69 @@ async fn handshake_is_rejected_from_an_origin_not_on_the_allowlist() {
         tokio_tungstenite::connect_async(allowed).await.is_ok(),
         "the app's own origin must still upgrade"
     );
+}
+
+#[tokio::test]
+async fn an_offer_without_a_watch_relationship_is_not_relayed() {
+    let url = spawn_test_server().await;
+
+    let (mut sharer_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut sharer_ws,
+        &ClientMessage::CreateRoom {
+            nick: "Ana".to_string(),
+            password: None,
+            room_name: "Sala".to_string(),
+            color: "coral".to_string(),
+            device_id: "device-ana".to_string(),
+        },
+    )
+    .await;
+    let (room, _sharer_id) = match recv_json(&mut sharer_ws).await {
+        ServerMessage::Joined { room, peer_id, .. } => (room, peer_id),
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+
+    let (mut victim_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+    send_json(
+        &mut victim_ws,
+        &ClientMessage::JoinRoom {
+            room: room.clone(),
+            nick: "Bia".to_string(),
+            password: None,
+            color: "sky".to_string(),
+            device_id: "device-bia".to_string(),
+        },
+    )
+    .await;
+    let victim_id = match recv_json(&mut victim_ws).await {
+        ServerMessage::Joined { peer_id, .. } => peer_id,
+        other => panic!("esperava Joined, recebeu {other:?}"),
+    };
+    recv_json(&mut sharer_ws).await; // PeerJoined
+
+    // No WatchShare: the sharer just fires an Offer at the victim.
+    send_json(
+        &mut sharer_ws,
+        &ClientMessage::Offer {
+            to: victim_id,
+            sdp: "unsolicited".to_string(),
+        },
+    )
+    .await;
+
+    // The victim must not receive it. Then prove the socket is still live
+    // with a Ping/Pong so this isn't just a slow relay.
+    let unsolicited = tokio::time::timeout(
+        std::time::Duration::from_millis(300),
+        futures_util::StreamExt::next(&mut victim_ws),
+    )
+    .await;
+    assert!(
+        unsolicited.is_err(),
+        "an Offer with no watch relationship must not reach the target"
+    );
+
+    send_json(&mut victim_ws, &ClientMessage::Ping).await;
+    assert_eq!(recv_json(&mut victim_ws).await, ServerMessage::Pong);
 }

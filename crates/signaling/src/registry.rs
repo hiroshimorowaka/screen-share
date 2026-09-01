@@ -489,12 +489,25 @@ impl Registry {
         }
     }
 
-    pub fn relay(&self, room_code: &str, to: &str, message: ServerMessage) {
+    /// Relays a peer-to-peer signaling message (`Offer` / `Answer` /
+    /// `IceCandidate` / `QualityRequested`) from `from` to `to`, but only
+    /// while the two are in a watch relationship in this room — one is
+    /// watching the other. Without that gate any co-member could push an
+    /// unsolicited `Offer` at any other, making their client open an
+    /// `RTCPeerConnection` and leak its host/srflx ICE candidates (LAN +
+    /// public IP), or spam renegotiation / quality changes (finding F07).
+    /// `from` is the connection's server-assigned `peer_id`, never a
+    /// client-supplied value.
+    pub fn relay_peer_signal(&self, room_code: &str, from: &str, to: &str, message: ServerMessage) {
         let rooms = self.lock_rooms();
-        if let Some(room) = rooms.get(room_code) {
-            if let Some(member) = room.members.get(to) {
-                let _ = member.sender.try_send(message);
-            }
+        let Some(room) = rooms.get(room_code) else {
+            return;
+        };
+        if !watch_related(room, from, to) {
+            return;
+        }
+        if let Some(member) = room.members.get(to) {
+            let _ = member.sender.try_send(message);
         }
     }
 
@@ -593,6 +606,14 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
     }
 
     Some(removed)
+}
+
+/// Whether `a` and `b` are in a watch relationship in `room` — either one
+/// is watching the other. The direction doesn't matter: an `Offer` flows
+/// sharer -> viewer, the `Answer` and half the ICE flow viewer -> sharer.
+fn watch_related(room: &Room, a: &str, b: &str) -> bool {
+    room.watchers.get(a).is_some_and(|w| w.contains(b))
+        || room.watchers.get(b).is_some_and(|w| w.contains(a))
 }
 
 fn broadcast_watchers_changed(room: &Room, sharer_id: &str) {

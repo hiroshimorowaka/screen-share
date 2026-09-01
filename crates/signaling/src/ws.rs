@@ -243,8 +243,9 @@ async fn handle_socket(
             }
             ClientMessage::Offer { to, sdp } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(
+                    registry.relay_peer_signal(
                         room,
+                        from,
                         &to,
                         ServerMessage::Offer {
                             from: from.clone(),
@@ -255,8 +256,9 @@ async fn handle_socket(
             }
             ClientMessage::Answer { to, sdp } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(
+                    registry.relay_peer_signal(
                         room,
+                        from,
                         &to,
                         ServerMessage::Answer {
                             from: from.clone(),
@@ -273,8 +275,9 @@ async fn handle_socket(
                 sdp_m_line_index,
             } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(
+                    registry.relay_peer_signal(
                         room,
+                        from,
                         &to,
                         ServerMessage::IceCandidate {
                             from: from.clone(),
@@ -288,8 +291,9 @@ async fn handle_socket(
             }
             ClientMessage::SetQuality { to, quality } => {
                 if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay(
+                    registry.relay_peer_signal(
                         room,
+                        from,
                         &to,
                         ServerMessage::QualityRequested {
                             from: from.clone(),

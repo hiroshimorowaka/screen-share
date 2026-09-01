@@ -263,6 +263,14 @@ pub(crate) fn build_message_handler(
             });
         }
         ServerMessage::Offer { from, sdp } => {
+            // Defence in depth for F07: the relay only forwards an Offer
+            // between peers already in a watch relationship, but ignore
+            // one here too unless the user actually chose to watch `from`.
+            // Never open a peer connection — and leak host/srflx ICE
+            // candidates — for an unsolicited offer.
+            if !watching.get_untracked().contains(&from) {
+                return;
+            }
             let conn = conn.clone();
             spawn_local(async move {
                 let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {

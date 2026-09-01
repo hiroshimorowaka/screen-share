@@ -150,3 +150,22 @@ and the home page's "N/10" badge on remembered rooms no longer appears
 (the fetch still runs for the liveness/pruning check). The `RoomStatus`
 wire shape keeps `name`/`member_count` as always-`None` fields for
 compatibility.
+
+### F07 — peer-to-peer signaling requires a watch relationship
+
+The relay isolated by room but never checked that the two ends had agreed
+to connect, so any co-member could send `Offer { to: victim }` and make
+the victim's browser open an `RTCPeerConnection`, trickle ICE (revealing
+its LAN + public address), and answer — plus spam renegotiation and
+`SetQuality`.
+
+`Registry::relay` became `relay_peer_signal(room, from, to, msg)` and
+forwards only when `watch_related(room, from, to)` — one of the two is in
+the other's `watchers` set (direction-agnostic: `Offer` flows
+sharer→viewer, `Answer`/half the ICE flow back). The legit flow already
+runs `WatchShare` (→ `add_watcher`) before the first `Offer`, so it's
+unaffected. The web client also ignores an `Offer` from a peer not in its
+`watching` set, as defence in depth.
+
+Covered by a `signaling_ws` test (unsolicited `Offer` dropped, socket
+still live) and updated relay tests that now establish the watch first.
