@@ -284,7 +284,10 @@ pub fn RoomPage() -> impl IntoView {
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
     setup_ping_loop(conn.clone());
-    crate::session::quality::stop_auto_polling_on_cleanup(conn.clone());
+    // On leaving the room, tear down every peer connection, its callbacks,
+    // and the Auto-quality polls — otherwise a leaked callback keeps the
+    // whole session alive in memory.
+    crate::session::reconnect::drop_peers_on_cleanup(conn.clone());
 
     // Audio self-test: whenever a share of ours starts, tap the captured
     // stream for a couple of seconds and warn the sharer if no sound came

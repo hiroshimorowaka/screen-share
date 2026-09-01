@@ -100,6 +100,10 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
             peer.to_string(),
             crate::session::quality::AutoPoll::for_test(0),
         );
+        conn.outgoing_callbacks.borrow_mut().insert(
+            peer.to_string(),
+            crate::session::handler::PeerCallbacks::empty_for_test(),
+        );
     }
     *conn.local_stream.borrow_mut() = Some(shared.clone());
 
@@ -123,6 +127,10 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
     assert!(
         conn.quality_auto_intervals.borrow().is_empty(),
         "every Auto poll is stopped"
+    );
+    assert!(
+        conn.outgoing_callbacks.borrow().is_empty(),
+        "every viewer connection's callbacks are dropped"
     );
 }
 

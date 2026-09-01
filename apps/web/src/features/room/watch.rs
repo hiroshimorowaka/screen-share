@@ -79,6 +79,7 @@ pub(super) fn stop_watching_click_handler(
         if let Some(pc) = conn.incoming.borrow_mut().remove(&member.peer_id) {
             pc.close();
         }
+        conn.incoming_callbacks.borrow_mut().remove(&member.peer_id);
         if let Some(ws) = conn.ws.borrow().as_ref() {
             ws.send(&ClientMessage::StopWatching {
                 sharer_id: member.peer_id,
@@ -173,6 +174,9 @@ pub(super) fn leave_or_stop_watching_handler(
         if let Some(pc) = conn.incoming.borrow_mut().remove(&focused_peer_id) {
             pc.close();
         }
+        conn.incoming_callbacks
+            .borrow_mut()
+            .remove(&focused_peer_id);
         if let Some(ws) = conn.ws.borrow().as_ref() {
             ws.send(&ClientMessage::StopWatching {
                 sharer_id: focused_peer_id,

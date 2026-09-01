@@ -538,21 +538,6 @@ fn clear(poll: AutoPoll) {
     }
 }
 
-/// SSR no-op counterpart to the `hydrate` version below.
-#[cfg(not(feature = "hydrate"))]
-pub(crate) fn stop_auto_polling_on_cleanup(_conn: crate::session::RoomSession) {}
-
-/// Registers an `on_cleanup` on the current owner (`RoomPage`) that stops
-/// every Auto poll when the room page unmounts — otherwise each poll's
-/// `setInterval` keeps firing against a closed connection and its closure
-/// keeps the session alive in memory.
-#[cfg(feature = "hydrate")]
-pub(crate) fn stop_auto_polling_on_cleanup(conn: crate::session::RoomSession) {
-    // `on_cleanup` is `Send + Sync`-bound; `RoomSession` holds `Rc`s.
-    let conn = send_wrapper::SendWrapper::new(conn);
-    leptos::prelude::on_cleanup(move || stop_all_auto_polling(&conn));
-}
-
 /// The viewer-side half: sends a chosen quality for the member at `slot` to
 /// that member (the sharer), who applies it to the one connection it's for
 /// — see `ServerMessage::QualityRequested` in `message_handler.rs`. Reads

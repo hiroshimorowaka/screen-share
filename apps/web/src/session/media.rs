@@ -333,6 +333,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     for (_, pc) in conn.outgoing.borrow_mut().drain() {
         pc.close();
     }
+    conn.outgoing_callbacks.borrow_mut().clear();
     // Every viewer's Auto poll would otherwise keep firing against a
     // connection that's already closed.
     super::quality::stop_all_auto_polling(conn);

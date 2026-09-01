@@ -5,6 +5,25 @@ use crate::session::RoomSignals;
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 
+/// The JS event callbacks bound to one peer's `RTCPeerConnection`
+/// (`ontrack` — only for a connection we receive on — plus
+/// `onicecandidate` and `oniceconnectionstatechange`). Held in
+/// `RoomSession::{outgoing,incoming}_callbacks` so they — and the
+/// `RoomSession` clone one of them captures — drop when the connection is
+/// removed or the room page unmounts, instead of being `Closure::forget`'d
+/// and leaked for the life of the tab. Never read; the `Vec` just owns the
+/// closures for exactly that long.
+#[cfg(feature = "hydrate")]
+pub(crate) struct PeerCallbacks(#[allow(dead_code)] Vec<Box<dyn std::any::Any>>);
+
+#[cfg(all(feature = "hydrate", test))]
+impl PeerCallbacks {
+    /// An empty entry, for tests that only need something in the map.
+    pub(crate) fn empty_for_test() -> Self {
+        Self(Vec::new())
+    }
+}
+
 /// Everything the `Joined` snapshot carries, bundled so `apply_joined_snapshot`
 /// takes one argument for it instead of seven — same idea as `RoomSignals`.
 #[cfg(feature = "hydrate")]
@@ -198,9 +217,11 @@ pub(crate) fn build_message_handler(
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            conn.outgoing_callbacks.borrow_mut().remove(&peer_id);
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            conn.incoming_callbacks.borrow_mut().remove(&peer_id);
             let was_fullscreen =
                 crate::features::room::media_controls::exit_fullscreen_if_showing(&peer_id);
             expanded.update(|current| {
@@ -238,6 +259,7 @@ pub(crate) fn build_message_handler(
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            conn.incoming_callbacks.borrow_mut().remove(&peer_id);
         }
         ServerMessage::WatchersChanged {
             sharer_id,
@@ -310,7 +332,6 @@ pub(crate) fn build_message_handler(
                     },
                 );
                 pc.set_ontrack(Some(ontrack.as_ref().unchecked_ref()));
-                ontrack.forget();
 
                 let target_id = from.clone();
                 let conn_for_ice = conn.clone();
@@ -331,7 +352,6 @@ pub(crate) fn build_message_handler(
                         },
                     );
                 pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-                onicecandidate.forget();
 
                 let failed_peer_id = from.clone();
                 let oniceconnectionstatechange = {
@@ -349,7 +369,15 @@ pub(crate) fn build_message_handler(
                 pc.set_oniceconnectionstatechange(Some(
                     oniceconnectionstatechange.as_ref().unchecked_ref(),
                 ));
-                oniceconnectionstatechange.forget();
+
+                conn.incoming_callbacks.borrow_mut().insert(
+                    from.clone(),
+                    PeerCallbacks(vec![
+                        Box::new(ontrack),
+                        Box::new(onicecandidate),
+                        Box::new(oniceconnectionstatechange),
+                    ]),
+                );
 
                 match create_answer(&pc, &sdp).await {
                     Ok(answer_sdp) => {
@@ -490,7 +518,6 @@ pub(crate) fn build_message_handler(
                         },
                     );
                 pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-                onicecandidate.forget();
 
                 let failed_viewer_id = from.clone();
                 let oniceconnectionstatechange = {
@@ -508,7 +535,14 @@ pub(crate) fn build_message_handler(
                 pc.set_oniceconnectionstatechange(Some(
                     oniceconnectionstatechange.as_ref().unchecked_ref(),
                 ));
-                oniceconnectionstatechange.forget();
+
+                conn.outgoing_callbacks.borrow_mut().insert(
+                    from.clone(),
+                    PeerCallbacks(vec![
+                        Box::new(onicecandidate),
+                        Box::new(oniceconnectionstatechange),
+                    ]),
+                );
 
                 match create_offer(&pc).await {
                     Ok(sdp) => {
@@ -528,6 +562,7 @@ pub(crate) fn build_message_handler(
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&from) {
                 pc.close();
             }
+            conn.outgoing_callbacks.borrow_mut().remove(&from);
         }
         ServerMessage::QualityRequested { from, quality } => {
             super::quality::stop_auto_polling(&conn, &from);

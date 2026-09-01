@@ -80,8 +80,11 @@ impl BackoffPolicy {
 #[path = "reconnect_tests.rs"]
 mod tests;
 
+#[cfg(not(feature = "hydrate"))]
+pub(crate) fn drop_peers_on_cleanup(_conn: super::RoomSession) {}
+
 #[cfg(feature = "hydrate")]
-pub(crate) use wiring::{install_close_handler, replay_intent_after_rejoin};
+pub(crate) use wiring::{drop_peers_on_cleanup, install_close_handler, replay_intent_after_rejoin};
 
 #[cfg(feature = "hydrate")]
 mod wiring {
@@ -129,7 +132,11 @@ mod wiring {
         schedule_attempt(conn, signals, room_code);
     }
 
-    fn drop_all_peer_connections(conn: &RoomSession) {
+    /// Closes and forgets every peer connection and its bookkeeping — the
+    /// Auto-quality polls, the connection maps, and the event callbacks.
+    /// Used by a reconnect (dead connections) and by `RoomPage`'s cleanup
+    /// when the user leaves the room.
+    pub(crate) fn drop_all_peer_connections(conn: &RoomSession) {
         crate::session::quality::stop_all_auto_polling(conn);
         for (_, pc) in conn.outgoing.borrow_mut().drain() {
             pc.close();
@@ -137,6 +144,19 @@ mod wiring {
         for (_, pc) in conn.incoming.borrow_mut().drain() {
             pc.close();
         }
+        conn.outgoing_callbacks.borrow_mut().clear();
+        conn.incoming_callbacks.borrow_mut().clear();
+    }
+
+    /// Registers an `on_cleanup` on the current owner (`RoomPage`) that
+    /// tears every peer connection down when the room page unmounts.
+    /// Otherwise the `onicecandidate` closure — which holds a
+    /// `RoomSession` clone — is never dropped and keeps the whole session
+    /// (socket, connections, timers) alive after the user has left.
+    pub(crate) fn drop_peers_on_cleanup(conn: RoomSession) {
+        // `on_cleanup` is `Send + Sync`-bound; `RoomSession` holds `Rc`s.
+        let conn = send_wrapper::SendWrapper::new(conn);
+        on_cleanup(move || drop_all_peer_connections(&conn));
     }
 
     fn schedule_attempt(conn: RoomSession, signals: RoomSignals, room_code: String) {

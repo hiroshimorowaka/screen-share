@@ -30,6 +30,21 @@ pub struct RoomSession {
     pub(crate) incoming: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
     >,
+    // The JS event callbacks bound to each `outgoing` / `incoming` peer
+    // connection (see `handler::PeerCallbacks`), kept alive here rather
+    // than `Closure::forget`'d so they — and the `RoomSession` clone one
+    // of them captures — are dropped when the connection is removed or the
+    // room page unmounts. Keyed the same as the maps above.
+    pub(crate) outgoing_callbacks: std::rc::Rc<
+        std::cell::RefCell<
+            std::collections::HashMap<String, crate::session::handler::PeerCallbacks>,
+        >,
+    >,
+    pub(crate) incoming_callbacks: std::rc::Rc<
+        std::cell::RefCell<
+            std::collections::HashMap<String, crate::session::handler::PeerCallbacks>,
+        >,
+    >,
     pub(crate) local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
     // Set before an intentional close; `on_close` (async, runs afterwards)
     // checks this flag so it doesn't overwrite the status already set with
@@ -62,6 +77,8 @@ impl RoomSession {
             ws: Default::default(),
             outgoing: Default::default(),
             incoming: Default::default(),
+            outgoing_callbacks: Default::default(),
+            incoming_callbacks: Default::default(),
             local_stream: Default::default(),
             expected_close: Default::default(),
             last_ping_sent_at: Default::default(),
