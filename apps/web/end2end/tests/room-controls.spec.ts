@@ -222,6 +222,31 @@ test('the transmission menu switches the video mode', async ({ browser }) => {
   await anaCtx.close();
 });
 
+test('the transmission menu hides the audio rows when the share carries no audio', async ({
+  browser,
+}) => {
+  const anaCtx = await browser.newContext();
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala sem audio');
+  await startSharing(ana);
+
+  // The fake capture picks "Entire screen", which never carries audio —
+  // the header chip is the sharer-visible confirmation of that.
+  await expect(ana.locator('.audio-chip')).toContainText('Áudio desligado');
+
+  await ana.mouse.move(300, 300);
+  await ana.getByRole('button', { name: TRANSMISSION }).focus();
+  const popup = ana.locator('.transmission-menu__popup');
+  await expect(popup).toHaveCSS('pointer-events', 'auto');
+
+  // Video mode is always offered; the audio-quality and mute rows are not,
+  // since there is no audio track for them to act on.
+  await expect(popup.getByText('Modo de vídeo')).toBeVisible();
+  await expect(popup.getByText('Qualidade do áudio')).toBeHidden();
+  await expect(popup.locator('.transmission-menu__mute')).toBeHidden();
+
+  await anaCtx.close();
+});
+
 test('the invite button copies the room link and confirms it', async ({ browser }) => {
   const anaCtx = await browser.newContext({ permissions: ['clipboard-read', 'clipboard-write'] });
   const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala convite');

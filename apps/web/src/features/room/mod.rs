@@ -5,6 +5,7 @@ mod invite;
 pub(crate) mod media_controls;
 mod member_card;
 mod room_check;
+mod touch;
 mod watch;
 
 #[cfg(debug_assertions)]
@@ -32,8 +33,8 @@ use watch::leave_room;
 
 use crate::components::color_picker::ColorPicker;
 use crate::components::icons::{
-    icon_check, icon_eye_off, icon_link, icon_log_out, icon_monitor, icon_screen_off, icon_switch,
-    icon_video_off,
+    icon_check, icon_eye_off, icon_link, icon_log_out, icon_minimize, icon_monitor,
+    icon_screen_off, icon_switch, icon_video_off,
 };
 use crate::components::status::status_meta;
 use crate::components::status_message::StatusMessage;
@@ -111,6 +112,11 @@ pub fn RoomPage() -> impl IntoView {
     // stops.
     let share_has_audio = RwSignal::new(false);
     let controls_visible = RwSignal::new(true);
+    // Touch device? Drives the tap-to-toggle chrome and the touch-only
+    // auto-hide behaviour; everything else adapts in CSS. Starts `false`
+    // (the SSR assumption) and is corrected on mount by `setup_touch_signal`.
+    let (is_touch, set_is_touch) = signal(false);
+    touch::setup_touch_signal(set_is_touch);
     let invite_copied = RwSignal::new(false);
     let can_share = share_supported();
     // The desktop shell captures system audio; a plain browser tab can
@@ -273,7 +279,8 @@ pub fn RoomPage() -> impl IntoView {
         my_peer_id,
         initial_code.clone(),
     );
-    let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
+    let (pause_hide_controls, resume_hide_controls) =
+        setup_auto_hide_controls(controls_visible, is_touch, expanded);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
     setup_ping_loop(conn.clone());
@@ -380,7 +387,11 @@ pub fn RoomPage() -> impl IntoView {
             </form>
             <StatusMessage status=status/>
         </div>
-        <div class="room-page" class:hidden=move || !authenticated.get()>
+        <div
+            class="room-page"
+            class:hidden=move || !authenticated.get()
+            class:chrome-hidden=move || !controls_visible.get()
+        >
             <div class="stage-header">
                 <span class=lamp_class></span>
                 <span class="status-row__meta">{move || room_name.get().unwrap_or_default()}</span>
@@ -460,8 +471,20 @@ pub fn RoomPage() -> impl IntoView {
                     {move || if invite_copied.get() { icon_check().into_any() } else { icon_link().into_any() }}
                     <span>{move || if invite_copied.get() { "Link copiado!" } else { "Convidar" }}</span>
                 </button>
-                <span class="status-text status-text--error" class:hidden=move || can_share>
-                    "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
+                // On a phone this isn't an error — no mobile browser can
+                // screen-share — so it reads as a plain note, not red.
+                <span
+                    class="status-text"
+                    class:status-text--error=move || !is_touch.get()
+                    class:hidden=move || can_share
+                >
+                    {move || {
+                        if is_touch.get() {
+                            "Compartilhar tela não é possível neste aparelho — você pode assistir normalmente."
+                        } else {
+                            "Seu navegador não suporta compartilhar tela — você ainda pode assistir."
+                        }
+                    }}
                 </span>
             </div>
             <div id="member-grid" class="grid" class:grid--focused=move || expanded.get().is_some()>
@@ -479,6 +502,8 @@ pub fn RoomPage() -> impl IntoView {
                     muted_by_peer,
                     latency_by_peer,
                     quality_by_peer,
+                    is_touch,
+                    controls_visible,
                 })}
             </div>
             <div
@@ -488,6 +513,18 @@ pub fn RoomPage() -> impl IntoView {
                 on:mouseleave=move |_| resume_hide_controls()
             >
                 <div class="control-group">
+                    // Touch has no tap-outside-the-video to leave focus with;
+                    // this is the way back to the grid. Desktop clicks the
+                    // focused card itself, so it only shows on touch.
+                    <button
+                        class="icon-btn icon-btn--neutral"
+                        class:hidden=move || !(is_touch.get() && expanded.get().is_some())
+                        title="Voltar para a grade"
+                        aria-label="Voltar para a grade"
+                        on:click=move |_| expanded.set(None)
+                    >
+                        {icon_minimize}
+                    </button>
                     <button
                         class="icon-btn"
                         class:icon-btn--danger=is_sharing
@@ -542,7 +579,7 @@ pub fn RoomPage() -> impl IntoView {
                             on_video_mode=set_video_mode
                             audio_preset=audio_preset
                             on_audio_preset=set_audio_preset
-                            has_audio=sharing_has_audio
+                            has_audio=share_has_audio
                             audio_muted=audio_muted
                         />
                     </div>

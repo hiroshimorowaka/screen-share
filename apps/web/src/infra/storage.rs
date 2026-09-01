@@ -202,9 +202,35 @@ pub fn ensure_device_id() -> String {
     let Ok(crypto) = window.crypto() else {
         return String::new();
     };
-    let id = crypto.random_uuid();
+    // Not `crypto.randomUUID()`: that one is missing outside a secure
+    // context, so it throws when the dev server is reached over plain HTTP
+    // on a LAN IP (a phone on the same network) rather than localhost.
+    // `getRandomValues` has no such restriction.
+    let Some(id) = random_uuid_v4(&crypto) else {
+        return String::new();
+    };
     let _ = storage.set_item(DEVICE_ID_KEY, &id);
     id
+}
+
+/// A random RFC 4122 v4 UUID string built from `getRandomValues`. The
+/// `device_id` is opaque (never parsed), but keeping the canonical shape
+/// means it matches what `crypto.randomUUID()` produced before.
+#[cfg(feature = "hydrate")]
+fn random_uuid_v4(crypto: &web_sys::Crypto) -> Option<String> {
+    let mut bytes = [0u8; 16];
+    crypto.get_random_values_with_u8_array(&mut bytes).ok()?;
+    bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+    bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10xx
+    let hex: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    Some(format!(
+        "{}-{}-{}-{}-{}",
+        &hex[0..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..32],
+    ))
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]

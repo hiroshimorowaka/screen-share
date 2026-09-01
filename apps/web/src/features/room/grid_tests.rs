@@ -26,3 +26,20 @@ fn best_column_count_is_never_zero() {
         assert!(best_column_count(visible, 1920.0, 900.0) >= 1);
     }
 }
+
+#[test]
+fn best_column_count_forces_two_columns_on_a_narrow_portrait_screen() {
+    // A 390x750 phone: aspect alone would pick 1 column for these counts.
+    // One or two members still stack (two big tiles beat two skinny ones);
+    // the clamp only kicks in once there are three or more.
+    assert_eq!(best_column_count(1, 390.0, 750.0), 1);
+    assert_eq!(best_column_count(2, 390.0, 750.0), 1);
+    for visible in 3..=10 {
+        assert!(
+            best_column_count(visible, 390.0, 750.0) >= 2,
+            "{visible} members on a narrow screen should not collapse to one column",
+        );
+    }
+    // The clamp is width-gated — a wide viewport is unaffected.
+    assert_eq!(best_column_count(3, 1920.0, 900.0), 2);
+}

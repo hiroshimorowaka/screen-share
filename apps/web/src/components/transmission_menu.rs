@@ -20,9 +20,11 @@ pub fn TransmissionMenu<FV, FA>(
     audio_preset: RwSignal<AudioPreset>,
     /// Invoked with an `AudioPreset::value()` when an audio option is picked.
     on_audio_preset: FA,
-    /// Whether this share can carry audio at all (desktop shell only) — the
-    /// audio rows are hidden in a plain browser tab.
-    has_audio: bool,
+    /// Whether the *current* share actually carries an audio track. False for
+    /// a plain browser tab sharing a whole screen or a window — Chrome only
+    /// offers "share tab audio" for a shared tab — so the audio-quality and
+    /// mute rows, which would control a track that isn't there, stay hidden.
+    has_audio: RwSignal<bool>,
     /// Whether the sharer has silenced their own outgoing audio.
     audio_muted: RwSignal<bool>,
 ) -> impl IntoView
@@ -53,30 +55,28 @@ where
         })
         .collect_view();
 
-    let audio_opts = has_audio.then(|| {
-        AudioPreset::ALL
-            .iter()
-            .map(|preset| {
-                let preset = *preset;
-                let on_audio_preset = on_audio_preset.clone();
-                let is_on = move || audio_preset.get() == preset;
-                view! {
-                    <button
-                        type="button"
-                        class="transmission-menu__opt"
-                        class:transmission-menu__opt--on=is_on
-                        title=preset.hint()
-                        on:click=move |_| {
-                            on_audio_preset(preset.value());
-                            blur_active_element();
-                        }
-                    >
-                        {preset.label()}
-                    </button>
-                }
-            })
-            .collect_view()
-    });
+    let audio_opts = AudioPreset::ALL
+        .iter()
+        .map(|preset| {
+            let preset = *preset;
+            let on_audio_preset = on_audio_preset.clone();
+            let is_on = move || audio_preset.get() == preset;
+            view! {
+                <button
+                    type="button"
+                    class="transmission-menu__opt"
+                    class:transmission-menu__opt--on=is_on
+                    title=preset.hint()
+                    on:click=move |_| {
+                        on_audio_preset(preset.value());
+                        blur_active_element();
+                    }
+                >
+                    {preset.label()}
+                </button>
+            }
+        })
+        .collect_view();
 
     view! {
         <div class="transmission-menu">
@@ -94,49 +94,38 @@ where
                     <span class="transmission-menu__label">"Modo de vídeo"</span>
                     <div class="transmission-menu__opts">{video_opts}</div>
                 </div>
-                {audio_opts
-                    .map(|opts| {
-                        view! {
-                            <div class="transmission-menu__group">
-                                <span class="transmission-menu__label">"Qualidade do áudio"</span>
-                                <div class="transmission-menu__opts">{opts}</div>
-                            </div>
+                <div class="transmission-menu__group" class:hidden=move || !has_audio.get()>
+                    <span class="transmission-menu__label">"Qualidade do áudio"</span>
+                    <div class="transmission-menu__opts">{audio_opts}</div>
+                </div>
+                <div class="transmission-menu__group" class:hidden=move || !has_audio.get()>
+                    <button
+                        type="button"
+                        class="transmission-menu__opt transmission-menu__mute"
+                        class:transmission-menu__opt--on=move || audio_muted.get()
+                        aria-pressed=move || audio_muted.get().to_string()
+                        on:click=move |_| {
+                            audio_muted.update(|m| *m = !*m);
+                            // Drop focus so the popup (open on `:focus-within`)
+                            // closes when the pointer leaves — same as the
+                            // video and audio-quality options above.
+                            blur_active_element();
                         }
-                    })}
-                {has_audio
-                    .then(|| {
-                        view! {
-                            <div class="transmission-menu__group">
-                                <button
-                                    type="button"
-                                    class="transmission-menu__opt transmission-menu__mute"
-                                    class:transmission-menu__opt--on=move || audio_muted.get()
-                                    aria-pressed=move || audio_muted.get().to_string()
-                                    on:click=move |_| {
-                                        audio_muted.update(|m| *m = !*m);
-                                        // Drop focus so the popup (open on
-                                        // `:focus-within`) closes when the
-                                        // pointer leaves — same as the video
-                                        // and audio-quality options above.
-                                        blur_active_element();
-                                    }
-                                >
-                                    {move || {
-                                        if audio_muted.get() {
-                                            icon_volume_off().into_any()
-                                        } else {
-                                            icon_volume().into_any()
-                                        }
-                                    }}
-                                    <span>
-                                        {move || {
-                                            if audio_muted.get() { "Áudio mudo" } else { "Áudio ligado" }
-                                        }}
-                                    </span>
-                                </button>
-                            </div>
-                        }
-                    })}
+                    >
+                        {move || {
+                            if audio_muted.get() {
+                                icon_volume_off().into_any()
+                            } else {
+                                icon_volume().into_any()
+                            }
+                        }}
+                        <span>
+                            {move || {
+                                if audio_muted.get() { "Áudio mudo" } else { "Áudio ligado" }
+                            }}
+                        </span>
+                    </button>
+                </div>
             </div>
         </div>
     }

@@ -17,7 +17,10 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
         <html lang="pt-BR">
             <head>
                 <meta charset="utf-8"/>
-                <meta name="viewport" content="width=device-width, initial-scale=1"/>
+                // `viewport-fit=cover` lets the page paint edge to edge and
+                // exposes `env(safe-area-inset-*)` so the fixed room chrome
+                // can clear the notch / home indicator.
+                <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
                 // Space Grotesk (display) + Space Mono (data readouts),
                 // pulled from Google Fonts rather than vendored — see
                 // docs/decisions/0006-visual-redesign.md.

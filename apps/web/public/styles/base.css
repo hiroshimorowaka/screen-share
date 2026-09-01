@@ -51,7 +51,8 @@ a {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 1rem;
-  padding: 1.75rem;
+  /* Tighten on a narrow phone so the form isn't all padding. */
+  padding: clamp(1.25rem, 4vw, 1.75rem);
   box-shadow: 0 30px 60px -30px rgba(0, 0, 0, 0.6);
   animation: rise 0.4s ease-out;
 }
@@ -268,7 +269,9 @@ h2,
   border-radius: 0.6rem;
   padding: 0.65rem 0.8rem;
   font-family: inherit;
-  font-size: 0.95rem;
+  /* Never below 16px: iOS Safari auto-zooms the page when a smaller input
+     takes focus, and never zooms back out. */
+  font-size: max(16px, 0.95rem);
   color: var(--text);
 }
 
