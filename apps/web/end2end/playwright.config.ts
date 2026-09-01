@@ -12,6 +12,10 @@ const chromeArgs = [
   '--use-fake-ui-for-media-stream',
   '--auto-select-desktop-capture-source=Entire screen',
   '--auto-accept-this-tab-capture',
+  // The fake device's audio track is a 1 kHz tone; the room tests pipe it
+  // through a real peer connection and the watcher's <video> plays it out
+  // loud when the run is headed. No test asserts on audible audio.
+  '--mute-audio',
 ];
 
 const PORT = 3000;
