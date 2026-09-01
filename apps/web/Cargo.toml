@@ -21,6 +21,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 wasm-bindgen-futures = { version = "0.4.77", optional = true }
 js-sys = { version = "0.3.104", optional = true }
+# Wraps a `!Send` browser handle so it can be moved into `on_cleanup`
+# (which is `Send + Sync` bound). Sound on wasm: single-threaded, and the
+# wrapper panics if ever touched from another thread. Already in the tree
+# via leptos.
+send_wrapper = { version = "0.6", optional = true }
 web-sys = { version = "0.3.104", optional = true, features = [
     "WebSocket",
     "MessageEvent",
@@ -93,6 +98,7 @@ hydrate = [
     "dep:wasm-bindgen-futures",
     "dep:js-sys",
     "dep:web-sys",
+    "dep:send_wrapper",
 ]
 ssr = [
     "dep:axum",

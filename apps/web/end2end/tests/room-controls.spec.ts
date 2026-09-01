@@ -123,6 +123,34 @@ test('leaving the room navigates back to the home page', async ({ browser }) => 
   await anaCtx.close();
 });
 
+test('a mouse move after leaving the room does not hit a disposed signal', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida 2');
+
+  // A WASM panic (e.g. touching an already-disposed reactive value from a
+  // leaked window listener) surfaces here.
+  const panics: string[] = [];
+  ana.on('pageerror', (err) => panics.push(String(err)));
+
+  await ana.getByRole('button', { name: 'Sair da sala' }).click();
+  await expect(ana).toHaveURL(/\/$/);
+
+  // The room grid's auto-hide / adaptive-grid listeners were attached to
+  // `window`; if they outlive RoomPage, this fires them against disposed
+  // signals.
+  for (let i = 0; i < 5; i++) {
+    await ana.mouse.move(100 + i * 40, 100 + i * 30);
+  }
+  await ana.waitForTimeout(100);
+
+  expect(panics, `page errors after leaving the room:\n${panics.join('\n')}`).toEqual([]);
+  // Still interactive.
+  await ana.getByLabel('Nick').fill('Ana again');
+  await expect(ana.getByLabel('Nick')).toHaveValue('Ana again');
+
+  await anaCtx.close();
+});
+
 test('leaving the room while sharing tears the share down and still navigates home', async ({
   browser,
 }) => {
