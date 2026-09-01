@@ -34,6 +34,14 @@ pub(super) struct MemberCardSignals {
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
     pub(super) quality_by_peer:
         RwSignal<std::collections::HashMap<String, screen_share_protocol::QualityLevel>>,
+    /// Touch device — see `super::touch`. On touch, watching a sharer also
+    /// focuses their tile, and a tap on the focused video toggles the
+    /// chrome instead of collapsing focus.
+    pub(super) is_touch: ReadSignal<bool>,
+    /// Shared "chrome shown" flag (also drives the control bar). `card_click`
+    /// flips it on a tap while focused; the CSS fades `.card__actions` and
+    /// the badges with it.
+    pub(super) controls_visible: RwSignal<bool>,
 }
 
 /// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"
@@ -91,6 +99,8 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
         muted_by_peer,
         latency_by_peer,
         quality_by_peer,
+        is_touch,
+        controls_visible,
     } = signals;
 
     (0..MAX_MEMBERS)
@@ -189,12 +199,26 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                 // not just the small pill sitting on top of it.
                 if can_watch() {
                     watch(ev);
+                    // On a phone you watch one screen at a time — patching
+                    // in goes straight to focus, no roster tap-through.
+                    if is_touch.get_untracked() {
+                        if let Some(member) = member_at() {
+                            expanded.set(Some(member.peer_id));
+                        }
+                    }
                     return;
                 }
                 if !showing_video() {
                     return;
                 }
                 let Some(member) = member_at() else { return };
+                if is_touch.get_untracked() && is_expanded() {
+                    // In focus mode a tap on the video shows / hides the
+                    // chrome (Meet-style); leaving focus is the bar's back
+                    // button, not a tap.
+                    controls_visible.update(|v| *v = !*v);
+                    return;
+                }
                 if is_expanded() {
                     expanded.set(None);
                 } else {

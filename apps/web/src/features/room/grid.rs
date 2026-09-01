@@ -5,13 +5,23 @@ use crate::session::RoomMember;
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn setup_auto_hide_controls(
     _controls_visible: RwSignal<bool>,
+    _is_touch: ReadSignal<bool>,
+    _expanded: RwSignal<Option<String>>,
 ) -> (impl Fn() + Clone + 'static, impl Fn() + Clone + 'static) {
     (|| {}, || {})
 }
 
+/// Desktop: the control bar shows on any mouse movement and fades
+/// `HIDE_AFTER_MS` after the pointer goes still. Touch: there is no
+/// pointer to track, so the bar stays up in the roster and, once you are
+/// focused on one video, hides on the same timer and comes back on a tap
+/// (`card_click` toggles `controls_visible`). The two returned callbacks
+/// pause / resume the fade while the pointer is over the bar itself.
 #[cfg(feature = "hydrate")]
 pub(super) fn setup_auto_hide_controls(
     controls_visible: RwSignal<bool>,
+    is_touch: ReadSignal<bool>,
+    expanded: RwSignal<Option<String>>,
 ) -> (impl Fn() + Clone + 'static, impl Fn() + Clone + 'static) {
     use std::cell::Cell;
     use std::rc::Rc;
@@ -19,7 +29,10 @@ pub(super) fn setup_auto_hide_controls(
     use wasm_bindgen::prelude::Closure;
     use wasm_bindgen::JsCast;
 
-    const HIDE_AFTER_MS: i32 = 3000;
+    /// Idle time before the control bar fades. Also the window, on touch,
+    /// between a tap that reveals the chrome and it going away again — long
+    /// enough to reach for the back / stop-watching button after the tap.
+    const HIDE_AFTER_MS: i32 = 4000;
 
     let window = web_sys::window().expect("the hydrate function runs inside a real browser");
     let timeout_id: Rc<Cell<Option<i32>>> = Rc::new(Cell::new(None));
@@ -60,10 +73,50 @@ pub(super) fn setup_auto_hide_controls(
 
     let on_move = {
         let show_and_schedule_hide = show_and_schedule_hide.clone();
-        Closure::<dyn FnMut()>::new(show_and_schedule_hide)
+        Closure::<dyn FnMut()>::new(move || {
+            // A tap on a touch screen synthesises a `mousemove` too; letting
+            // it run here would fight the tap-to-toggle in `card_click`
+            // (mousemove shows the chrome, then the click toggles it off).
+            if is_touch.get_untracked() {
+                return;
+            }
+            show_and_schedule_hide();
+        })
     };
     let _ = window.add_event_listener_with_callback("mousemove", on_move.as_ref().unchecked_ref());
     on_move.forget();
+
+    // Touch has no `mousemove`. Outside focus mode keep the (two-button)
+    // bar up; entering focus mode arms the fade so the chrome gets out of
+    // the video's way.
+    {
+        let cancel_pending = cancel_pending.clone();
+        let schedule_hide = schedule_hide.clone();
+        Effect::new(move |_| {
+            if !is_touch.get() {
+                return;
+            }
+            if expanded.get().is_some() {
+                schedule_hide();
+            } else {
+                cancel_pending();
+                if !controls_visible.get_untracked() {
+                    controls_visible.set(true);
+                }
+            }
+        });
+    }
+    // On touch, `card_click` flips `controls_visible` back on with a tap;
+    // re-arm the fade whenever it goes visible while focused. Reads only,
+    // so it can't fight the effect above.
+    {
+        let schedule_hide = schedule_hide.clone();
+        Effect::new(move |_| {
+            if is_touch.get() && expanded.get().is_some() && controls_visible.get() {
+                schedule_hide();
+            }
+        });
+    }
 
     show_and_schedule_hide();
 
@@ -146,15 +199,26 @@ pub(super) fn setup_adaptive_grid(
 #[cfg_attr(not(any(feature = "hydrate", test)), allow(dead_code))]
 fn best_column_count(visible: usize, width: f64, height: f64) -> usize {
     const TILE_ASPECT: f64 = 16.0 / 9.0;
+    /// Below this container width, a tall portrait phone makes a single
+    /// column "aspect-optimal" for almost every count, turning the roster
+    /// into a long scroll of tiny tiles. Force a second column once there
+    /// is more than a pair of members.
+    const NARROW_WIDTH_PX: f64 = 560.0;
 
-    (1..=visible)
+    let best = (1..=visible)
         .map(|cols| {
             let rows = visible.div_ceil(cols);
             let tile_aspect = (width / cols as f64) / (height / rows as f64);
             (cols, (tile_aspect / TILE_ASPECT).ln().abs())
         })
         .min_by(|(_, a), (_, b)| a.total_cmp(b))
-        .map_or(1, |(cols, _)| cols)
+        .map_or(1, |(cols, _)| cols);
+
+    if width < NARROW_WIDTH_PX && visible >= 3 {
+        best.max(2)
+    } else {
+        best
+    }
 }
 
 #[cfg(feature = "hydrate")]

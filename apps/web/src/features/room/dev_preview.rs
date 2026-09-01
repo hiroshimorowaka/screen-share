@@ -58,6 +58,9 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
         screen_share_protocol::QualityLevel,
     >::new());
     let controls_visible = RwSignal::new(true);
+    // The dev bench is a desktop-only tool — touch adaptation isn't
+    // exercised here, so this stays `false`.
+    let (is_touch, _set_is_touch) = signal(false);
     let panel_open = RwSignal::new(true);
 
     let (new_nick, set_new_nick) = signal(String::new());
@@ -224,7 +227,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
         my_peer_id,
         "dev-preview".to_string(),
     );
-    let (pause_hide_controls, resume_hide_controls) = setup_auto_hide_controls(controls_visible);
+    let (pause_hide_controls, resume_hide_controls) =
+        setup_auto_hide_controls(controls_visible, is_touch, expanded);
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
 
@@ -257,6 +261,8 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                     muted_by_peer,
                     latency_by_peer,
                     quality_by_peer,
+                    is_touch,
+                    controls_visible,
                 })}
             </div>
             <div

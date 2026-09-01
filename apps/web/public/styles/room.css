@@ -18,7 +18,13 @@ body:has(.room-page.hidden) {
 
 .room-page {
   width: 100%;
+  /* `100vh` on mobile measures the viewport with the address bar hidden,
+     so the fixed control bar ends up behind it; `svh`/`dvh` track the
+     visible area instead (the `vh` line stays as the fallback for older
+     engines). */
   height: 100vh;
+  height: 100svh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -28,7 +34,10 @@ body:has(.room-page.hidden) {
   align-items: center;
   gap: 0.6rem;
   flex: 0 0 auto;
-  padding: 0.7rem 1.1rem;
+  /* Clear a landscape notch on the leading/trailing edge without losing
+     the baseline padding in the common (no inset) case. */
+  padding: 0.7rem max(1.1rem, env(safe-area-inset-right)) 0.7rem
+    max(1.1rem, env(safe-area-inset-left));
   background: var(--ink-1);
   border-bottom: 1px solid var(--border);
 }
@@ -179,7 +188,8 @@ body:has(.room-page.hidden) {
 .room-controls {
   position: fixed;
   left: 50%;
-  bottom: 1.5rem;
+  /* Lift clear of the iOS home indicator / Android gesture bar. */
+  bottom: calc(1.5rem + env(safe-area-inset-bottom));
   transform: translateX(-50%);
   z-index: 10;
   display: flex;
@@ -527,4 +537,54 @@ body:has(.room-page.hidden) {
 .card--focus {
   grid-column: 1 / -1;
   grid-row: 1;
+}
+
+/* --- narrow screens: compact the header so the grid keeps its height --- */
+@media (max-width: 40rem) {
+  .stage-header {
+    gap: 0.4rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+  }
+  /* Icon only — the room still fits "Convidar" nowhere useful at this
+     width. The copied state still reads: icon swaps to a check and the
+     border goes accent. */
+  .invite-btn {
+    padding: 0.4rem 0.5rem;
+  }
+  .invite-btn > span {
+    display: none;
+  }
+  .grid {
+    gap: 0.5rem;
+    padding: 0.5rem;
+  }
+}
+
+/* --- touch: rework the room around watching one screen at a time --- */
+@media (hover: none) and (pointer: coarse) {
+  .stage-header {
+    gap: 0.35rem;
+  }
+
+  /* Focus mode is the default watching view on a phone (see member_card.rs
+     — patching a sharer also focuses them). The filmstrip below the
+     focused video is a compact tray; it scrolls (inheriting `.grid`'s
+     `overflow-y`) when there are more members than fit. A true sideways
+     tray needs a wrapper element this CSS-only pass doesn't add. */
+  .grid--focused {
+    grid-template-columns: repeat(auto-fit, minmax(4.5rem, 6rem));
+    grid-template-rows: minmax(0, 1fr) 4.25rem;
+    grid-auto-rows: 4.25rem;
+  }
+
+  /* The floating bar is the only persistent chrome; give its buttons a
+     bit more room and lift it a touch off the safe-area inset. */
+  .control-group .icon-btn {
+    width: 3.25rem;
+    height: 3.25rem;
+  }
+
+  /* Transmission menu is sharer-only and a phone can't share, so it never
+     renders here — no bottom-sheet treatment needed. */
 }

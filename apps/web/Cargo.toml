@@ -32,6 +32,7 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "MediaDeviceKind",
     "MediaTrackConstraints",
     "MediaStreamConstraints",
+    "MediaQueryList",
     "ConstrainDomStringParameters",
     "Navigator",
     "Window",

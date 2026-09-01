@@ -586,3 +586,85 @@
   border-radius: 0.4rem;
   font-size: 0.65rem;
 }
+
+/* --- touch: no hover, so the card's controls follow the shared "chrome
+   shown" flag (`.room-page.chrome-hidden`, toggled by a tap on the video),
+   the way the fullscreen idle state already fades them. --- */
+@media (hover: none) and (pointer: coarse) {
+  /* A sticky `:hover` after a tap would otherwise put `filter` on the
+     card, which makes it the containing block for the fixed bottom-sheet
+     popup (so the sheet ends up card-width, not full-width). No hover on
+     touch, so just drop it. */
+  .card--clickable:hover {
+    filter: none;
+  }
+
+  /* Kill the hover reveal outright — a sticky-hover on tap would otherwise
+     leave a non-focused tile's actions stuck visible. */
+  .card__actions,
+  .card:hover .card__actions,
+  .card:focus-within .card__actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+  /* Only the focused tile, and only while the chrome is shown. */
+  .room-page:not(.chrome-hidden) .grid--focused .card--focus .card__actions {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.2s ease;
+  }
+  /* Badges + nick on the focused tile fade with the chrome, for a clean
+     video once it is hidden. */
+  .room-page.chrome-hidden .grid--focused .card--focus .watcher-badge,
+  .room-page.chrome-hidden .grid--focused .card--focus .card__corner-start,
+  .room-page.chrome-hidden .grid--focused .card--focus .card__nick {
+    opacity: 0;
+  }
+
+  /* Finger-sized hit areas. */
+  .icon-btn {
+    min-width: 2.75rem;
+    min-height: 2.75rem;
+  }
+  .card__actions {
+    gap: 0.5rem;
+  }
+  .card__actions .icon-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  .quality-menu__trigger {
+    height: 2.75rem;
+  }
+
+  /* The quality picker becomes a bottom sheet: full width, up from the
+     bottom edge, big rows. Same open trigger (`:focus-within` = a tap on
+     the trigger button). */
+  .quality-menu__popup {
+    position: fixed;
+    inset: auto 0 0 0;
+    left: 0;
+    transform: translateY(100%);
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
+    border-radius: 1rem 1rem 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+  }
+  .quality-menu:focus-within .quality-menu__popup {
+    transform: translateY(0);
+  }
+  .quality-menu__option {
+    padding: 0.9rem 1rem;
+    font-size: 1rem;
+    border-radius: 0.5rem;
+  }
+
+  /* The vertical volume fader needs a persistent hover to reach on a
+     phone; drop it to just the mute toggle (a plain tap). Per-stream
+     volume level stays a desktop affordance. */
+  .volume-control__popup {
+    display: none;
+  }
+}
