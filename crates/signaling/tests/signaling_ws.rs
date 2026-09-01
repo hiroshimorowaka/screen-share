@@ -41,6 +41,7 @@ async fn spawn_test_server_full(
         registry: registry.clone(),
         turn,
         handshake,
+        room_status_limiter: screen_share_signaling::rooms_status::RoomStatusLimiter::new(),
     };
     let app = Router::new()
         .route("/ws", get(ws_handler))

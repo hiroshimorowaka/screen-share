@@ -129,3 +129,24 @@ served with `into_make_service_with_connect_info`.
 Covered by `handshake_tests.rs` (parsing, origin decisions, client-key
 selection) and a `signaling_ws` integration test (cross-origin handshake
 refused, app origin accepted).
+
+### F06 — `GET /api/rooms/:code` minimised and rate limited
+
+`room_status_handler` no longer returns `name` or `member_count` — only
+`{ exists, requires_password }`, the minimum for the dead-link check and
+the password-field decision. The human-chosen room name and the occupancy
+were an information leak to anyone holding a code and made enumeration
+observable; the name is still delivered in the `Joined` snapshot once a
+client is actually in the room.
+
+Added a process-wide per-client sliding-window rate limiter
+(`RoomStatusLimiter`, 30 requests / 10 s, keyed via the same
+`HandshakeConfig::client_key`), returning `429` past the budget, with a
+bounded tracking map. Unit-tested in `rooms_status_tests.rs`; the `429`
+path has an integration test.
+
+Client fallout (acceptable): the room page shows no name until joined,
+and the home page's "N/10" badge on remembered rooms no longer appears
+(the fetch still runs for the liveness/pruning check). The `RoomStatus`
+wire shape keeps `name`/`member_count` as always-`None` fields for
+compatibility.

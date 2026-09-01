@@ -14,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use screen_share::app::{shell, App};
     use screen_share_signaling::handshake::HandshakeConfig;
     use screen_share_signaling::registry::Registry;
-    use screen_share_signaling::rooms_status::room_status_handler;
+    use screen_share_signaling::rooms_status::{room_status_handler, RoomStatusLimiter};
     use screen_share_signaling::state::SignalingState;
     use screen_share_signaling::turn::TurnConfig;
     use screen_share_signaling::ws::ws_handler;
@@ -37,6 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         registry: Registry::new(),
         turn,
         handshake: HandshakeConfig::from_env(),
+        room_status_limiter: RoomStatusLimiter::new(),
     };
     let signaling_router = Router::new()
         .route("/ws", get(ws_handler))
