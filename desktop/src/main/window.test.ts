@@ -8,18 +8,29 @@ const win = vi.hoisted(() => ({
   hide: vi.fn(),
   wcOn: vi.fn(),
   setWindowOpenHandler: vi.fn(),
+  toggleDevTools: vi.fn(),
+  lastWebPreferences: undefined as Record<string, unknown> | undefined,
 }));
+const electronApp = vi.hoisted(() => ({ isPackaged: true }));
 const isQuitting = vi.hoisted(() => vi.fn(() => false));
 const openExternal = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
+  app: electronApp,
   BrowserWindow: class {
+    constructor(opts?: { webPreferences?: Record<string, unknown> }) {
+      win.lastWebPreferences = opts?.webPreferences;
+    }
     loadURL = win.loadURL;
     on = win.on;
     show = win.show;
     focus = win.focus;
     hide = win.hide;
-    webContents = { on: win.wcOn, setWindowOpenHandler: win.setWindowOpenHandler };
+    webContents = {
+      on: win.wcOn,
+      setWindowOpenHandler: win.setWindowOpenHandler,
+      toggleDevTools: win.toggleDevTools,
+    };
   },
   shell: { openExternal },
 }));
@@ -31,7 +42,9 @@ async function freshWindow() {
 }
 
 beforeEach(() => {
-  for (const fn of Object.values(win)) fn.mockReset();
+  for (const fn of Object.values(win)) if (typeof fn === 'function') fn.mockReset();
+  win.lastWebPreferences = undefined;
+  electronApp.isPackaged = true;
   isQuitting.mockReset().mockReturnValue(false);
   openExternal.mockReset();
 });
@@ -82,6 +95,37 @@ describe('window', () => {
     };
     expect(openHandler({ url: 'https://example.com' })).toEqual({ action: 'deny' });
     expect(openExternal).toHaveBeenCalledWith('https://example.com');
+  });
+
+  it('a packaged build disables DevTools and binds no toggle shortcut', async () => {
+    electronApp.isPackaged = true;
+    const { createMainWindow } = await freshWindow();
+    createMainWindow();
+
+    expect(win.lastWebPreferences?.devTools).toBe(false);
+    expect(win.wcOn.mock.calls.some(([evt]) => evt === 'before-input-event')).toBe(false);
+  });
+
+  it('a dev build enables DevTools and toggles them on F12 / Ctrl+Shift+I', async () => {
+    electronApp.isPackaged = false;
+    const { createMainWindow } = await freshWindow();
+    createMainWindow();
+
+    expect(win.lastWebPreferences?.devTools).toBe(true);
+    const onInput = win.wcOn.mock.calls.find(([evt]) => evt === 'before-input-event')?.[1] as (
+      e: unknown,
+      input: Record<string, unknown>,
+    ) => void;
+
+    onInput({}, { type: 'keyUp', key: 'F12' });
+    expect(win.toggleDevTools).not.toHaveBeenCalled();
+
+    onInput({}, { type: 'keyDown', key: 'F12' });
+    onInput({}, { type: 'keyDown', key: 'I', control: true, shift: true });
+    expect(win.toggleDevTools).toHaveBeenCalledTimes(2);
+
+    onInput({}, { type: 'keyDown', key: 'I', control: true, shift: false });
+    expect(win.toggleDevTools).toHaveBeenCalledTimes(2);
   });
 
   it('the close handler hides the window unless the app is really quitting', async () => {

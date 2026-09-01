@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { BrowserWindow, shell } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 
 import { APP_ORIGIN, APP_URL } from '#main/app-url.js';
 import { isQuitting } from '#main/lifecycle.js';
@@ -34,7 +34,23 @@ function lockNavigation(window: BrowserWindow): void {
   });
 }
 
+/** Dev-only. The app ships with no application menu
+ * (`Menu.setApplicationMenu(null)` in `index.ts`), which also strips the
+ * default DevTools accelerators, so a development build has no way to open
+ * them. Re-bind F12 and Ctrl+Shift+I by hand. A packaged build never gets
+ * here and also has `devTools` turned off in `webPreferences`. */
+function enableDevToolsShortcuts(window: BrowserWindow): void {
+  window.webContents.on('before-input-event', (_event, input) => {
+    if (input.type !== 'keyDown') return;
+    const toggle =
+      input.key === 'F12' || (input.control && input.shift && input.key.toLowerCase() === 'i');
+    if (toggle) window.webContents.toggleDevTools();
+  });
+}
+
 export function createMainWindow(): void {
+  const devMode = !app.isPackaged;
+
   mainWindow = new BrowserWindow({
     width: 1100,
     height: 750,
@@ -51,9 +67,13 @@ export function createMainWindow(): void {
       sandbox: true,
       nodeIntegration: false,
       webSecurity: true,
+      // Off in production as a hard backstop; a dev run re-enables it here
+      // and rebinds the toggle shortcuts below.
+      devTools: devMode,
     },
   });
   lockNavigation(mainWindow);
+  if (devMode) enableDevToolsShortcuts(mainWindow);
   mainWindow.loadURL(APP_URL);
 
   mainWindow.on('close', (event) => {

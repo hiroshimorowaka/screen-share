@@ -85,7 +85,23 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         pickerWindow.on('blur', () => settle(null));
       }, 300);
 
-      await pickerWindow.loadFile(path.join(__dirname, '..', '..', '..', 'static', 'picker.html'));
+      try {
+        await pickerWindow.loadFile(
+          path.join(__dirname, '..', '..', '..', 'static', 'picker.html'),
+        );
+      } catch (err) {
+        // Dismissing the picker (a click outside → `blur` → `settle` →
+        // `pickerWindow.close()`) aborts an in-flight load, rejecting
+        // `loadFile` with ERR_ABORTED. Harmless once we've already settled;
+        // anything else is a genuine failure to show the picker. Either way
+        // the `void`-invoked task must not leak an unhandled rejection.
+        if (!settled) {
+          console.error('Failed to load the source picker:', err);
+          settle(null);
+        }
+        return;
+      }
+      if (settled || pickerWindow.isDestroyed()) return;
       pickerWindow.webContents.send('picker:sources', pickerSources);
     })();
   });
