@@ -59,7 +59,7 @@ impl AudioHealth {
                 Some("Compartilhando sem áudio: a captura de áudio do sistema falhou.")
             }
             AudioHealth::Silent => {
-                Some("Compartilhando sem som: nenhum áudio foi detectado (verifique o volume ou o app escolhido).")
+                Some("Nenhum som foi detectado na transmissão — confira o volume do sistema e se o aplicativo escolhido está reproduzindo áudio.")
             }
         }
     }

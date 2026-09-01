@@ -121,7 +121,8 @@ Still open:
 .cargo/config.toml               # MODIFIED: runner for [target.wasm32-unknown-unknown]
 .cargo/mutants.toml              # NEW: cargo-mutants config
 codecov.yml                      # NEW: informational (no failure), flags per layer
-scripts/test-all.sh              # NEW: run every check locally, with a pass/fail/skip summary
+scripts/test-all.sh              # NEW: test runner — `[target] [flags]`, default target `all`,
+                                 #      per-group targets (e2e, e2e-web, lint, rust, …); pass/fail/skip summary
 scripts/test-wasm.sh             # NEW: wasm-bindgen browser suite (auto-fetches chromedriver)
 
 apps/web/

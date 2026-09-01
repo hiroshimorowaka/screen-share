@@ -45,13 +45,13 @@ pub(super) fn exit_fullscreen_if_active() -> bool {
     false
 }
 
-/// Used by the card's own click-to-expand handler: clicking anywhere on a
-/// card that's currently fullscreen should back out of fullscreen and leave
-/// the expanded/normal state exactly as it was before — not toggle it, which
-/// used to happen invisibly (fullscreen hides the layout difference between
-/// the two) and left the wrong mode showing once the user exited fullscreen
-/// by other means (Esc, browser controls). Returns whether fullscreen was
-/// actually active, so the caller can skip its own click behavior.
+/// Used by the card's own click-to-expand handler: a click on a fullscreen
+/// card should only exit fullscreen, leaving the expanded/normal state
+/// untouched. Toggling it as well is invisible while fullscreen (the two
+/// layouts look identical there) and would surface as the wrong mode once
+/// the user leaves fullscreen by any means (Esc, browser controls).
+/// Returns whether fullscreen was active, so the caller can skip its own
+/// click behaviour.
 #[cfg(feature = "hydrate")]
 pub(super) fn exit_fullscreen_if_active() -> bool {
     let Some(document) = web_sys::window().and_then(|w| w.document()) else {

@@ -1,11 +1,11 @@
 //! Automatic reconnection after the signaling WebSocket drops.
 //!
-//! A blip on the sharer's or a viewer's network used to end the whole room
-//! session — the only recovery was a manual page reload. Instead, an
-//! unexpected close now schedules a rejoin: reopen the socket, send
+//! An unexpected close schedules a rejoin: reopen the socket, send
 //! `JoinRoom` again with the same nick/colour/password, and once the room
 //! snapshot comes back, replay what this member was doing (sharing, and/or
-//! watching specific people).
+//! watching specific people). Without it, a brief network blip on the
+//! sharer's or a viewer's side ends the room session with no recovery
+//! short of a manual page reload.
 //!
 //! The peer identity is *not* preserved across a reconnect — the rejoin
 //! gets a fresh `peer_id`. Other members see this member leave and rejoin;
@@ -130,13 +130,16 @@ mod wiring {
     }
 
     fn drop_all_peer_connections(conn: &RoomSession) {
-        for viewer_peer_id in conn
+        // A `for … in conn.…borrow().keys()…` holds the borrow across the
+        // whole loop, and `stop_auto_polling` takes `borrow_mut()` — bind
+        // the keys to a `let` so the read borrow is released first.
+        let auto_poll_viewers: Vec<String> = conn
             .quality_auto_intervals
             .borrow()
             .keys()
             .cloned()
-            .collect::<Vec<_>>()
-        {
+            .collect();
+        for viewer_peer_id in auto_poll_viewers {
             crate::session::quality::stop_auto_polling(conn, &viewer_peer_id);
         }
         for (_, pc) in conn.outgoing.borrow_mut().drain() {

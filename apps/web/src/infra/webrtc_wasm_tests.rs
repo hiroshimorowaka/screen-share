@@ -111,6 +111,26 @@ fn is_display_media_supported_is_true_in_a_modern_browser() {
 }
 
 #[wasm_bindgen_test]
+fn display_media_constraints_ask_only_for_video_in_the_desktop_shell() {
+    let constraints = display_media_constraints(true);
+    assert!(constraints.get_video().is_truthy(), "video is requested");
+    assert!(
+        constraints.get_audio().is_undefined(),
+        "the desktop shell captures audio through its own backend, not getDisplayMedia"
+    );
+}
+
+#[wasm_bindgen_test]
+fn display_media_constraints_ask_for_tab_audio_in_a_plain_browser() {
+    let constraints = display_media_constraints(false);
+    assert_eq!(
+        constraints.get_audio().as_bool(),
+        Some(true),
+        "a plain browser tab asks getDisplayMedia for the picker's tab audio too"
+    );
+}
+
+#[wasm_bindgen_test]
 fn new_peer_connection_accepts_optional_turn_credentials() {
     assert!(new_peer_connection(None).is_ok());
 
@@ -146,4 +166,41 @@ async fn offer_answer_roundtrip_completes_between_two_local_peers() {
     // Completes without error — `set_remote_description` rejects a
     // malformed or out-of-state answer.
     accept_answer(&caller, &answer).await.unwrap();
+}
+
+#[wasm_bindgen_test]
+async fn accept_answer_lands_the_start_bitrate_hint_on_the_sharers_remote_description() {
+    let sharer = new_peer_connection(None).unwrap();
+    let viewer = new_peer_connection(None).unwrap();
+
+    // A real outbound video track, so the negotiated SDP carries a video
+    // m-section for the hint to attach to — the generator trick the
+    // `quality` wasm tests also use.
+    let generator = web_sys::MediaStreamTrackGenerator::new(
+        &web_sys::MediaStreamTrackGeneratorInit::new("video"),
+    )
+    .unwrap();
+    let track: web_sys::MediaStreamTrack = generator.unchecked_into();
+    let stream = web_sys::MediaStream::new().unwrap();
+    stream.add_track(&track);
+    sharer.add_track_0(&track, &stream);
+
+    let offer = create_offer(&sharer).await.unwrap();
+    let answer = create_answer(&viewer, &offer).await.unwrap();
+    accept_answer(&sharer, &answer).await.unwrap();
+
+    // Chrome drops `x-google-*` from the answer it generates; `accept_answer`
+    // must put it back, because this remote description is what the sharer's
+    // own encoder reads its start bitrate from.
+    let remote = sharer
+        .remote_description()
+        .expect("remote description is set after accept_answer")
+        .sdp();
+    assert!(
+        remote.contains(&format!(
+            "x-google-start-bitrate={}",
+            crate::session::sdp::VIDEO_START_BITRATE_KBPS
+        )),
+        "start-bitrate hint missing from the sharer's remote SDP: {remote}"
+    );
 }

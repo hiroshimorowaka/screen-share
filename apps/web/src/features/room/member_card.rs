@@ -34,6 +34,14 @@ pub(super) struct MemberCardSignals {
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
     pub(super) quality_by_peer:
         RwSignal<std::collections::HashMap<String, screen_share_protocol::QualityLevel>>,
+    /// Touch device — see `super::touch`. On touch, watching a sharer also
+    /// focuses their tile, and a tap on the focused video toggles the
+    /// chrome instead of collapsing focus.
+    pub(super) is_touch: ReadSignal<bool>,
+    /// Shared "chrome shown" flag (also drives the control bar). `card_click`
+    /// flips it on a tap while focused; the CSS fades `.card__actions` and
+    /// the badges with it.
+    pub(super) controls_visible: RwSignal<bool>,
 }
 
 /// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"
@@ -91,6 +99,8 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
         muted_by_peer,
         latency_by_peer,
         quality_by_peer,
+        is_touch,
+        controls_visible,
     } = signals;
 
     (0..MAX_MEMBERS)
@@ -189,12 +199,26 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                 // not just the small pill sitting on top of it.
                 if can_watch() {
                     watch(ev);
+                    // On a phone you watch one screen at a time — patching
+                    // in goes straight to focus, no roster tap-through.
+                    if is_touch.get_untracked() {
+                        if let Some(member) = member_at() {
+                            expanded.set(Some(member.peer_id));
+                        }
+                    }
                     return;
                 }
                 if !showing_video() {
                     return;
                 }
                 let Some(member) = member_at() else { return };
+                if is_touch.get_untracked() && is_expanded() {
+                    // In focus mode a tap on the video shows / hides the
+                    // chrome (Meet-style); leaving focus is the bar's back
+                    // button, not a tap.
+                    controls_visible.update(|v| *v = !*v);
+                    return;
+                }
                 if is_expanded() {
                     expanded.set(None);
                 } else {
@@ -214,10 +238,10 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                     }
                     class:card--focus=is_expanded
                     class:card--clickable=move || showing_video() || can_watch()
-                    style=move || {
-                        let border = border_color().0;
-                        format!("border-color: {border}; --member-accent: {border};")
-                    }
+                    class:card--self=is_self
+                    class:card--live=member_is_sharing
+                    class:card--patched=is_watching_this
+                    style=move || format!("--member: {};", border_color().0)
                     on:click=card_click
                 >
                     <div
@@ -227,28 +251,29 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                         {icon_eye}
                         <span>{move || watcher_ids().len()}</span>
                         <div class="watcher-badge__tooltip" class:hidden=move || watcher_names().is_empty()>
-                            {move || watcher_names().join(", ")}
+                            {move || {
+                                watcher_names()
+                                    .into_iter()
+                                    .map(|name| view! { <span class="watcher-badge__name">{name}</span> })
+                                    .collect::<Vec<_>>()
+                            }}
                         </div>
                     </div>
-                    <div
-                        class="ping-badge"
-                        class:hidden=move || member_ping().is_none()
-                        title="Ping até o servidor"
-                    >
-                        <span
-                            class="ping-badge__dot"
-                            style=move || format!("background-color: var({});", member_ping().map_or("--text-dim", ping_color_var))
-                        ></span>
-                        <span>{move || member_ping().map_or_else(String::new, |ms| format!("{ms} ms"))}</span>
+                    <div class="card__corner-start">
+                        <div
+                            class="ping-badge"
+                            class:hidden=move || member_ping().is_none()
+                            title="Ping até o servidor"
+                        >
+                            <span
+                                class="ping-badge__dot"
+                                style=move || format!("background-color: var({});", member_ping().map_or("--text-dim", ping_color_var))
+                            ></span>
+                            <span>{move || member_ping().map_or_else(String::new, |ms| format!("{ms} ms"))}</span>
+                        </div>
+                        <span class="card__self-tag" class:hidden=move || !is_self()>"você"</span>
                     </div>
-                    <div
-                        class="card__avatar"
-                        class:hidden=showing_video
-                        style=move || {
-                            let border = border_color().0;
-                            format!("background-color: color-mix(in srgb, {border} 22%, var(--surface-2)); border-color: {border};")
-                        }
-                    >
+                    <div class="card__avatar" class:hidden=showing_video>
                         <span class="card__avatar-letter">
                             {move || member_at().map_or_else(String::new, |m| avatar_letter(&m.nick))}
                         </span>
@@ -301,9 +326,8 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                             </button>
                             // A custom menu rather than a native `<select>`:
                             // the browser's option list can't be themed to
-                            // match the rest of the card, and it looked
-                            // jarringly out of place. Same hover/focus-reveal
-                            // pattern as `.volume-control` next to it.
+                            // match the card. Opens on click / keyboard
+                            // focus (see `.quality-menu` in card.css).
                             <div
                                 class="quality-menu"
                                 class:hidden=move || !is_watching_this()

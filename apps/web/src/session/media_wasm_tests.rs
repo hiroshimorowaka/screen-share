@@ -25,6 +25,18 @@ fn stream_of(kinds: &[&str]) -> web_sys::MediaStream {
 }
 
 #[wasm_bindgen_test]
+fn sharing_can_have_audio_holds_in_a_plain_browser_that_can_screen_share() {
+    // No desktop shell injected here; headless Chrome still supports
+    // `getDisplayMedia`, so the tab's own "share tab audio" path qualifies.
+    let _ = js_sys::Reflect::delete_property(
+        &web_sys::window().unwrap(),
+        &wasm_bindgen::JsValue::from_str("desktopAudio"),
+    );
+    assert!(!crate::infra::webrtc::is_desktop_app());
+    assert!(sharing_can_have_audio());
+}
+
+#[wasm_bindgen_test]
 fn video_and_audio_tracks_splits_a_mixed_stream_by_kind() {
     let (video, audio) = video_and_audio_tracks(&stream_of(&["video", "audio"]));
     assert_eq!(video.map(|t| t.kind()).as_deref(), Some("video"));
@@ -68,6 +80,49 @@ async fn replace_outgoing_tracks_swaps_every_matching_sender() {
             "sender now carries the new track"
         );
     }
+}
+
+#[wasm_bindgen_test]
+async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() {
+    let conn = crate::session::RoomSession::new();
+
+    let shared = stream_of(&["video", "audio"]);
+    let (shared_video, _) = video_and_audio_tracks(&shared);
+    let shared_video = shared_video.unwrap();
+    for peer in ["viewer-a", "viewer-b"] {
+        let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+        pc.add_track_0(&shared_video, &shared);
+        conn.outgoing.borrow_mut().insert(peer.to_string(), pc);
+        // A live Auto poll for this viewer — teardown must stop it without
+        // deadlocking on `quality_auto_intervals` (the id is a throwaway;
+        // `clear_interval` no-ops on an unknown handle).
+        conn.quality_auto_intervals
+            .borrow_mut()
+            .insert(peer.to_string(), 0);
+    }
+    *conn.local_stream.borrow_mut() = Some(shared.clone());
+
+    teardown_local_share(&conn, None);
+
+    // The registry-level teardown: the capture handle is dropped and every
+    // viewer connection is closed and removed. (Stopping/detaching the
+    // individual tracks — what actually releases Chrome's native "sharing"
+    // indicator — needs real `getDisplayMedia` tracks; a synthetic
+    // `MediaStreamTrackGenerator` doesn't honour `stop()`/`removeTrack`
+    // here, so that step is covered by the `e2e-web` leave-while-sharing
+    // flow instead.)
+    assert!(
+        conn.local_stream.borrow().is_none(),
+        "the capture stream handle is released"
+    );
+    assert!(
+        conn.outgoing.borrow().is_empty(),
+        "every viewer connection is dropped"
+    );
+    assert!(
+        conn.quality_auto_intervals.borrow().is_empty(),
+        "every Auto poll is stopped"
+    );
 }
 
 #[wasm_bindgen_test]

@@ -42,9 +42,12 @@ someone is an explicit, per-person choice, made and revoked independently by
 each viewer, and doesn't affect anyone else watching the same sharer. Each
 member picks a nick and a color when they join; a small round avatar (the
 nick's first letter over that color) stands in for their card until they're
-sharing and someone is watching them. There's no audio yet (still out of
-scope). Nobody installs anything — everyone just uses a browser, on Windows
-or Linux. Video goes directly from each sharer's browser to each viewer's
+sharing and someone is watching them. A screen share can carry sound: in a
+plain browser that's the tab audio Chrome's own picker offers to include
+(a shared tab only, never a window or the whole system); the desktop app
+captures real system audio through a platform backend. Nobody installs
+anything — everyone just uses a browser, on Windows or Linux. Video goes
+directly from each sharer's browser to each viewer's
 browser (WebRTC, peer-to-peer); the server's only job is introducing peers
 to each other so those direct connections can be established.
 
@@ -59,7 +62,10 @@ to each other so those direct connections can be established.
   (`web-sys`) directly — `getDisplayMedia`, `RTCPeerConnection`, `WebSocket`,
   `Clipboard`, etc.
 - `serde`/`serde_json` for the signaling wire protocol.
-- Plain CSS (no framework, no external fonts/assets) for styling.
+- Styling is plain, hand-authored CSS on a design-token system (see
+  `docs/decisions/0006-visual-redesign.md`). Web fonts (Google Fonts
+  `<link>`) and established third-party libraries are allowed — prefer a
+  proven dependency over reimplementing what it already does.
 - `cargo-leptos` orchestrates building both the server binary and the WASM
   bundle from one `cargo` invocation.
 
@@ -117,16 +123,21 @@ version-matched headless Chrome + chromedriver via `@puppeteer/browsers`
 into `.wasm-browser/` (git-ignored). It also `cargo install`s
 `wasm-bindgen-cli` at the `Cargo.lock` version if the runner is missing.
 
-To run **every** check the way CI does (fmt, clippy, all test layers,
-mutation, both Playwright suites) in one go:
+`scripts/test-all.sh` is the test runner. It takes an optional target
+(default `all`) plus flags:
 
 ```bash
-scripts/test-all.sh            # --quick skips lint/mutants/e2e; --help for more
+scripts/test-all.sh --no-mutants   # all checks except mutation (the usual pre-change run)
+scripts/test-all.sh                 # everything, incl. mutation + coverage, like scheduled CI
+scripts/test-all.sh e2e             # just the Playwright suites (web + desktop)
+scripts/test-all.sh e2e-web         # just one suite: e2e-web | e2e-desktop | lint | build | rust | wasm | mutants | desktop
 ```
 
-It collects failures, prints a summary, and exits non-zero if anything
-failed; missing optional tools are skipped, not failed. The full matrix
-with prerequisites is in
+`--help` lists every target and flag. It collects failures, prints a
+pass/fail/skip summary, and exits non-zero if anything failed; missing
+optional tools are skipped, not failed. The Playwright suites run hidden
+under `xvfb-run` when it is installed (`--no-xvfb` to show the windows).
+The full matrix with prerequisites is in
 `docs/superpowers/plans/2026-08-28-quality-gate.md`.
 
 Production build:
@@ -282,6 +293,27 @@ headed under `xvfb`). What still isn't automated here: the browser's own
 adaptation — sanity-check those by hand in a real browser before
 considering a change to that layer done (see §"Definition of done" →
 "Browser layer").
+
+### Tests are mandatory
+
+- Every new feature ships with tests covering its behavior, at the right
+  layer (native Rust, `wasm-bindgen-test`, or Playwright).
+- Every bug fix ships with a test that fails before the fix and passes
+  after it. This is required unless a test is genuinely impossible to
+  write (physical devices, real screen/window capture, system audio, the
+  browser's own share controls) — in that case, state why in the change.
+
+### Running tests
+
+- Run `scripts/test-all.sh --no-mutants` for every change. It runs
+  `cargo fmt`, `cargo clippy`, `cargo leptos build`, the Rust suite, the
+  WASM suite, and the Playwright suites.
+- While iterating, narrow to one group with a target — e.g.
+  `scripts/test-all.sh e2e-web`, `scripts/test-all.sh lint` (`--help`
+  lists them) — but the full `--no-mutants` run is what gates the change.
+- Do not run individual `cargo test` / `cargo clippy` / `playwright test`
+  commands by hand.
+- Mutation tests are not run locally — CI runs them.
 
 ## Rust and Leptos coding practices
 
@@ -483,6 +515,9 @@ hand work over for the maintainer to discover a failing check.
   `docs/decisions/NNNN-*.md` ADR, and this file.
 
 ### Rust — `crates/*` and `apps/web` (run from the repo root)
+
+Run `scripts/test-all.sh --no-mutants` — it covers every check below.
+The list is what must pass:
 
 - `cargo test --workspace --features ssr` — all green. The test count
   must not silently drop; removing a test is a deliberate, explained

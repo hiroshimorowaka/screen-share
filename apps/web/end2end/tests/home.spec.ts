@@ -71,4 +71,24 @@ test.describe('home page — join form', () => {
 
     await expect(page).toHaveURL('/r/ABCD1234');
   });
+
+  test('the "Sala não encontrada" screen links back to the home page', async ({ page }) => {
+    await page.goto('/r/ZZZZ9999');
+    await expect(page.getByRole('heading', { name: 'Sala não encontrada' })).toBeVisible();
+    await page.getByRole('link', { name: 'Voltar à página principal' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('heading', { name: 'Criar sala' })).toBeVisible();
+  });
+});
+
+test.describe('unknown route', () => {
+  test('an unknown path renders the 404 page, not a blank string', async ({ page }) => {
+    await page.goto('/isto-nao-existe');
+    await expect(page.locator('.not-found')).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Esta página não existe.' })).toBeVisible();
+
+    await page.getByRole('link', { name: 'Voltar ao início' }).click();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(page.getByRole('heading', { name: 'Criar sala' })).toBeVisible();
+  });
 });

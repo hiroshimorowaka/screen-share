@@ -12,6 +12,10 @@ const chromeArgs = [
   '--use-fake-ui-for-media-stream',
   '--auto-select-desktop-capture-source=Entire screen',
   '--auto-accept-this-tab-capture',
+  // The fake device's audio track is a 1 kHz tone; the room tests pipe it
+  // through a real peer connection and the watcher's <video> plays it out
+  // loud when the run is headed. No test asserts on audible audio.
+  '--mute-audio',
 ];
 
 const PORT = 3000;
@@ -31,6 +35,31 @@ export default defineConfig({
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
   },
+  projects: [
+    // The room / home flows, on a normal desktop viewport (the historical
+    // default). Everything except the touch-specific suite.
+    {
+      name: 'desktop',
+      testIgnore: /room-mobile\.spec\.ts/,
+    },
+    // A phone-sized, touch-input viewport for the mobile behaviour:
+    // patch -> focus, tap toggles the chrome, the bottom-sheet menus,
+    // finger-sized targets. Same fake-media Chrome args (inherited from
+    // `use` above); `isMobile` is Chromium-only, which is all this suite
+    // runs on.
+    {
+      name: 'mobile-web',
+      testMatch: /room-mobile\.spec\.ts/,
+      use: {
+        viewport: { width: 390, height: 844 },
+        hasTouch: true,
+        isMobile: true,
+        userAgent:
+          'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) ' +
+          'AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+      },
+    },
+  ],
   webServer: {
     // `cargo leptos serve` builds (if needed) then serves the SSR binary
     // + wasm bundle the same way production does.

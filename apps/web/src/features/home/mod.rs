@@ -56,32 +56,47 @@ pub fn HomePage() -> impl IntoView {
     let (join_status, set_join_status) = signal(String::new());
     let join_room = join_room_handler(join_input, set_join_status);
 
+    // The one live element on the lobby: a mono readout of the recent
+    // rooms this browser knows about that are currently up (`member_counts`
+    // is only populated for rooms that answered the prune check).
+    let lobby_readout = move || {
+        let counts = member_counts.get();
+        let alive: Vec<_> = recent_rooms
+            .get()
+            .into_iter()
+            .filter(|room| counts.contains_key(&room.code))
+            .collect();
+        if alive.is_empty() {
+            return String::new();
+        }
+        let online: usize = alive.iter().filter_map(|room| counts.get(&room.code)).sum();
+        let rooms = alive.len();
+        format!(
+            "{rooms} sala{} · {online} online",
+            if rooms == 1 { "" } else { "s" }
+        )
+    };
+
     view! {
-        <div class="home">
-        <section class="home-intro">
-            <h1 class="home-intro__title">"Compartilhe sua tela com o grupo"</h1>
-            <p class="home-intro__sub">
-                "Uma sala que fica de pé — direto no navegador, sem instalar nada. "
-                "Qualquer pessoa na sala compartilha a própria tela quando quiser."
+        <div class="lobby">
+        <header class="lobby__bar">
+            <span class="wordmark">"screenshare"<span class="wordmark__dot"></span></span>
+            <span class="lobby__readout" class:hidden=move || lobby_readout().is_empty()>
+                {lobby_readout}
+            </span>
+        </header>
+
+        <section class="hero">
+            <h1 class="hero__title">"Compartilhe sua tela com o grupo."</h1>
+            <p class="hero__lead">
+                "Uma sala onde qualquer um transmite quando quiser — sem host, sem instalar nada."
             </p>
-            <ol class="home-steps">
-                <li>
-                    <b>"Crie ou entre numa sala."</b>
-                    "Escolha um nick e uma cor. Defina uma senha ou marque como pública."
-                </li>
-                <li>
-                    <b>"Compartilhe quando quiser."</b>
-                    "Clique em compartilhar e escolha a tela ou a janela — o link da sala vai pra sua área de transferência."</li>
-                <li>
-                    <b>"Assistir é individual."</b>
-                    "Cada um escolhe quem assistir, sem afetar os outros. No app desktop, o áudio do sistema vai junto."
-                </li>
-            </ol>
         </section>
-        <div class="home-layout">
+
+        <div class="lobby__cards">
         <div class="panel">
-            <h1>"Criar sala"</h1>
-            <p class="subtext">"Escolha um nick, uma cor e um nome. Defina uma senha ou marque a sala como pública — qualquer pessoa com o link entra numa sala pública."</p>
+            <h2 class="panel__title">"Criar sala"</h2>
+            <p class="subtext">"Escolha um nick, uma cor e um nome."</p>
 
             <form on:submit=create_room>
                 <label class="field">
@@ -145,7 +160,7 @@ pub fn HomePage() -> impl IntoView {
         </div>
 
         <div class="panel">
-            <h1>"Entrar em uma sala"</h1>
+            <h2 class="panel__title">"Entrar em uma sala"</h2>
             <p class="subtext">"Cole o código da sala ou o link completo do convite — você poderá informar o nick e a senha na página da sala."</p>
 
             <form on:submit=join_room>
@@ -167,7 +182,7 @@ pub fn HomePage() -> impl IntoView {
             </p>
 
             <div class="recent-rooms" class:hidden=move || recent_rooms.get().is_empty()>
-                <p class="invite__label">"Salas recentes"</p>
+                <p class="recent-rooms__label">"Salas recentes"</p>
                 <For each=move || recent_rooms.get() key=|r| r.code.clone() let(room)>
                     {
                         let code_for_hidden = room.code.clone();
