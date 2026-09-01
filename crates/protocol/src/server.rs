@@ -30,6 +30,10 @@ pub enum ServerMessage {
     /// client's per-client cap (see `MAX_ROOMS` / `MAX_ROOMS_PER_CLIENT`
     /// in `signaling::registry`). Retrying immediately won't help.
     ServerAtCapacity,
+    /// A `CreateRoom`/`JoinRoom` field failed validation — nick or room
+    /// name empty, too long, or carrying control / bidi characters, or an
+    /// unknown colour id (see `protocol::validate`).
+    InvalidInput,
     /// Too many wrong-password attempts against this room recently — see
     /// `MAX_PASSWORD_ATTEMPTS` in `registry.rs`. Sent instead of
     /// `AuthFailed` even if the password given this time was correct, so a

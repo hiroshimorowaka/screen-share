@@ -163,6 +163,9 @@ async fn handle_socket(
                     Err(CreateRoomError::AtCapacity) => {
                         let _ = tx.try_send(ServerMessage::ServerAtCapacity);
                     }
+                    Err(CreateRoomError::InvalidInput) => {
+                        let _ = tx.try_send(ServerMessage::InvalidInput);
+                    }
                 }
             }
             ClientMessage::JoinRoom {
@@ -210,6 +213,9 @@ async fn handle_socket(
                     }
                     Err(JoinError::TooManyAttempts) => {
                         let _ = tx.try_send(ServerMessage::TooManyAttempts);
+                    }
+                    Err(JoinError::InvalidInput) => {
+                        let _ = tx.try_send(ServerMessage::InvalidInput);
                     }
                 }
             }

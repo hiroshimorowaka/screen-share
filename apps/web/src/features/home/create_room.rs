@@ -40,15 +40,24 @@ pub fn create_room_handler(
     move |ev: leptos::ev::SubmitEvent| {
         ev.prevent_default();
 
-        let nick_value = nick.get_untracked().trim().to_string();
+        use screen_share_protocol::validate::{clean_nick, clean_room_name};
+
         let color_value = color.get_untracked();
-        let room_name_value = room_name.get_untracked().trim().to_string();
         let password_value = password.get_untracked();
         let is_public = public_room.get_untracked();
-        if nick_value.is_empty() || room_name_value.is_empty() {
-            set_status.set("Preencha o nick e o nome da sala.".to_string());
+
+        // Mirror the relay's checks (F08) so a bad nick/name is caught
+        // before a round trip; the server still enforces them.
+        let Ok(nick_value) = clean_nick(&nick.get_untracked()) else {
+            set_status.set("Nick vazio, muito longo ou com caracteres não permitidos.".to_string());
             return;
-        }
+        };
+        let Ok(room_name_value) = clean_room_name(&room_name.get_untracked()) else {
+            set_status.set(
+                "Nome da sala vazio, muito longo ou com caracteres não permitidos.".to_string(),
+            );
+            return;
+        };
         // A blank password is only valid as a *deliberate* public room —
         // otherwise it's someone forgetting to set one, not choosing to
         // skip it.

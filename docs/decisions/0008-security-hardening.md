@@ -197,3 +197,32 @@ message came from.
 and the guard. Covered by `ipc-guard.test.ts`, a navigation-lock test in
 `window.test.ts`, and untrusted-sender cases added to the audio and
 quick-share IPC tests.
+
+### F08 / F15 — protocol input validation and registry state guards
+
+New serde-only `protocol::validate` module (`crates/protocol` stays
+dependency-free): `MAX_NICK_LEN` (32), `MAX_ROOM_NAME_LEN` (64),
+`PALETTE_IDS` + `DEFAULT_COLOR`, and `clean_nick` / `clean_room_name` /
+`is_valid_color`. `clean_name` trims, rejects empty / over-length (counted
+in characters), and rejects any control character or bidi / zero-width
+formatting character (RLO, isolates, ZWSP, LRM/RLM, BOM, …). Full Unicode
+NFC normalisation is deliberately skipped — it needs a dependency; the
+character rejection removes the impersonation vectors the audit cited.
+
+The relay enforces these in `create_room` / `join_room`
+(`CreateRoomError::InvalidInput` / `JoinError::InvalidInput` →
+`ServerMessage::InvalidInput`), so an oversized nick is never stored or
+rebroadcast and an off-palette colour is refused rather than
+silently defaulted. The web create form mirrors the checks; a
+`palette_tests` assertion keeps the render palette and the allowlist from
+drifting.
+
+F15, in `registry`:
+- `add_watcher` ignores a `sharer_id` that isn't a room member, so a
+  client can't pollute the `watchers` map or trigger spurious
+  `WatchersChanged` broadcasts.
+- `report_latency` drops a value above `MAX_PLAUSIBLE_LATENCY_MS`
+  (60 s) instead of rebroadcasting it as that peer's ping.
+
+Covered by `protocol/tests/validate.rs`, a `wire` round-trip for
+`InvalidInput`, and three new `registry` tests.

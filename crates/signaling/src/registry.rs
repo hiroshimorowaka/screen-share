@@ -9,7 +9,15 @@ use tokio::time::Instant;
 use uuid::Uuid;
 
 use super::auth::{hash_password, verify_password};
+use screen_share_protocol::validate::{clean_nick, clean_room_name, is_valid_color};
 use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+
+/// Upper bound on a self-reported `Ping`/`Pong` round trip the server will
+/// rebroadcast as a peer's latency. Anything above this is a spoof
+/// attempt, not a real measurement (a full minute of latency means the
+/// connection is already dead) — it's dropped rather than shown on the
+/// other members' cards (finding F15).
+pub const MAX_PLAUSIBLE_LATENCY_MS: u32 = 60_000;
 
 /// Depth of one connection's outbound queue. Bounded so a member that
 /// stops reading its socket can't force the registry to buffer without
@@ -140,6 +148,8 @@ pub enum JoinError {
     WrongPassword,
     Full,
     TooManyAttempts,
+    /// The nick or colour failed [`screen_share_protocol::validate`].
+    InvalidInput,
 }
 
 /// Why [`Registry::create_room`] refused.
@@ -150,6 +160,9 @@ pub enum CreateRoomError {
     /// should tell the user to try again later — an immediate retry
     /// won't help.
     AtCapacity,
+    /// The nick, room name, or colour failed
+    /// [`screen_share_protocol::validate`].
+    InvalidInput,
 }
 
 /// Frees its [`Registry`] connection slot when dropped, so a slot is
@@ -227,6 +240,12 @@ impl Registry {
             sender,
         } = request;
 
+        let nick = clean_nick(&nick).map_err(|_| CreateRoomError::InvalidInput)?;
+        let room_name = clean_room_name(&room_name).map_err(|_| CreateRoomError::InvalidInput)?;
+        if !is_valid_color(&color) {
+            return Err(CreateRoomError::InvalidInput);
+        }
+
         let room_code = generate_room_code();
         let peer_id = Uuid::new_v4().to_string();
         let password_hash = hash_optional_password(password);
@@ -296,6 +315,11 @@ impl Registry {
             client_key,
             sender,
         } = request;
+
+        let nick = clean_nick(&nick).map_err(|_| JoinError::InvalidInput)?;
+        if !is_valid_color(&color) {
+            return Err(JoinError::InvalidInput);
+        }
 
         let mut rooms = self.lock_rooms();
         let room = rooms.get_mut(room_code).ok_or(JoinError::NotFound)?;
@@ -438,6 +462,14 @@ impl Registry {
             return;
         };
 
+        // Ignore a watch request for a peer that isn't in this room:
+        // otherwise a client could pollute `watchers` with entries for
+        // arbitrary ids and trigger spurious `WatchersChanged` broadcasts
+        // (finding F15).
+        if !room.members.contains_key(sharer_id) {
+            return;
+        }
+
         room.watchers
             .entry(sharer_id.to_string())
             .or_default()
@@ -475,6 +507,12 @@ impl Registry {
         let Some(room) = rooms.get_mut(room_code) else {
             return;
         };
+
+        // Drop an implausible self-report rather than rebroadcast it as
+        // this peer's ping on everyone else's card (finding F15).
+        if ms > MAX_PLAUSIBLE_LATENCY_MS {
+            return;
+        }
 
         let Some(member) = room.members.get_mut(peer_id) else {
             return;

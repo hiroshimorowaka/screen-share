@@ -169,6 +169,16 @@ fn server_at_capacity_message_round_trips_through_json() {
 }
 
 #[test]
+fn invalid_input_message_round_trips_through_json() {
+    let msg = ServerMessage::InvalidInput;
+    let json = serde_json::to_string(&msg).unwrap();
+    assert_eq!(json, r#"{"type":"invalid_input"}"#);
+
+    let parsed: ServerMessage = serde_json::from_str(&json).unwrap();
+    assert_eq!(parsed, msg);
+}
+
+#[test]
 fn watch_share_message_round_trips_through_json() {
     let msg = ClientMessage::WatchShare {
         sharer_id: "peer-1".to_string(),

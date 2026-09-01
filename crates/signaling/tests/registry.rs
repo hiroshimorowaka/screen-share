@@ -1438,3 +1438,107 @@ fn try_acquire_connection_stops_handing_out_slots_at_the_cap() {
         "dropping a guard frees exactly one slot"
     );
 }
+
+#[tokio::test]
+async fn create_room_rejects_a_bad_nick_room_name_or_colour() {
+    let registry = Registry::new();
+    let base = || {
+        let (tx, _rx) = member_channel();
+        CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala".to_string(),
+            password: None,
+            device_id: "device".to_string(),
+            client_key: "client-1".to_string(),
+            sender: tx,
+        }
+    };
+
+    let long_nick = CreateRoomRequest {
+        nick: "a".repeat(200),
+        ..base()
+    };
+    assert_eq!(
+        registry.create_room(long_nick).unwrap_err(),
+        CreateRoomError::InvalidInput
+    );
+
+    let bidi_name = CreateRoomRequest {
+        room_name: "Diretoria \u{202E}X".to_string(),
+        ..base()
+    };
+    assert_eq!(
+        registry.create_room(bidi_name).unwrap_err(),
+        CreateRoomError::InvalidInput
+    );
+
+    let odd_colour = CreateRoomRequest {
+        color: "chartreuse".to_string(),
+        ..base()
+    };
+    assert_eq!(
+        registry.create_room(odd_colour).unwrap_err(),
+        CreateRoomError::InvalidInput
+    );
+
+    assert_eq!(registry.room_count(), 0, "no bad request created a room");
+}
+
+#[tokio::test]
+async fn add_watcher_ignores_a_sharer_id_that_is_not_a_member() {
+    let registry = Registry::new();
+    let (host_tx, mut host_rx) = member_channel();
+    let (room_code, _snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala".to_string(),
+            password: None,
+            device_id: "device-host".to_string(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create should succeed");
+
+    registry.add_watcher(&room_code, "ghost-peer", "some-viewer");
+
+    // No WatchersChanged (or anything else) should have been broadcast.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), host_rx.recv())
+            .await
+            .is_err(),
+        "watching a non-member must be a no-op"
+    );
+}
+
+#[tokio::test]
+async fn report_latency_drops_an_implausible_value() {
+    let registry = Registry::new();
+    let (host_tx, mut host_rx) = member_channel();
+    let (room_code, snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala".to_string(),
+            password: None,
+            device_id: "device-host".to_string(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create should succeed");
+
+    registry.report_latency(&room_code, &snapshot.peer_id, MAX_PLAUSIBLE_LATENCY_MS + 1);
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), host_rx.recv())
+            .await
+            .is_err(),
+        "an implausible latency must not be rebroadcast"
+    );
+
+    registry.report_latency(&room_code, &snapshot.peer_id, 42);
+    assert!(matches!(
+        recv(&mut host_rx).await,
+        ServerMessage::PeerLatency { ms: 42, .. }
+    ));
+}

@@ -154,6 +154,8 @@ pub(crate) fn build_message_handler(
             "O servidor está sem capacidade no momento. Tente novamente em alguns minutos."
                 .to_string(),
         ),
+        ServerMessage::InvalidInput => set_status
+            .set("Nick, nome da sala ou cor inválidos. Verifique e tente de novo.".to_string()),
         ServerMessage::TooManyAttempts => set_status.set(
             "Muitas tentativas de senha erradas. Aguarde um pouco antes de tentar de novo."
                 .to_string(),

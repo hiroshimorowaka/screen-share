@@ -9,6 +9,7 @@ mod client;
 mod info;
 mod media;
 mod server;
+pub mod validate;
 
 pub use client::ClientMessage;
 pub use info::{LatencyInfo, MemberInfo, RoomStatus, WatcherInfo, MAX_MEMBERS};
