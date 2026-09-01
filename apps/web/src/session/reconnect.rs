@@ -130,18 +130,7 @@ mod wiring {
     }
 
     fn drop_all_peer_connections(conn: &RoomSession) {
-        // A `for … in conn.…borrow().keys()…` holds the borrow across the
-        // whole loop, and `stop_auto_polling` takes `borrow_mut()` — bind
-        // the keys to a `let` so the read borrow is released first.
-        let auto_poll_viewers: Vec<String> = conn
-            .quality_auto_intervals
-            .borrow()
-            .keys()
-            .cloned()
-            .collect();
-        for viewer_peer_id in auto_poll_viewers {
-            crate::session::quality::stop_auto_polling(conn, &viewer_peer_id);
-        }
+        crate::session::quality::stop_all_auto_polling(conn);
         for (_, pc) in conn.outgoing.borrow_mut().drain() {
             pc.close();
         }

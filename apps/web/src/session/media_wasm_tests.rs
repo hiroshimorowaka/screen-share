@@ -96,9 +96,10 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
         // A live Auto poll for this viewer — teardown must stop it without
         // deadlocking on `quality_auto_intervals` (the id is a throwaway;
         // `clear_interval` no-ops on an unknown handle).
-        conn.quality_auto_intervals
-            .borrow_mut()
-            .insert(peer.to_string(), 0);
+        conn.quality_auto_intervals.borrow_mut().insert(
+            peer.to_string(),
+            crate::session::quality::AutoPoll::for_test(0),
+        );
     }
     *conn.local_stream.borrow_mut() = Some(shared.clone());
 

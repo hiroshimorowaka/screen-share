@@ -333,19 +333,9 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     for (_, pc) in conn.outgoing.borrow_mut().drain() {
         pc.close();
     }
-    // Each viewer's Auto poll (if any) would otherwise keep firing against
-    // a connection that's already closed. Collect into a `let` binding
-    // first: a `for … in conn.…borrow().keys()…` keeps the borrow alive for
-    // the whole loop, and `stop_auto_polling` takes `borrow_mut()`.
-    let auto_poll_viewers: Vec<String> = conn
-        .quality_auto_intervals
-        .borrow()
-        .keys()
-        .cloned()
-        .collect();
-    for viewer_peer_id in auto_poll_viewers {
-        super::quality::stop_auto_polling(conn, &viewer_peer_id);
-    }
+    // Every viewer's Auto poll would otherwise keep firing against a
+    // connection that's already closed.
+    super::quality::stop_all_auto_polling(conn);
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);
     }

@@ -39,12 +39,13 @@ pub struct RoomSession {
     // `latency.rs`), so the `Pong` handler in `message_handler.rs` can time
     // the round trip. `None` once the matching `Pong` has been handled.
     pub(crate) last_ping_sent_at: std::rc::Rc<std::cell::Cell<Option<f64>>>,
-    // Viewer peer_id -> the `setInterval` id of that viewer's Auto quality
-    // poll (see `quality.rs`), so switching them to a fixed tier — or them
-    // leaving — can `clearInterval` it instead of leaving it running
-    // against a sender that's gone.
-    pub(crate) quality_auto_intervals:
-        std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, i32>>>,
+    // Viewer peer_id -> that viewer's running Auto quality poll (see
+    // `quality.rs`), so switching them to a fixed tier, them leaving, or
+    // the room page unmounting can `clearInterval` it (and drop its
+    // closure) instead of leaving it running against a sender that's gone.
+    pub(crate) quality_auto_intervals: std::rc::Rc<
+        std::cell::RefCell<std::collections::HashMap<String, crate::session::quality::AutoPoll>>,
+    >,
     // `true` from the moment an unexpected socket close starts a reconnect
     // until the rejoin's `Joined` snapshot lands (or we give up). Guards
     // against stacking two reconnect loops, and tells the `Joined` handler

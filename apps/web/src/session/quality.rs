@@ -265,6 +265,29 @@ impl Default for AdaptiveQuality {
 #[cfg(feature = "hydrate")]
 const AUTO_POLL_INTERVAL_MS: i32 = 3_000;
 
+/// A running Auto-quality poll: its `setInterval` id and the tick closure
+/// it drives. Held in `RoomSession::quality_auto_intervals` so
+/// [`stop_auto_polling`] both `clearInterval`s and drops the closure —
+/// otherwise the closure's captured `RoomSession` clone keeps the whole
+/// session graph alive after the poll is gone.
+#[cfg(feature = "hydrate")]
+pub(crate) struct AutoPoll {
+    interval_id: i32,
+    _keep_alive: wasm_bindgen::prelude::Closure<dyn FnMut()>,
+}
+
+#[cfg(all(feature = "hydrate", test))]
+impl AutoPoll {
+    /// An [`AutoPoll`] with a no-op closure and a throwaway id, for tests
+    /// that only need an entry in the map.
+    pub(crate) fn for_test(interval_id: i32) -> Self {
+        Self {
+            interval_id,
+            _keep_alive: wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(|| {}),
+        }
+    }
+}
+
 /// Applies `preset` to one `RTCRtpSender` encoding: bitrate ceiling,
 /// resolution scale, and frame-rate cap. web-sys has no typed setter for
 /// `maxFramerate`, so it goes straight onto the encoding dict; the browser
@@ -453,11 +476,14 @@ pub(crate) fn start_auto_polling(
     ) else {
         return;
     };
-    on_tick.forget();
 
-    conn.quality_auto_intervals
-        .borrow_mut()
-        .insert(viewer_peer_id, interval_id);
+    conn.quality_auto_intervals.borrow_mut().insert(
+        viewer_peer_id,
+        AutoPoll {
+            interval_id,
+            _keep_alive: on_tick,
+        },
+    );
 }
 
 /// Whether an Auto quality poll is currently registered for `viewer_peer_id`.
@@ -476,16 +502,55 @@ pub(crate) fn is_auto_polling(conn: &crate::session::RoomSession, viewer_peer_id
 /// if there isn't one (switching between two fixed tiers, e.g.).
 #[cfg(feature = "hydrate")]
 pub(crate) fn stop_auto_polling(conn: &crate::session::RoomSession, viewer_peer_id: &str) {
-    let Some(interval_id) = conn
+    let Some(poll) = conn
         .quality_auto_intervals
         .borrow_mut()
         .remove(viewer_peer_id)
     else {
         return;
     };
-    if let Some(window) = web_sys::window() {
-        window.clear_interval_with_handle(interval_id);
+    clear(poll);
+}
+
+/// Stops every registered Auto poll. Used when the whole session goes
+/// away — leaving the room (see `stop_auto_polling_on_cleanup`), a
+/// reconnect, or the local share stopping — where per-viewer bookkeeping
+/// is pointless and leaving the intervals running keeps the `RoomSession`
+/// graph alive.
+#[cfg(feature = "hydrate")]
+pub(crate) fn stop_all_auto_polling(conn: &crate::session::RoomSession) {
+    let polls: Vec<AutoPoll> = conn
+        .quality_auto_intervals
+        .borrow_mut()
+        .drain()
+        .map(|(_, poll)| poll)
+        .collect();
+    for poll in polls {
+        clear(poll);
     }
+}
+
+/// `clearInterval` for `poll`; its `_keep_alive` closure then drops.
+#[cfg(feature = "hydrate")]
+fn clear(poll: AutoPoll) {
+    if let Some(window) = web_sys::window() {
+        window.clear_interval_with_handle(poll.interval_id);
+    }
+}
+
+/// SSR no-op counterpart to the `hydrate` version below.
+#[cfg(not(feature = "hydrate"))]
+pub(crate) fn stop_auto_polling_on_cleanup(_conn: crate::session::RoomSession) {}
+
+/// Registers an `on_cleanup` on the current owner (`RoomPage`) that stops
+/// every Auto poll when the room page unmounts — otherwise each poll's
+/// `setInterval` keeps firing against a closed connection and its closure
+/// keeps the session alive in memory.
+#[cfg(feature = "hydrate")]
+pub(crate) fn stop_auto_polling_on_cleanup(conn: crate::session::RoomSession) {
+    // `on_cleanup` is `Send + Sync`-bound; `RoomSession` holds `Rc`s.
+    let conn = send_wrapper::SendWrapper::new(conn);
+    leptos::prelude::on_cleanup(move || stop_all_auto_polling(&conn));
 }
 
 /// The viewer-side half: sends a chosen quality for the member at `slot` to
