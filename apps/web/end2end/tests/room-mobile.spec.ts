@@ -69,7 +69,9 @@ test.describe('room on a touch device', () => {
 
     const box = await popup.boundingBox();
     if (!box) throw new Error('no bounding box for the open sheet');
-    // A sheet: near full-width, sitting on the bottom edge.
+    // A sheet: near full-width, sitting on the bottom edge — it covers the
+    // trigger itself once open, so the way to close it on touch is tapping
+    // outside, not tapping the (now hidden-behind-the-sheet) trigger again.
     expect(box.width).toBeGreaterThan(viewport.width * 0.85);
     expect(box.y + box.height).toBeGreaterThan(viewport.height - 2);
 

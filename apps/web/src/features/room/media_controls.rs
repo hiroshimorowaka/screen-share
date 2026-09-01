@@ -108,6 +108,35 @@ pub(crate) fn blur_active_element() {
 }
 
 #[cfg(not(feature = "hydrate"))]
+pub(super) fn event_target_already_focused(_ev: &leptos::ev::MouseEvent) -> bool {
+    false
+}
+
+/// Whether `ev`'s own target was already the focused element *before* this
+/// event. Read from a `mousedown` handler, not `click`: a button's own
+/// default action focuses it on `mousedown`, but only after every
+/// `mousedown` listener has run, so `document.activeElement` here still
+/// reflects the pre-click state. Lets a tap on the quality-menu trigger
+/// tell "opening it" (wasn't focused) apart from "closing it" (was already
+/// focused) — a second tap on an already-focused button doesn't blur it on
+/// its own, so `:focus-within` alone can't toggle closed.
+#[cfg(feature = "hydrate")]
+pub(super) fn event_target_already_focused(ev: &leptos::ev::MouseEvent) -> bool {
+    use wasm_bindgen::JsCast;
+
+    let Some(target) = ev
+        .current_target()
+        .and_then(|t| t.dyn_into::<web_sys::Element>().ok())
+    else {
+        return false;
+    };
+    web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.active_element())
+        .is_some_and(|active| active == target)
+}
+
+#[cfg(not(feature = "hydrate"))]
 pub(super) fn toggle_picture_in_picture(_slot: VideoSlot, _peer_id: &str) {}
 
 /// Same `id` scheme as `toggle_fullscreen` uses to find the right video

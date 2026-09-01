@@ -392,9 +392,11 @@
 /* A custom dropdown (see member_card.rs) rather than a native `<select>`,
    whose option list can't be themed to match the card. The trigger wears
    the exact resting/hover look of the `.icon-btn--neutral`s beside it —
-   just stretched into a pill to fit the current-level label. Unlike the
-   volume fader beside it, this opens on click/keyboard focus only, not
-   hover — a stack of hover menus on a small tile was the complaint. */
+   just stretched into a pill to fit the current-level label. With a mouse
+   it opens on hover, like the volume fader beside it, and closes as soon
+   as the pointer leaves; a touch screen has no hover, so there it opens on
+   tap (or keyboard focus) instead — see the two `@media (hover: …)` rules
+   below and after. */
 .quality-menu {
   position: relative;
   display: inline-flex;
@@ -456,10 +458,16 @@
     transform 0.15s ease;
 }
 
-.quality-menu:focus-within .quality-menu__popup {
-  opacity: 1;
-  pointer-events: auto;
-  transform: translateX(-50%) scale(1);
+/* Mouse/trackpad: hover opens it, moving the pointer away closes it —
+   `:focus-within` is left to the touch rule in the media block below, or a
+   click here would open it exactly the way it used to and only get stuck,
+   since nothing on this input type ever blurs it again. */
+@media (hover: hover) and (pointer: fine) {
+  .quality-menu:hover .quality-menu__popup {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateX(-50%) scale(1);
+  }
 }
 
 .quality-menu__option {
@@ -648,8 +656,9 @@
   }
 
   /* The quality picker becomes a bottom sheet: full width, up from the
-     bottom edge, big rows. Same open trigger (`:focus-within` = a tap on
-     the trigger button). */
+     bottom edge, big rows. No hover here, so it opens on `:focus-within` —
+     a tap on the trigger focuses it (see member_card.rs, which also
+     handles a second tap blurring it closed again). */
   .quality-menu__popup {
     position: fixed;
     inset: auto 0 0 0;
@@ -663,6 +672,8 @@
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
   }
   .quality-menu:focus-within .quality-menu__popup {
+    opacity: 1;
+    pointer-events: auto;
     transform: translateY(0);
   }
   .quality-menu__option {

@@ -1,8 +1,8 @@
 use leptos::prelude::*;
 
 use super::media_controls::{
-    blur_active_element, exit_fullscreen_if_active, set_muted, set_volume, toggle_fullscreen,
-    toggle_picture_in_picture, VideoSlot,
+    blur_active_element, event_target_already_focused, exit_fullscreen_if_active, set_muted,
+    set_volume, toggle_fullscreen, toggle_picture_in_picture, VideoSlot,
 };
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use crate::components::icons::{
@@ -173,6 +173,10 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                     .unwrap_or(QualityLevel::Auto)
             };
             let set_quality = crate::session::quality::set_quality_handler(conn.clone(), members, quality_by_peer, i);
+            // Set from the trigger's `mousedown` (before the browser's own
+            // focus-on-mousedown applies), read from its `click` right after
+            // — see `event_target_already_focused`.
+            let quality_trigger_was_open = RwSignal::new(false);
             let mute_toggle_click = move |ev: leptos::ev::MouseEvent| {
                 ev.stop_propagation();
                 let Some(member) = member_at() else { return };
@@ -326,8 +330,10 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                             </button>
                             // A custom menu rather than a native `<select>`:
                             // the browser's option list can't be themed to
-                            // match the card. Opens on click / keyboard
-                            // focus (see `.quality-menu` in card.css).
+                            // match the card. Desktop opens it on hover, like
+                            // before; touch has no hover, so it opens on tap
+                            // (keyboard focus too) — see `.quality-menu` in
+                            // card.css for both.
                             <div
                                 class="quality-menu"
                                 class:hidden=move || !is_watching_this()
@@ -338,6 +344,20 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
                                     class="quality-menu__trigger"
                                     title="Qualidade do vídeo"
                                     aria-label="Qualidade do vídeo"
+                                    on:mousedown=move |ev: leptos::ev::MouseEvent| {
+                                        quality_trigger_was_open.set(event_target_already_focused(&ev));
+                                    }
+                                    on:click=move |_| {
+                                        // Touch only: a tap already opens the
+                                        // menu by focusing the trigger (see
+                                        // the CSS `:focus-within` rule) —
+                                        // clicking the same, already-focused
+                                        // button again doesn't blur it on its
+                                        // own, so do it explicitly to close.
+                                        if is_touch.get_untracked() && quality_trigger_was_open.get() {
+                                            blur_active_element();
+                                        }
+                                    }
                                 >
                                     {icon_bars()}
                                     <span class="quality-menu__current">

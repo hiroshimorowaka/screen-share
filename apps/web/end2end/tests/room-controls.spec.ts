@@ -167,7 +167,9 @@ test("the card's own stop-watching button ends just that watch", async ({ browse
   await caioCtx.close();
 });
 
-test('the per-card quality menu opens on click, not on hover', async ({ browser }) => {
+test('the per-card quality menu opens on hover and closes when the pointer leaves', async ({
+  browser,
+}) => {
   const anaCtx = await browser.newContext();
   const bobCtx = await browser.newContext();
   const caioCtx = await browser.newContext();
@@ -183,15 +185,17 @@ test('the per-card quality menu opens on click, not on hover', async ({ browser 
   const menu = anaCard.locator('.quality-menu');
   const popup = menu.locator('.quality-menu__popup');
 
-  // Hovering the trigger must not reveal the list.
-  await menu.locator('.quality-menu__trigger').hover();
   await expect(popup).toHaveCSS('pointer-events', 'none');
 
-  // Clicking (focusing) it does.
-  await menu.locator('.quality-menu__trigger').click();
+  // Hovering the trigger reveals the list.
+  await menu.locator('.quality-menu__trigger').hover();
   await expect(popup).toHaveCSS('pointer-events', 'auto');
   await popup.getByRole('button', { name: 'Baixa' }).click();
   await expect(menu.locator('.quality-menu__current')).toHaveText('Baixa');
+
+  // Moving the pointer off the whole menu closes it again.
+  await bob.mouse.move(4, 4);
+  await expect(popup).toHaveCSS('pointer-events', 'none');
 
   await anaCtx.close();
   await bobCtx.close();
