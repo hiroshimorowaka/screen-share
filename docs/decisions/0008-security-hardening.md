@@ -169,3 +169,31 @@ unaffected. The web client also ignores an `Offer` from a peer not in its
 
 Covered by a `signaling_ws` test (unsolicited `Offer` dropped, socket
 still live) and updated relay tests that now establish the watch first.
+
+### F10 / F11 — desktop renderer navigation lock and IPC sender checks
+
+The main `BrowserWindow` loads a remote origin and exposes powerful
+bridges (`desktopAudio`, `picker`, `desktopShare`). Nothing stopped that
+renderer being navigated elsewhere, and no IPC handler checked where a
+message came from.
+
+- **F10** — `window.ts` pins `contextIsolation` / `sandbox` /
+  `nodeIntegration:false` / `webSecurity` explicitly, and `lockNavigation`
+  blocks `will-navigate` / `will-redirect` off the app origin and denies
+  `window.open` (real links go to the OS browser via `shell.openExternal`).
+  SPA routing (`pushState`) and the main-process `loadURL` in
+  `startQuickShare` don't trip these, so nothing legitimate is blocked.
+  The picker window gets pinned prefs and a deny-all open handler too.
+- **F11** — new `main/ipc-guard.ts` `isTrustedFrame(event)`: an IPC
+  message is honoured only from a frame on the app origin or a local
+  `file://` frame (the picker). Applied to every `ipcMain` handler —
+  `start`/`stop`/`list` audio (throw on reject), `desktop-share:link-ready`
+  / `member-joined` / `sharing-changed` and `picker:selected` (ignore on
+  reject). A hijacked/XSS'd remote page in the renderer can no longer
+  start a covert system-audio capture, enumerate running apps, hijack the
+  clipboard, or spoof OS notifications.
+
+`main/app-url.ts` now owns `APP_URL` / `APP_ORIGIN` for both `window.ts`
+and the guard. Covered by `ipc-guard.test.ts`, a navigation-lock test in
+`window.test.ts`, and untrusted-sender cases added to the audio and
+quick-share IPC tests.

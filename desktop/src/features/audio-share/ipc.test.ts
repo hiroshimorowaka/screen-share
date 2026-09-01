@@ -1,5 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { APP_ORIGIN } from '#main/app-url.js';
+
+const FROM_APP = { senderFrame: { url: `${APP_ORIGIN}/room/ABCD` } };
+const FROM_EVIL = { senderFrame: { url: 'https://evil.example/x' } };
+
 const handle = vi.hoisted(() => vi.fn());
 const backend = vi.hoisted(() => ({
   startAudioLoopback: vi.fn(),
@@ -34,11 +39,28 @@ describe('registerAudioIpcHandlers', () => {
     );
 
     const startHandler = handle.mock.calls.find(([c]) => c === 'start-audio-loopback')?.[1];
-    startHandler?.({}, { mode: 'screen', excludedBinaries: [] });
+    startHandler?.(FROM_APP, { mode: 'screen', excludedBinaries: [] });
     expect(backend.startAudioLoopback).toHaveBeenCalledWith({
       mode: 'screen',
       excludedBinaries: [],
     });
+  });
+
+  it('rejects audio IPC from a frame that is not the app origin (F11)', async () => {
+    const { registerAudioIpcHandlers } = await freshIpc();
+    await registerAudioIpcHandlers();
+
+    const byChannel = (name: string) => handle.mock.calls.find(([c]) => c === name)?.[1];
+
+    expect(() =>
+      byChannel('start-audio-loopback')?.(FROM_EVIL, { mode: 'screen', excludedBinaries: [] }),
+    ).toThrow(/untrusted sender/);
+    expect(() => byChannel('list-audio-apps')?.(FROM_EVIL)).toThrow(/untrusted sender/);
+    expect(() => byChannel('stop-audio-loopback')?.(FROM_EVIL)).toThrow(/untrusted sender/);
+
+    expect(backend.startAudioLoopback).not.toHaveBeenCalled();
+    expect(backend.listDistinctAudioApps).not.toHaveBeenCalled();
+    expect(backend.stopAudioLoopback).not.toHaveBeenCalled();
   });
 });
 

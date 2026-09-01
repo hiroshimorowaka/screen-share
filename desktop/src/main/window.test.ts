@@ -6,8 +6,11 @@ const win = vi.hoisted(() => ({
   show: vi.fn(),
   focus: vi.fn(),
   hide: vi.fn(),
+  wcOn: vi.fn(),
+  setWindowOpenHandler: vi.fn(),
 }));
 const isQuitting = vi.hoisted(() => vi.fn(() => false));
+const openExternal = vi.hoisted(() => vi.fn());
 
 vi.mock('electron', () => ({
   BrowserWindow: class {
@@ -16,7 +19,9 @@ vi.mock('electron', () => ({
     show = win.show;
     focus = win.focus;
     hide = win.hide;
+    webContents = { on: win.wcOn, setWindowOpenHandler: win.setWindowOpenHandler };
   },
+  shell: { openExternal },
 }));
 vi.mock('#main/lifecycle.js', () => ({ isQuitting }));
 
@@ -28,6 +33,7 @@ async function freshWindow() {
 beforeEach(() => {
   for (const fn of Object.values(win)) fn.mockReset();
   isQuitting.mockReset().mockReturnValue(false);
+  openExternal.mockReset();
 });
 
 describe('window', () => {
@@ -49,6 +55,33 @@ describe('window', () => {
 
     startQuickShare();
     expect(win.loadURL).toHaveBeenLastCalledWith(expect.stringContaining('quick_share=1'));
+  });
+
+  it('blocks cross-origin navigation and window.open, allows the app origin (F10)', async () => {
+    const { createMainWindow } = await freshWindow();
+    createMainWindow();
+
+    const appUrl = win.loadURL.mock.calls[0]?.[0] as string;
+    const appOrigin = new URL(appUrl).origin;
+
+    const willNavigate = win.wcOn.mock.calls.find(([evt]) => evt === 'will-navigate')?.[1] as (
+      e: { preventDefault: () => void },
+      url: string,
+    ) => void;
+
+    const blocked = { preventDefault: vi.fn() };
+    willNavigate(blocked, 'https://evil.example/phish');
+    expect(blocked.preventDefault).toHaveBeenCalledOnce();
+
+    const allowed = { preventDefault: vi.fn() };
+    willNavigate(allowed, `${appOrigin}/room/ABCD`);
+    expect(allowed.preventDefault).not.toHaveBeenCalled();
+
+    const openHandler = win.setWindowOpenHandler.mock.calls[0]?.[0] as (a: { url: string }) => {
+      action: string;
+    };
+    expect(openHandler({ url: 'https://example.com' })).toEqual({ action: 'deny' });
+    expect(openExternal).toHaveBeenCalledWith('https://example.com');
   });
 
   it('the close handler hides the window unless the app is really quitting', async () => {

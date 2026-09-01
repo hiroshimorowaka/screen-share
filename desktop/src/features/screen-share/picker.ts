@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { BrowserWindow, desktopCapturer, ipcMain } from 'electron';
 import type { PickerChoice, PickerSource, ShareChoice } from '#ipc/types.js';
+import { isTrustedFrame } from '#main/ipc-guard.js';
 import { getMainWindow } from '#main/window.js';
 
 export function showSourcePicker(): Promise<ShareChoice | null> {
@@ -44,8 +45,12 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         skipTaskbar: true,
         webPreferences: {
           preload: path.join(__dirname, '..', '..', 'preload.js'),
+          contextIsolation: true,
+          sandbox: true,
+          nodeIntegration: false,
         },
       });
+      pickerWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
       let settled = false;
       const settle = (choice: PickerChoice | null) => {
@@ -68,7 +73,10 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         if (!pickerWindow.isDestroyed()) pickerWindow.close();
       };
 
-      ipcMain.once('picker:selected', (_event, choice: PickerChoice) => settle(choice));
+      ipcMain.once('picker:selected', (event, choice: PickerChoice) => {
+        if (!isTrustedFrame(event)) return;
+        settle(choice);
+      });
       pickerWindow.on('closed', () => settle(null));
 
       // Delay arming "click outside closes it" slightly so the window

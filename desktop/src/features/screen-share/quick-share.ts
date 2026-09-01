@@ -1,5 +1,7 @@
 import { clipboard, ipcMain, Notification } from 'electron';
 
+import { isTrustedFrame } from '#main/ipc-guard.js';
+
 /** Copies the invite link the room page hands over once the tray's quick
  * share flow (see `main/window.ts`'s `startQuickShare`) has a stream
  * live — the room page's own window stays hidden throughout, so its
@@ -9,7 +11,9 @@ import { clipboard, ipcMain, Notification } from 'electron';
  * exactly — see the comment there for why it's a literal instead of a
  * shared import. */
 export function registerQuickShareIpcHandlers(): void {
-  ipcMain.on('desktop-share:link-ready', (_event, link: string) => {
+  ipcMain.on('desktop-share:link-ready', (event, link: string) => {
+    // Clipboard hijack / notification spoofing guard (finding F11).
+    if (!isTrustedFrame(event)) return;
     clipboard.writeText(link);
     // The room window is hidden throughout the tray's quick-share flow, so
     // an OS notification is the only way to tell the user the share is live
@@ -25,7 +29,8 @@ export function registerQuickShareIpcHandlers(): void {
   // for most of a desktop session, so an OS-level notification is the only
   // reliable way to surface this. Channel name matches `preload.ts`'s
   // `desktopShare.memberJoined` exactly.
-  ipcMain.on('desktop-share:member-joined', (_event, nick: string) => {
+  ipcMain.on('desktop-share:member-joined', (event, nick: string) => {
+    if (!isTrustedFrame(event)) return;
     if (!Notification.isSupported()) return;
     new Notification({ title: 'Screen Share', body: `${nick} entrou na sala.` }).show();
   });

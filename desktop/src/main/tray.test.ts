@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { APP_ORIGIN } from '#main/app-url.js';
+
+const FROM_APP = { senderFrame: { url: `${APP_ORIGIN}/room` } };
+
 const m = vi.hoisted(() => ({
   setToolTip: vi.fn(),
   setContextMenu: vi.fn(),
@@ -68,10 +72,10 @@ describe('createTray', () => {
       ([channel]) => channel === 'desktop-share:sharing-changed',
     )?.[1] as (event: unknown, isSharing: boolean) => void;
 
-    onSharingChanged({}, true);
+    onSharingChanged(FROM_APP, true);
     expect(m.setImage).toHaveBeenLastCalledWith(expect.stringContaining('tray-live.png'));
 
-    onSharingChanged({}, false);
+    onSharingChanged(FROM_APP, false);
     expect(m.setImage).toHaveBeenLastCalledWith(expect.stringContaining('tray-idle.png'));
   });
 });
