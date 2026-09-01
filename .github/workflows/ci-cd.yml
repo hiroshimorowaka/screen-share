@@ -307,7 +307,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pinned to a commit SHA, not the mutable @master ref: this job holds
+      # FLY_API_TOKEN, so a compromise of the action's default branch must
+      # not be able to run arbitrary code here (finding F17). SHA is v1.6.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
       - run: flyctl deploy --remote-only
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -4,7 +4,7 @@
   "description": "Desktop app for Screen Share — persistent, password-protected screen sharing rooms with system audio.",
   "author": {
     "name": "hiroshimorowaka",
-    "email": "guilhermecabral1204@gmail.com"
+    "url": "https://github.com/hiroshimorowaka"
   },
   "homepage": "https://github.com/hiroshimorowaka/screen-share",
   "private": true,
