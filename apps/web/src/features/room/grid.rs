@@ -2,46 +2,6 @@ use leptos::prelude::*;
 
 use crate::session::RoomMember;
 
-/// Registers `callback` as a `window` listener for `event` and tears it
-/// down — removing the listener and dropping the `Closure` — when the
-/// current reactive owner (`RoomPage`) is disposed.
-///
-/// Replaces the `add_event_listener(...) + Closure::forget()` pattern,
-/// which leaked the listener past the room page: after leaving the room
-/// the next `mousemove` / `resize` reached a signal that had already been
-/// disposed and panicked (`reactive_graph` "already been disposed").
-#[cfg(feature = "hydrate")]
-fn window_listener_until_cleanup(
-    event: &'static str,
-    callback: wasm_bindgen::prelude::Closure<dyn FnMut()>,
-) {
-    use send_wrapper::SendWrapper;
-    use wasm_bindgen::JsCast;
-
-    let Some(window) = web_sys::window() else {
-        return;
-    };
-    // `removeEventListener` only matches the exact function object passed
-    // to `addEventListener`, so add and remove share this one ref.
-    let handler = callback
-        .as_ref()
-        .unchecked_ref::<js_sys::Function>()
-        .clone();
-    let _ = window.add_event_listener_with_callback(event, &handler);
-
-    // `on_cleanup` is `Send + Sync`-bound; these JS handles are `!Send`.
-    // `SendWrapper` is sound here — wasm is single-threaded and the
-    // wrapper panics if ever accessed off-thread.
-    let owned = SendWrapper::new((window, handler, callback));
-    on_cleanup(move || {
-        let (window, handler, callback) = owned.take();
-        let _ = window.remove_event_listener_with_callback(event, &handler);
-        // Dropped here, so the `Closure` outlives the listener by exactly
-        // the component's lifetime.
-        drop(callback);
-    });
-}
-
 #[cfg(not(feature = "hydrate"))]
 pub(super) fn setup_auto_hide_controls(
     _controls_visible: RwSignal<bool>,
@@ -123,7 +83,7 @@ pub(super) fn setup_auto_hide_controls(
             show_and_schedule_hide();
         })
     };
-    window_listener_until_cleanup("mousemove", on_move);
+    crate::infra::dom::listen_until_cleanup(&window, "mousemove", on_move);
 
     // Touch has no `mousemove`. Outside focus mode keep the (two-button)
     // bar up; entering focus mode arms the fade so the chrome gets out of
@@ -214,7 +174,13 @@ pub(super) fn setup_adaptive_grid(
         schedule_recompute();
     });
 
-    window_listener_until_cleanup("resize", Closure::<dyn FnMut()>::new(schedule_recompute));
+    if let Some(window) = web_sys::window() {
+        crate::infra::dom::listen_until_cleanup(
+            &window,
+            "resize",
+            Closure::<dyn FnMut()>::new(schedule_recompute),
+        );
+    }
 }
 
 /// Picks how many columns get each tile closest to a 16:9 rectangle, given
