@@ -12,6 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use screen_share::app::{shell, App};
+    use screen_share_signaling::handshake::HandshakeConfig;
     use screen_share_signaling::registry::Registry;
     use screen_share_signaling::rooms_status::room_status_handler;
     use screen_share_signaling::state::SignalingState;
@@ -35,6 +36,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let signaling_state = SignalingState {
         registry: Registry::new(),
         turn,
+        handshake: HandshakeConfig::from_env(),
     };
     let signaling_router = Router::new()
         .route("/ws", get(ws_handler))
@@ -52,7 +54,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     log!("listening on http://{}", &addr);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
-    axum::serve(listener, app.into_make_service()).await?;
+    // `with_connect_info` so the signaling handler can read the real TCP
+    // peer address (see `HandshakeConfig::client_key`).
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await?;
     Ok(())
 }
 

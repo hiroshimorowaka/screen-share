@@ -4,12 +4,14 @@ use screen_share_signaling::registry::MAX_PASSWORD_ATTEMPTS;
 use screen_share_signaling::turn::TurnConfig;
 use tokio_tungstenite::tungstenite::Message;
 
+use screen_share_signaling::handshake::HandshakeConfig;
+
 async fn spawn_test_server() -> String {
     spawn_test_server_with_turn(None).await
 }
 
 async fn spawn_test_server_with_turn(turn: Option<TurnConfig>) -> String {
-    let (url, _registry) = spawn_test_server_returning_registry(turn).await;
+    let (url, _registry) = spawn_test_server_full(turn, HandshakeConfig::permissive()).await;
     url
 }
 
@@ -19,6 +21,15 @@ async fn spawn_test_server_with_turn(turn: Option<TurnConfig>) -> String {
 async fn spawn_test_server_returning_registry(
     turn: Option<TurnConfig>,
 ) -> (String, screen_share_signaling::registry::Registry) {
+    spawn_test_server_full(turn, HandshakeConfig::permissive()).await
+}
+
+async fn spawn_test_server_full(
+    turn: Option<TurnConfig>,
+    handshake: HandshakeConfig,
+) -> (String, screen_share_signaling::registry::Registry) {
+    use std::net::SocketAddr;
+
     use axum::routing::get;
     use axum::Router;
     use screen_share_signaling::registry::Registry;
@@ -29,6 +40,7 @@ async fn spawn_test_server_returning_registry(
     let signaling_state = SignalingState {
         registry: registry.clone(),
         turn,
+        handshake,
     };
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -38,9 +50,12 @@ async fn spawn_test_server_returning_registry(
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     (format!("ws://{addr}/ws"), registry)
@@ -816,4 +831,30 @@ async fn a_frame_over_the_size_limit_closes_the_connection() {
         Err(_) => false,
     };
     assert!(closed, "an oversized frame must close the signaling socket");
+}
+
+#[tokio::test]
+async fn handshake_is_rejected_from_an_origin_not_on_the_allowlist() {
+    use screen_share_signaling::handshake::OriginPolicy;
+    use tokio_tungstenite::tungstenite::http::Uri;
+    use tokio_tungstenite::tungstenite::ClientRequestBuilder;
+
+    let (url, _registry) = spawn_test_server_full(
+        None,
+        HandshakeConfig::new(OriginPolicy::parse(Some("https://app.example")), false),
+    )
+    .await;
+    let uri: Uri = url.parse().unwrap();
+
+    let evil = ClientRequestBuilder::new(uri.clone()).with_header("Origin", "https://evil.example");
+    assert!(
+        tokio_tungstenite::connect_async(evil).await.is_err(),
+        "a cross-origin handshake must not upgrade"
+    );
+
+    let allowed = ClientRequestBuilder::new(uri).with_header("Origin", "https://app.example");
+    assert!(
+        tokio_tungstenite::connect_async(allowed).await.is_ok(),
+        "the app's own origin must still upgrade"
+    );
 }

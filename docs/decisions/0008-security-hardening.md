@@ -102,3 +102,30 @@ these values.
 Not done here (ops, not code): provisioning the Windows signing
 certificate in CI. Until that lands, packaged Windows auto-update is
 inert by design rather than insecure.
+
+### F05 / F09 — `/ws` handshake: `Origin` allowlist and trusted-proxy client key
+
+New module `signaling::handshake` (`HandshakeConfig`, `OriginPolicy`),
+read once from the environment and carried in `SignalingState`:
+
+- **F05** — `SIGNALING_ALLOWED_ORIGINS` (comma-separated). When set, a
+  `/ws` upgrade whose `Origin` isn't on the list gets `403` before any
+  signaling runs; a request with no `Origin` (native clients) still
+  passes. Unset ⇒ `AllowAll` (local dev, and any deployment that hasn't
+  opted in). `fly.toml` sets it to the app's own origin. This is defence
+  in depth, not auth.
+- **F09** — `client_key` (the wrong-password lockout / per-client room
+  cap key) no longer blindly trusts `fly-client-ip`. It's used only when
+  `TRUST_PROXY_HEADERS` is truthy (set in `fly.toml`, since Fly's edge
+  overwrites the header); otherwise, and whenever the header is absent,
+  the real TCP peer address is used. The old `"unknown"` shared-constant
+  fallback is gone — off-Fly, a client can no longer rotate a spoofed
+  header to escape the lockout, nor can an absent header collapse every
+  client onto one bucket and lock a room for everyone.
+
+`ws_handler` now also extracts `ConnectInfo<SocketAddr>`, so the server is
+served with `into_make_service_with_connect_info`.
+
+Covered by `handshake_tests.rs` (parsing, origin decisions, client-key
+selection) and a `signaling_ws` integration test (cross-origin handshake
+refused, app origin accepted).

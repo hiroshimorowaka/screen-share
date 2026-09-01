@@ -7,9 +7,12 @@ use screen_share_signaling::state::SignalingState;
 use screen_share_signaling::ws::ws_handler;
 
 async fn spawn_test_server() -> (String, String) {
+    use screen_share_signaling::handshake::HandshakeConfig;
+
     let signaling_state = SignalingState {
         registry: Registry::new(),
         turn: None,
+        handshake: HandshakeConfig::permissive(),
     };
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -20,9 +23,12 @@ async fn spawn_test_server() -> (String, String) {
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     (format!("ws://{addr}/ws"), format!("http://{addr}"))

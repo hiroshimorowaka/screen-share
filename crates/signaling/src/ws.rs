@@ -1,13 +1,16 @@
 use std::collections::VecDeque;
 use std::time::Duration;
 
+use std::net::SocketAddr;
+
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::extract::{ConnectInfo, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use futures_util::{SinkExt, StreamExt};
 use tokio::time::Instant;
 
+use super::handshake::HandshakeConfig;
 use super::registry::{
     member_channel, ConnectionGuard, CreateRoomError, CreateRoomRequest, JoinError, JoinRequest,
     Registry,
@@ -36,20 +39,6 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 const RATE_WINDOW: Duration = Duration::from_secs(10);
 const MAX_MSGS_PER_WINDOW: usize = 300;
 
-/// The real client IP as Fly's edge proxy sees it — unlike `X-Forwarded-For`,
-/// this header is set by Fly itself from the actual TCP connection, so a
-/// client can't spoof it by sending its own value. Used only to scope the
-/// wrong-password lockout per client (`registry::join_room`) and the
-/// per-client room cap; falls back to a constant so both still apply (just
-/// globally) when running outside Fly, e.g. local dev.
-fn client_key(headers: &HeaderMap) -> String {
-    headers
-        .get("fly-client-ip")
-        .and_then(|v| v.to_str().ok())
-        .map(str::to_owned)
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
 /// Drops timestamps older than [`RATE_WINDOW`] from `recent`, records
 /// `now`, and reports whether the window is now over [`MAX_MSGS_PER_WINDOW`]
 /// — i.e. whether this message pushes the connection past its rate budget.
@@ -67,15 +56,24 @@ fn over_rate_limit(recent: &mut VecDeque<Instant>, now: Instant) -> bool {
 pub async fn ws_handler(
     State(registry): State<Registry>,
     State(turn): State<Option<TurnConfig>>,
+    State(handshake): State<HandshakeConfig>,
+    ConnectInfo(peer): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     ws: WebSocketUpgrade,
 ) -> impl IntoResponse {
+    // Defence in depth: refuse a cross-origin browser handshake before it
+    // can drive any signaling. Not authentication — a non-browser client
+    // sends no `Origin` — just a barrier for the "any website you visit"
+    // attack surface.
+    if !handshake.permits_origin(&headers) {
+        return StatusCode::FORBIDDEN.into_response();
+    }
     // Claim a connection slot before upgrading so a socket flood is
     // refused at the door rather than after allocating the task.
     let Some(connection) = registry.try_acquire_connection() else {
-        return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response();
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
     };
-    let client_key = client_key(&headers);
+    let client_key = handshake.client_key(&headers, peer);
     ws.max_message_size(MAX_MESSAGE_BYTES)
         .on_upgrade(move |socket| handle_socket(socket, registry, turn, client_key, connection))
 }
