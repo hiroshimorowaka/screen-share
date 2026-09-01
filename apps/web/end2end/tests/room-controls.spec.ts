@@ -151,6 +151,27 @@ test('a mouse move after leaving the room does not hit a disposed signal', async
   await anaCtx.close();
 });
 
+test('the ping loop stops after leaving the room', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida 3');
+
+  const wsErrors: string[] = [];
+  ana.on('console', (msg) => {
+    if (msg.text().includes('CLOSING or CLOSED')) wsErrors.push(msg.text());
+  });
+
+  await ana.getByRole('button', { name: 'Sair da sala' }).click();
+  await expect(ana).toHaveURL(/\/$/);
+
+  // The self-ping interval fires every 5s; if it outlives the room it
+  // calls `WsClient::send` on the closed socket.
+  await ana.waitForTimeout(6000);
+
+  expect(wsErrors, wsErrors.join('\n')).toEqual([]);
+
+  await anaCtx.close();
+});
+
 test('leaving the room while sharing tears the share down and still navigates home', async ({
   browser,
 }) => {
