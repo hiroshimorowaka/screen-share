@@ -144,6 +144,61 @@ test('switching to an audio-less source updates the audio chip', async ({ browse
   await anaCtx.close();
 });
 
+test('a source switch that gains audio reaches a watcher without them re-watching', async ({
+  browser,
+}) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+  // First getDisplayMedia strips the audio track (share starts silent);
+  // the second keeps it (switched to a shared "tab" with audio).
+  await anaCtx.addInitScript(() => {
+    const devices = navigator.mediaDevices;
+    const original = devices.getDisplayMedia.bind(devices);
+    let call = 0;
+    devices.getDisplayMedia = async (...args: Parameters<typeof original>) => {
+      const stream = await original(...args);
+      if (++call < 2) {
+        for (const track of stream.getAudioTracks()) {
+          track.stop();
+          stream.removeTrack(track);
+        }
+      }
+      return stream;
+    };
+  });
+  const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala troca audio');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+
+  await startSharing(ana);
+  await watchSharer(bob, 'Ana');
+
+  // Bob is watching a silent share; a live, unmuted audio track only
+  // appears on his received stream after Ana switches source — and it must
+  // arrive without him stopping and restarting the watch.
+  const receivedAudio = () =>
+    memberCard(bob, 'Ana')
+      .locator('video')
+      .nth(1)
+      .evaluate((v: HTMLVideoElement) => {
+        const [audio] = (v.srcObject as MediaStream | null)?.getAudioTracks() ?? [];
+        return { present: !!audio, muted: audio?.muted ?? true };
+      });
+
+  await ana.getByRole('button', { name: SWITCH_SOURCE }).click();
+  await expect(ana.locator('.share-chip')).toBeVisible();
+
+  await expect
+    .poll(receivedAudio, { timeout: MEDIA_SETTLE_MS })
+    .toEqual({ present: true, muted: false });
+  // Video keeps decoding across the switch.
+  await expect
+    .poll(async () => (await videoState(bob, 'Ana')).readyState, { timeout: MEDIA_SETTLE_MS })
+    .toBeGreaterThanOrEqual(2);
+
+  await anaCtx.close();
+  await bobCtx.close();
+});
+
 test('leaving the room navigates back to the home page', async ({ browser }) => {
   const anaCtx = await browser.newContext();
   const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida');

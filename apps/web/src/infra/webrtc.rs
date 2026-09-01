@@ -429,6 +429,29 @@ pub fn new_peer_connection(
     RtcPeerConnection::new_with_configuration(&config)
 }
 
+/// Negotiates a `sendonly` audio m-line on `pc` up front, with no track,
+/// tied to `stream` (the share's video stream).
+///
+/// Used when a share starts without audio. A later "trocar fonte" can add
+/// audio (a shared tab with sound, or the desktop system-audio loopback),
+/// and `session::media::replace_outgoing_tracks` swaps it in with
+/// `RTCRtpSender.replaceTrack` — which needs no renegotiation, but only
+/// reaches an m-line that already existed when the connection was
+/// answered. This signaling path never re-offers an open viewer
+/// connection, so without this reservation a viewer already watching a
+/// silent share would stay silent after the switch until they re-watched.
+/// Binding it to `stream` makes the viewer group the eventual audio track
+/// with the video it is already playing, so `ontrack` doesn't need a
+/// second stream to attach.
+pub fn reserve_audio_mline(pc: &RtcPeerConnection, stream: &MediaStream) {
+    let streams = js_sys::Array::new();
+    streams.push(stream);
+    let init = web_sys::RtcRtpTransceiverInit::new();
+    init.set_direction(web_sys::RtcRtpTransceiverDirection::Sendonly);
+    init.set_streams(&streams);
+    pc.add_transceiver_with_str_and_init("audio", &init);
+}
+
 pub async fn create_offer(pc: &RtcPeerConnection) -> Result<String, JsValue> {
     let offer = JsFuture::from(pc.create_offer()).await?;
     let sdp = js_sys::Reflect::get(&offer, &JsValue::from_str("sdp"))?

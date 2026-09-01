@@ -458,9 +458,20 @@ pub(crate) fn build_message_handler(
                 });
 
                 if let Some(stream) = conn.local_stream.borrow().as_ref() {
+                    let mut shares_audio = false;
                     for track in stream.get_tracks().iter() {
                         let track: web_sys::MediaStreamTrack = track.unchecked_into();
+                        if track.kind() == "audio" {
+                            shares_audio = true;
+                        }
                         pc.add_track_0(&track, stream);
+                    }
+                    // A silent share can gain audio later via "trocar fonte";
+                    // reserve the audio m-line now so `replace_outgoing_tracks`
+                    // can swap that track in without a renegotiation this path
+                    // never does (see `reserve_audio_mline`).
+                    if !shares_audio {
+                        crate::infra::webrtc::reserve_audio_mline(&pc, stream);
                     }
                 }
 

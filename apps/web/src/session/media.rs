@@ -255,6 +255,11 @@ fn video_and_audio_tracks(
 /// switch that drops audio must actually stop sending it, not leave the
 /// old (now stopped) track on the wire. Returns how many senders changed.
 /// Sender encoding params (tier, audio preset) survive `replaceTrack`.
+///
+/// Iterates transceivers, not `getSenders()`, so the still-track-less
+/// audio m-line reserved by `webrtc::reserve_audio_mline` (a share that
+/// started silent) is matched too — that's the sender a switch that
+/// *gains* audio must fill.
 #[cfg(feature = "hydrate")]
 pub(crate) async fn replace_outgoing_tracks(
     conn: &RoomSession,
@@ -270,11 +275,16 @@ pub(crate) async fn replace_outgoing_tracks(
     let mut replacements: Vec<(web_sys::RtcRtpSender, Option<web_sys::MediaStreamTrack>)> =
         Vec::new();
     for pc in conn.outgoing.borrow().values() {
-        for entry in pc.get_senders().iter() {
-            let sender: web_sys::RtcRtpSender = entry.unchecked_into();
-            let Some(kind) = sender.track().map(|t| t.kind()) else {
-                continue;
-            };
+        for entry in pc.get_transceivers().iter() {
+            let transceiver: web_sys::RtcRtpTransceiver = entry.unchecked_into();
+            let sender = transceiver.sender();
+            // The sender's own track kind once it has one, otherwise the
+            // transceiver's media kind (its receiver track always carries
+            // it) — so a reserved audio sender with no track yet still matches.
+            let kind = sender
+                .track()
+                .map(|t| t.kind())
+                .unwrap_or_else(|| transceiver.receiver().track().kind());
             match kind.as_str() {
                 "video" => replacements.push((sender, new_video.clone())),
                 "audio" => replacements.push((sender, new_audio.clone())),
