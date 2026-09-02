@@ -9,9 +9,10 @@ All 19 findings (F01–F19) addressed. Two carry a residual that is ops, not
 code, and is called out in the relevant section:
 
 - **F04 / F16** — need a certificate provisioned in CI / on the relay; the
-  code and config paths are in place and inert until then.
-- **F12** — the CSP must be smoke-tested in a real browser before it is
-  trusted; that was not possible in the environment this work was done in.
+  code and config paths are in place and inert until then. Explicitly
+  deferred 2026-09-02 — see "Deferred (ops, not code)".
+- **F12** — the CSP real-browser smoke test is now automated
+  (`apps/web/end2end/tests/security.spec.ts`); see the A-02 follow-up.
 
 F14 is a documented risk acceptance (the audit offers this, gated on the
 F12 CSP being in place).
@@ -535,14 +536,26 @@ were previously unbounded. New deps: `tower` (`limit`) and `tower-http`
 ### Deferred (ops, not code)
 
 - **coturn version** — taken unpinned from bookworm (pinning an exact
-  apt version breaks on the next Debian point release). Needs a
-  scheduled image rebuild + redeploy so coturn security fixes land; the
-  `--denied-peer-ip` hardening bounds the blast radius until then. Noted
-  in `Dockerfile`.
-- **CI action SHA-pinning** — `actions/*@v4` etc. are tag-pinned, not
-  SHA-pinned (only the flyctl action is, via F17). Worth doing with a
-  tool that resolves tag→SHA (`pinact` / `ratchet`) and a review of the
-  result; not done blind here.
+  apt version breaks on the next Debian point release). *Resolved by
+  A-03* (`.github/workflows/redeploy-scheduled.yml`).
+- **CI action SHA-pinning** — *resolved by A-04*; every third-party
+  action is now `@<sha> # vN`.
+- **F04 — Windows code-signing certificate.** `verifyUpdateCodeSignature`
+  is `true`, so Windows auto-update only *applies* an update whose
+  installer is Authenticode-signed by the same publisher. CI does not yet
+  supply `CSC_LINK` / `CSC_KEY_PASSWORD` (a modern OV/EV cert needs a
+  cloud HSM — Azure Trusted Signing or DigiCert KeyLocker / SSL.com
+  eSigner — not a `.pfx` in a secret). Until then: an unsigned Windows
+  build still installs and runs, it simply never self-updates (the safe
+  failure mode); Linux packages are unaffected. Explicitly deferred
+  2026-09-02.
+- **F16 — TURN control channel over TLS.** The `turns:` listener is wired
+  and inert (`--no-tls --no-dtls` without `TURN_TLS_CERT` /
+  `TURN_TLS_KEY`). Closing it needs a hostname pointed at the Fly
+  dedicated IP, a Let's Encrypt cert via DNS-01, a mount into the VM, and
+  90-day renewal automation. The media is always SRTP-encrypted; only the
+  control channel (temp credential + candidate addresses) is plaintext,
+  so this is defence in depth. Explicitly deferred 2026-09-02.
 
 ## Re-audit follow-up (2026-09-02)
 
@@ -608,6 +621,53 @@ F14 named that CSP as the reason it was safe to keep the room password in
 (`the_hydration_bootstrap_script_carries_the_csp_nonce`) that renders a
 real Leptos route through the middleware and asserts the inline
 `<script>` nonce equals the CSP header's, plus a per-response freshness
-check. A real-browser smoke test (create / join / watch, no CSP
-violations logged) is still the final gate before trusting this in
-production, same caveat as the original F12.
+check.
+
+The real-browser smoke test the original F12 (and A-02) called for is now
+automated: `apps/web/end2end/tests/security.spec.ts` runs the two-context
+create / join / share / watch flow with a `securitypolicyviolation`
+listener (installed via `addInitScript`) plus a console-message filter,
+and asserts nothing was refused — the page hydrated, the wasm module and
+fonts loaded, and the signaling socket connected under the nonce CSP.
+That suite runs headed under xvfb in the `e2e-web` CI job. The dev server
+uses the non-PROD CSP variant (it allows plaintext `ws:`); the PROD-only
+tightening is still covered by the `http_security.rs` unit tests.
+
+### A-03 — scheduled image rebuild so an unpinned coturn doesn't rot
+
+`.github/workflows/redeploy-scheduled.yml`: a monthly `flyctl deploy
+--remote-only --no-cache` (plus `workflow_dispatch`). `--no-cache` forces
+the Dockerfile's `apt-get install coturn` layer to re-resolve, so coturn
+security fixes from `debian:bookworm-slim` land without waiting for the
+next code change. Uses the same `FLY_API_TOKEN` secret as `deploy-web`.
+Closes the first "Deferred (ops, not code)" item.
+
+### A-04 — GitHub Actions pinned to commit SHAs
+
+Every third-party action in `ci-cd.yml` / `quality-scheduled.yml` /
+`redeploy-scheduled.yml` (`actions/*`, `codecov/*`, `dorny/*`, `pnpm/*`,
+`softprops/*`, `Swatinem/*`, `taiki-e/*`, `browser-actions/*`) is now
+`…@<40-char-sha> # vN` instead of a movable tag, matching what F17
+already did for `superfly/flyctl-actions`. `dtolnay/rust-toolchain@stable`
+is deliberately left on its branch ref — it is a rolling alias for "the
+current stable toolchain" by design, and pinning it would freeze the
+Rust version. Local `./.github/actions/*` composite actions are in-repo,
+so they need no pin. Re-pin with a tag→SHA resolver (`pinact` / `gh api
+repos/<a>/commits/<tag>`) when bumping a major.
+
+### A-05 — per-client rate limit on the SSR routes
+
+`http_limits::apply` bounds only *aggregate* concurrency (64), so a
+single source could still monopolise every render slot. New
+`http_limits::apply_rate_limit` adds an `axum::middleware::from_fn`
+sliding-window limiter (`MAX_SSR_REQUESTS_PER_WINDOW` = 240 /
+`SSR_RATE_WINDOW` = 10 s), keyed by the *same* client identity as the WS
+and `/api/rooms/:code` limiters (`HandshakeConfig::client_key` — the
+forwarded IP behind a trusted proxy, the real TCP peer otherwise), with
+the `RoomStatusLimiter`-style `MAX_TRACKED_SSR_CLIENTS` sweep. Ordered
+outermost in `main.rs` so a flood is shed with a `429` before it takes a
+concurrency permit or starts a render. The budget is deliberately loose
+(a cold page load is a handful of requests) — it is a ceiling, not a
+throttle. Covered by
+`a_client_over_the_ssr_request_budget_gets_429_and_other_clients_are_unaffected`
+in `apps/web/tests/http_limits.rs`.
