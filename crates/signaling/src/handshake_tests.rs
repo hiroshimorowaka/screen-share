@@ -73,14 +73,36 @@ fn client_key_uses_the_peer_ip_when_proxy_headers_are_not_trusted() {
 }
 
 #[test]
-fn client_key_uses_the_forwarded_ip_only_when_proxy_headers_are_trusted() {
+fn client_key_uses_the_forwarded_ip_when_trusted_and_the_peer_is_the_fly_edge() {
+    let config = HandshakeConfig::new(OriginPolicy::AllowAll, true);
+    // A genuine forwarded request arrives from Fly's private network.
+    for edge in [
+        [127, 0, 0, 1],
+        [172, 16, 0, 3],
+        [10, 1, 2, 3],
+        [169, 254, 0, 5],
+    ] {
+        assert_eq!(
+            config.client_key(&headers(&[("fly-client-ip", "203.0.113.9")]), peer(edge)),
+            "203.0.113.9",
+            "the forwarded IP is the key when the peer is internal"
+        );
+    }
+}
+
+#[test]
+fn client_key_ignores_the_forwarded_ip_when_the_peer_is_public() {
+    // The image running outside Fly (or behind a proxy that passes a
+    // client-supplied header) — the TCP peer is a public address, so the
+    // header can't be believed and must not become the rate-limit key
+    // (finding F10).
     let config = HandshakeConfig::new(OriginPolicy::AllowAll, true);
     assert_eq!(
         config.client_key(
             &headers(&[("fly-client-ip", "203.0.113.9")]),
             peer([198, 51, 100, 7])
         ),
-        "203.0.113.9"
+        "198.51.100.7"
     );
 }
 
@@ -88,8 +110,8 @@ fn client_key_uses_the_forwarded_ip_only_when_proxy_headers_are_trusted() {
 fn client_key_falls_back_to_the_peer_ip_when_the_trusted_header_is_absent() {
     let config = HandshakeConfig::new(OriginPolicy::AllowAll, true);
     assert_eq!(
-        config.client_key(&HeaderMap::new(), peer([198, 51, 100, 7])),
-        "198.51.100.7",
+        config.client_key(&HeaderMap::new(), peer([127, 0, 0, 1])),
+        "127.0.0.1",
         "an absent header must not collapse clients onto one shared key"
     );
 }

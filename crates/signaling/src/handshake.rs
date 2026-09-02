@@ -7,7 +7,7 @@
 //! are defence in depth (OWASP's WebSocket guidance) and a correctness
 //! fix for the rate-limit key.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use axum::http::HeaderMap;
 
@@ -116,8 +116,17 @@ impl HandshakeConfig {
     /// scoped to: the forwarded client IP when proxy headers are trusted
     /// and present, otherwise the real TCP peer address. Never a shared
     /// constant.
+    ///
+    /// `fly-client-ip` is only honoured when the TCP peer is itself
+    /// loopback or in a private/link-local range (finding F10). Fly
+    /// delivers every edge request from its internal network, so a
+    /// genuine forwarded request always has a private/loopback peer; a
+    /// public peer address means the header is attacker-controlled (the
+    /// image running somewhere else, or a misconfigured front proxy), and
+    /// trusting it would let one source rotate the header to sidestep
+    /// every per-client limit.
     pub fn client_key(&self, headers: &HeaderMap, peer: SocketAddr) -> String {
-        if self.trust_proxy_headers {
+        if self.trust_proxy_headers && is_internal_peer(peer.ip()) {
             if let Some(ip) = headers.get("fly-client-ip").and_then(|v| v.to_str().ok()) {
                 if !ip.is_empty() {
                     return ip.to_owned();
@@ -125,6 +134,22 @@ impl HandshakeConfig {
             }
         }
         peer.ip().to_string()
+    }
+}
+
+/// Whether `ip` belongs to a range Fly's edge would connect *from* — i.e.
+/// a peer we can believe when it forwards a `fly-client-ip`. Covers
+/// loopback, the RFC1918 / RFC3927 IPv4 ranges, and IPv6 loopback,
+/// unique-local (`fc00::/7`) and link-local (`fe80::/10`). The IPv6 masks
+/// are spelled out rather than using the still-unstable `Ipv6Addr`
+/// helpers.
+fn is_internal_peer(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(v4) => v4.is_loopback() || v4.is_private() || v4.is_link_local(),
+        IpAddr::V6(v6) => {
+            let first = v6.segments()[0];
+            v6.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80
+        }
     }
 }
 
