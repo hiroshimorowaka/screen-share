@@ -350,8 +350,15 @@ pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
     JsFuture::from(promise).await?;
     // The native side has stopped emitting PCM chunks now, so the bridge
     // listener (and the writer + generator it owns) can be released
-    // instead of leaking until the tab closes (finding F08b).
+    // instead of leaking until the tab closes (finding F08b). Also drop
+    // the preload's `ipcRenderer` listener for the channel if the shell
+    // exposes the hook (finding 8c of the follow-up audit).
     PCM_BRIDGE_CALLBACK.with(|slot| slot.borrow_mut().take());
+    if let Ok(off_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("offPcmChunk")) {
+        if let Ok(off_fn) = off_fn.dyn_into::<js_sys::Function>() {
+            let _ = off_fn.call0(&desktop_audio);
+        }
+    }
     Ok(())
 }
 
