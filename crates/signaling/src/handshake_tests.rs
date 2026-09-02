@@ -2,7 +2,7 @@
 //! and check private behaviour) split out of src/handshake.rs like
 //! `turn_tests.rs`.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use axum::http::{HeaderMap, HeaderName};
 
@@ -21,6 +21,10 @@ fn headers(pairs: &[(&str, &str)]) -> HeaderMap {
 
 fn peer(ip: [u8; 4]) -> SocketAddr {
     SocketAddr::new(IpAddr::V4(Ipv4Addr::from(ip)), 40000)
+}
+
+fn peer6(ip: &str) -> SocketAddr {
+    SocketAddr::new(IpAddr::V6(ip.parse::<Ipv6Addr>().unwrap()), 40000)
 }
 
 #[test]
@@ -86,6 +90,36 @@ fn client_key_uses_the_forwarded_ip_when_trusted_and_the_peer_is_the_fly_edge() 
             config.client_key(&headers(&[("fly-client-ip", "203.0.113.9")]), peer(edge)),
             "203.0.113.9",
             "the forwarded IP is the key when the peer is internal"
+        );
+    }
+}
+
+#[test]
+fn client_key_treats_ipv6_ula_link_local_and_loopback_peers_as_internal() {
+    let config = HandshakeConfig::new(OriginPolicy::AllowAll, true);
+    // fdaa::/16 (Fly's 6PN, inside fc00::/7), fe80::/10 link-local, ::1.
+    for internal in ["fdaa::1", "fc00::1", "fe80::abcd", "::1"] {
+        assert_eq!(
+            config.client_key(
+                &headers(&[("fly-client-ip", "203.0.113.9")]),
+                peer6(internal)
+            ),
+            "203.0.113.9",
+            "{internal} is an internal peer, so the forwarded IP is the key"
+        );
+    }
+}
+
+#[test]
+fn client_key_ignores_the_forwarded_ip_when_the_ipv6_peer_is_public() {
+    let config = HandshakeConfig::new(OriginPolicy::AllowAll, true);
+    // 2000::/3 global unicast — not ULA, not link-local, not loopback.
+    for public in ["2001:db8::1", "2606:4700::1111"] {
+        let expected = public.parse::<Ipv6Addr>().unwrap().to_string();
+        assert_eq!(
+            config.client_key(&headers(&[("fly-client-ip", "203.0.113.9")]), peer6(public)),
+            expected,
+            "a public IPv6 peer means the header can't be trusted"
         );
     }
 }
