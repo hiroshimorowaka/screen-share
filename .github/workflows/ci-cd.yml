@@ -45,8 +45,8 @@ jobs:
       web: ${{ steps.decide.outputs.web }}
       desktop: ${{ steps.decide.outputs.desktop }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: dorny/paths-filter@0e4a8c6effa4802afeda77dc8d303f8176d7dfad # v3
         id: filter
         # Skipped only for manual runs, which have no diff base; `push` and
         # `pull_request` both get path-filtered so a desktop-only change
@@ -86,7 +86,7 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
@@ -107,7 +107,7 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-rust
         with:
           components: llvm-tools-preview
@@ -125,13 +125,13 @@ jobs:
           cargo llvm-cov --workspace --features ssr --lcov --output-path lcov-rust.info
           --ignore-filename-regex 'apps/web/src/(main|app)\.rs$|features/room/dev_preview\.rs$|components/icons\.rs$'
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-rust
           path: lcov-rust.info
       - if: always()
         continue-on-error: true # coverage is informational; never fail CI on upload
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: lcov-rust.info
           flags: rust
@@ -146,7 +146,7 @@ jobs:
     if: needs.changes.outputs.web == 'true' && github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-unknown-unknown
@@ -154,7 +154,7 @@ jobs:
           # binary named by `.cargo/config.toml`; version must equal the
           # `wasm-bindgen` crate in Cargo.lock.
           tool: wasm-bindgen-cli@0.2.127
-      - uses: browser-actions/setup-chrome@v1
+      - uses: browser-actions/setup-chrome@c785b87e244131f27c9f19c1a33e2ead956ab7ce # v1
         id: chrome
         with:
           install-chromedriver: true
@@ -176,14 +176,14 @@ jobs:
     if: needs.changes.outputs.web == 'true' && github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-rust
         with:
           # `cargo leptos serve` (Playwright's webServer) builds the wasm
           # front end too.
           targets: wasm32-unknown-unknown
           tool: cargo-leptos
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -200,7 +200,7 @@ jobs:
       - run: xvfb-run -a npm test
         working-directory: apps/web/end2end
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-web-report
           path: apps/web/end2end/playwright-report/
@@ -217,7 +217,7 @@ jobs:
     if: needs.changes.outputs.web == 'true' && github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-rust
@@ -245,7 +245,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mutants-incremental
           path: mutants.out/
@@ -260,7 +260,7 @@ jobs:
     # `mutants-full-app` sweep reaches zero survivors.
     continue-on-error: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0
       - uses: ./.github/actions/setup-rust
@@ -295,7 +295,7 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mutants-incremental-app
           path: mutants.out/
@@ -306,7 +306,7 @@ jobs:
     if: needs.changes.outputs.web == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # Pinned to a commit SHA, not the mutable @master ref: this job holds
       # FLY_API_TOKEN, so a compromise of the action's default branch must
       # not be able to run arbitrary code here (finding F17). SHA is v1.6.
@@ -323,7 +323,7 @@ jobs:
     if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           fetch-depth: 0 # StrykerJS `--since` needs the base branch
       # Every PR that touches desktop/ must bump the version in
@@ -357,13 +357,13 @@ jobs:
       - run: pnpm run test:cov  # Vitest (`electron` mocked) + v8 coverage
         working-directory: desktop
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-desktop
           path: desktop/coverage/lcov.info
       - if: always()
         continue-on-error: true
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5
         with:
           files: desktop/coverage/lcov.info
           flags: desktop
@@ -383,7 +383,7 @@ jobs:
     if: needs.changes.outputs.desktop == 'true' && github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-desktop
       # `_electron` drives the app's own bundled Electron (no browser
       # download) — this only pulls the shared libraries it needs.
@@ -392,7 +392,7 @@ jobs:
       - run: xvfb-run -a pnpm run test:e2e
         working-directory: desktop
       - if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: playwright-desktop-report
           path: desktop/playwright-report/
@@ -407,7 +407,7 @@ jobs:
     if: needs.changes.outputs.desktop == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       # electron-builder runs appimagetool (itself shipped as an AppImage)
       # to produce the .AppImage target — that needs FUSE to run at all.
       - run: sudo apt-get update && sudo apt-get install -y libfuse2
@@ -416,7 +416,7 @@ jobs:
       # this job only packages.
       - run: pnpm run dist:linux
         working-directory: desktop
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-linux
           path: |
@@ -430,7 +430,7 @@ jobs:
     if: needs.changes.outputs.desktop == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: ./.github/actions/setup-rust
         with:
           targets: x86_64-pc-windows-msvc
@@ -463,7 +463,7 @@ jobs:
         run: pnpm run dist:win
         working-directory: desktop
       - if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: desktop-windows
           # `latest.yml` is electron-updater's Windows update feed — it has
@@ -485,8 +485,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           pattern: desktop-*
           path: dist-artifacts
@@ -504,7 +504,7 @@ jobs:
           # dropped), written in plain Portuguese for end users.
           awk '/^## /{ if (seen) exit; seen=1; next } seen' desktop/CHANGELOG.md > release-notes.md
           printf '\n---\nInstaladores gerados automaticamente do commit %s em `main`.\n' "${{ github.sha }}" >> release-notes.md
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: desktop-v${{ steps.meta.outputs.version }}
           name: Screen Share Desktop v${{ steps.meta.outputs.version }}
