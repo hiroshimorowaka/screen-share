@@ -425,3 +425,43 @@ instead.
 `device_id` is empty (the web client's `ensure_device_id` returns `""` on
 every failure path), so two locked-down browsers joining a public room no
 longer kick each other.
+
+### Finding 6 — Electron permission handler
+
+The desktop renderer loads a remote origin and had no
+`setPermissionRequestHandler` / `setPermissionCheckHandler`, so a
+compromised app origin could prompt for `getUserMedia`, geolocation,
+notifications, etc. New `main/permissions.ts` (`lockDownPermissions`,
+called from `whenReady`) denies every request and every check. Screen
+capture is unaffected — it goes through `setDisplayMediaRequestHandler`.
+
+### Finding 7 — audio loopback torn down when the renderer goes away
+
+`audioSession` / `activeSession` were only cleared by an explicit
+`stop-audio-loopback`, the mix process exiting, or `before-quit`. A
+quick-share `loadURL`, a reload, or a renderer crash orphaned
+`pw-loopback` / the WASAPI capture, its 1 s poll and its `pw-link`s (and
+on Windows kept `desktop-audio-pcm-chunk` firing at a dead frame).
+`window.ts` now calls `stopAudioLoopbackNow()` on the main
+`webContents`'s `did-start-navigation` (main frame, cross-document),
+`destroyed`, and `render-process-gone`.
+
+### Finding 8c / 8d — accumulating IPC listeners
+
+- `preload.ts`: `picker.onSources` switched to `ipcRenderer.once`
+  (`picker:sources` is sent once per window); `desktopAudio.onPcmChunk`
+  now `removeAllListeners` before re-adding (it runs in the persistent
+  main-window preload, once per Windows share) and exposes `offPcmChunk`.
+- `screen-share/picker.ts`: the `ipcMain.once('picker:selected', …)`
+  handler is captured in a named const and `removeListener`'d in
+  `settle`, so a dismissed (never-selected) picker doesn't leak one
+  `ipcMain` listener per cancellation.
+
+### Finding 13 — `isTrustedFrame` and picker window hardening
+
+`isTrustedFrame` trusted **any** `file://` URL. It now matches the
+picker's exact file URL (`PICKER_FILE_URL`, shared via the new
+`features/screen-share/picker-page.ts`). The picker `BrowserWindow` also
+gains `devTools: !app.isPackaged` and the main window's `lockNavigation`
+(`will-navigate` / `will-redirect` / `window.open` guards), which
+`window.ts` now exports.
