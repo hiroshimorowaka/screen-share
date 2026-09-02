@@ -115,6 +115,9 @@ ssr = [
     "dep:leptos_axum",
     "dep:screen-share-signaling",
     "leptos/ssr",
+    # Per-request CSP nonce on the inline hydration bootstrap, so
+    # `script-src` can drop `'unsafe-inline'` (see `http_security`).
+    "leptos/nonce",
     "leptos_meta/ssr",
     "leptos_router/ssr",
 ]

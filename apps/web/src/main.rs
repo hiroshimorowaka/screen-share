@@ -51,11 +51,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .with_state(signaling_state);
 
     let leptos_router = Router::new()
-        .leptos_routes(&leptos_options, routes, {
-            let leptos_options = leptos_options.clone();
-            move || shell(leptos_options.clone())
-        })
-        .fallback(leptos_axum::file_and_error_handler(shell))
+        // `_with_context(provide_request_nonce)` on both the routes and the
+        // fallback so every SSR render re-publishes the CSP nonce the
+        // `http_security` middleware minted for this request — the inline
+        // hydration `<script>` then matches `script-src 'nonce-…'` (F12
+        // follow-up: `script-src` no longer carries `'unsafe-inline'`).
+        .leptos_routes_with_context(
+            &leptos_options,
+            routes,
+            http_security::provide_request_nonce,
+            {
+                let leptos_options = leptos_options.clone();
+                move || shell(leptos_options.clone())
+            },
+        )
+        .fallback(leptos_axum::file_and_error_handler_with_context(
+            http_security::provide_request_nonce,
+            shell,
+        ))
         .with_state(leptos_options);
 
     let app = http_limits::apply(leptos_router)

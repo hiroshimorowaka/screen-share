@@ -6,37 +6,45 @@ use axum::extract::{Request, State};
 use axum::http::{header::HeaderName, HeaderValue};
 use axum::middleware::Next;
 use axum::response::Response;
+use leptos::nonce::Nonce;
 
-/// Directives are deliberately loose where the stack needs it:
-///
-/// - `script-src` includes `'wasm-unsafe-eval'` (the wasm-bindgen module)
-///   and `'unsafe-inline'` — `leptos_meta::HydrationScripts` emits an
-///   inline `<script type="module">` bootstrap with no nonce (the `leptos`
-///   `nonce` feature isn't enabled), which a nonce-less / hash-less
-///   `script-src` would block, leaving the page un-hydrated. Tightening
-///   this to a per-request nonce is a follow-up.
-/// - `style-src` includes `'unsafe-inline'` for Leptos's
-///   `style="--member: …"` bindings, plus the Google Fonts stylesheet
-///   host (see `app.rs` `shell`).
-///
-/// Everything else is `'self'`.
-pub const CONTENT_SECURITY_POLICY: &str = "default-src 'self'; base-uri 'self'; \
-    object-src 'none'; frame-ancestors 'none'; form-action 'self'; \
-    img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; \
-    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
-    script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; \
-    connect-src 'self' https: wss:; media-src 'self' blob:; worker-src 'self' blob:";
+/// Request header the CSP middleware stamps with this response's nonce so
+/// the Leptos render ([`provide_request_nonce`]) can put the *same* value
+/// on the inline hydration `<script>` `leptos` emits — otherwise
+/// `script-src` (which no longer carries `'unsafe-inline'`) would block
+/// the framework's own bootstrap and the page would never hydrate.
+pub const NONCE_REQUEST_HEADER: &str = "x-csp-nonce";
 
-/// [`CONTENT_SECURITY_POLICY`] with plaintext `ws:` added to
-/// `connect-src`, used only outside production: `cargo leptos watch`
-/// serves a live-reload WebSocket on a second `ws://` port that the
-/// production policy would (correctly) block.
-pub const CONTENT_SECURITY_POLICY_DEV: &str = "default-src 'self'; base-uri 'self'; \
-    object-src 'none'; frame-ancestors 'none'; form-action 'self'; \
-    img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; \
-    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
-    script-src 'self' 'wasm-unsafe-eval' 'unsafe-inline'; \
-    connect-src 'self' https: wss: ws:; media-src 'self' blob:; worker-src 'self' blob:";
+/// The `Content-Security-Policy` for one response.
+///
+/// `script-src` carries a per-request `'nonce-…'` instead of
+/// `'unsafe-inline'`: the only inline script on the page is
+/// `leptos`'s `HydrationScripts` / `AutoReload` bootstrap, which now
+/// receives this nonce (see [`provide_request_nonce`]). Injected inline
+/// script no longer runs.
+///
+/// `style-src` keeps `'unsafe-inline'`: Leptos binds dynamic values
+/// through `style="--member: …"` *attributes*, and a CSP nonce only
+/// covers `<style>` / `<script>` *elements*, never a `style=` attribute.
+/// An inline style attribute can't execute script, so this is a far
+/// smaller concession than `script-src 'unsafe-inline'` was.
+///
+/// `'wasm-unsafe-eval'` stays for the wasm-bindgen module. `connect-src`
+/// gains plaintext `ws:` only outside production, for `cargo leptos
+/// watch`'s live-reload socket on a second `ws://` port that the
+/// production policy correctly blocks.
+pub fn content_security_policy(nonce: &str, dev: bool) -> String {
+    let dev_ws = if dev { " ws:" } else { "" };
+    format!(
+        "default-src 'self'; base-uri 'self'; object-src 'none'; \
+         frame-ancestors 'none'; form-action 'self'; \
+         img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; \
+         style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; \
+         script-src 'self' 'wasm-unsafe-eval' 'nonce-{nonce}'; \
+         connect-src 'self' https: wss:{dev_ws}; media-src 'self' blob:; \
+         worker-src 'self' blob:"
+    )
+}
 
 /// Two years, per HSTS preload guidance. Safe: Fly terminates TLS and
 /// `force_https` already redirects, so the app is only ever reached over
@@ -53,18 +61,11 @@ pub const STRICT_TRANSPORT_SECURITY: &str = "max-age=63072000; includeSubDomains
 pub const PERMISSIONS_POLICY: &str =
     "camera=(self), microphone=(self), geolocation=(), display-capture=(self)";
 
-/// The headers this middleware sets, as `(name, value)`. `dev` swaps in
-/// the looser CSP for `cargo leptos watch`.
-pub fn headers(dev: bool) -> [(&'static str, &'static str); 7] {
+/// The fixed (non-CSP) security headers this middleware sets, as
+/// `(name, value)`. The `Content-Security-Policy` is built per request
+/// (see [`content_security_policy`]) because it carries a fresh nonce.
+pub fn static_headers() -> [(&'static str, &'static str); 6] {
     [
-        (
-            "content-security-policy",
-            if dev {
-                CONTENT_SECURITY_POLICY_DEV
-            } else {
-                CONTENT_SECURITY_POLICY
-            },
-        ),
         ("strict-transport-security", STRICT_TRANSPORT_SECURITY),
         ("permissions-policy", PERMISSIONS_POLICY),
         ("x-content-type-options", "nosniff"),
@@ -74,17 +75,60 @@ pub fn headers(dev: bool) -> [(&'static str, &'static str); 7] {
     ]
 }
 
-/// `axum::middleware::from_fn_with_state` handler: run the inner service,
-/// then stamp [`headers`] onto the response. The `bool` state is `true`
+/// `axum::middleware::from_fn_with_state` handler: mint a CSP nonce, hand
+/// it to the inner render via [`NONCE_REQUEST_HEADER`], run the inner
+/// service, then stamp [`static_headers`] plus the nonce-bearing
+/// `Content-Security-Policy` onto the response. The `bool` state is `true`
 /// in a non-production (`cargo leptos watch`) run.
-pub async fn apply(State(dev): State<bool>, request: Request, next: Next) -> Response {
+pub async fn apply(State(dev): State<bool>, mut request: Request, next: Next) -> Response {
+    // 128 bits of CSPRNG, base64url — a valid CSP nonce token and a valid
+    // header value.
+    let nonce = Nonce::new().to_string();
+    if let Ok(value) = HeaderValue::from_str(&nonce) {
+        request
+            .headers_mut()
+            .insert(HeaderName::from_static(NONCE_REQUEST_HEADER), value);
+    }
+
     let mut response = next.run(request).await;
     let response_headers = response.headers_mut();
-    for (name, value) in headers(dev) {
+    for (name, value) in static_headers() {
         response_headers.insert(
             HeaderName::from_static(name),
             HeaderValue::from_static(value),
         );
     }
+    if let Ok(value) = HeaderValue::from_str(&content_security_policy(&nonce, dev)) {
+        response_headers.insert(HeaderName::from_static("content-security-policy"), value);
+    }
     response
+}
+
+/// Leptos context provider passed to `leptos_routes_with_context` /
+/// `file_and_error_handler_with_context`: re-publishes the nonce
+/// [`apply`] stamped on the request (`NONCE_REQUEST_HEADER`) as a
+/// [`Nonce`], so `HydrationScripts` / `AutoReload` emit `nonce="…"`
+/// matching the `Content-Security-Policy` header. Runs after
+/// `leptos_axum` has put the request `Parts` into context (and after its
+/// own `provide_nonce()`, which this overrides).
+///
+/// A no-op when the header is absent — e.g. a request that didn't pass
+/// through [`apply`], such as a handler-level unit test. The framework
+/// then keeps its own generated nonce, which simply won't match any
+/// policy header.
+pub fn provide_request_nonce() {
+    use axum::http::request::Parts;
+    use leptos::context::{provide_context, use_context};
+
+    let Some(parts) = use_context::<Parts>() else {
+        return;
+    };
+    let Some(nonce) = parts
+        .headers
+        .get(NONCE_REQUEST_HEADER)
+        .and_then(|value| value.to_str().ok())
+    else {
+        return;
+    };
+    provide_context(Nonce::from_value(nonce.to_owned()));
 }
