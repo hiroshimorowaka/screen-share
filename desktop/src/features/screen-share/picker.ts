@@ -95,7 +95,11 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
 
       // Delay arming "click outside closes it" slightly so the window
       // manager focusing this new window doesn't itself trigger a blur.
+      // The window can already be gone by the time this fires (a fast
+      // dismiss, or the `loadFile` failure path below closing it) —
+      // `.on()` on a destroyed BrowserWindow throws.
       setTimeout(() => {
+        if (pickerWindow.isDestroyed()) return;
         pickerWindow.on('blur', () => settle(null));
       }, 300);
 

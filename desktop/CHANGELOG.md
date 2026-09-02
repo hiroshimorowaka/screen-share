@@ -11,6 +11,12 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.3
+
+- Correção interna: fecha uma brecha rara em que dispensar o seletor de
+  tela no instante em que ele abria podia derrubar o processo principal
+  do app. Sem mudança visível no uso normal.
+
 ## 0.3.2
 
 - Corrige o seletor de tela, que parou de abrir na 0.3.1: o reforço de

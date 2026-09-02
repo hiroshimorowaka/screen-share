@@ -19,6 +19,8 @@ vi.mock('electron', () => ({
   BrowserWindow: class {
     webContents = { setWindowOpenHandler: vi.fn(), send: sendMock };
     on(event: string, handler: Handler) {
+      // Real Electron throws "Object has been destroyed" here.
+      if (destroyed) throw new Error('Object has been destroyed');
       windowHandlers.set(event, handler);
     }
     isDestroyed() {
@@ -82,6 +84,19 @@ describe('showSourcePicker', () => {
     await vi.advanceTimersByTimeAsync(0);
     expect(console.error).not.toHaveBeenCalled();
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('does not arm the blur handler if the window is already gone when the timer fires', async () => {
+    const pending = showSourcePicker();
+    await vi.advanceTimersByTimeAsync(0); // window up, blur-arm timer still pending
+
+    destroyed = true; // window torn down before the 300ms timer
+    state.loadFileDeferred?.reject(new Error('ERR_ABORTED'));
+    await expect(pending).resolves.toBeNull();
+
+    // Firing the timer must not throw "Object has been destroyed".
+    await expect(vi.advanceTimersByTimeAsync(300)).resolves.not.toThrow();
+    expect(windowHandlers.has('blur')).toBe(false);
   });
 
   it('pushes the sources to the picker once it has loaded', async () => {

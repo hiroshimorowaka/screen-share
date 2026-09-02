@@ -18,12 +18,14 @@ name: CI/CD
 # packaging (`build-desktop-*`) as a pre-deploy smoke, then deploy/publish.
 # The Windows-only `cargo test` for the native audio addon still runs on
 # PRs (it is the only place it can), just without the packaging steps
-# around it. The slow browser layers (`test-web-wasm`, `e2e-web`,
-# `e2e-desktop`) and the mutation jobs are PR-only; they are strong gates
-# there and re-running them on the merge commit is not worth the runner
-# time. Pair this with branch protection's "require branches up to date
-# before merging" so the PR is re-checked against the latest `main`. A
-# manual run (`workflow_dispatch`) runs everything, both sides, in full.
+# around it. The slow web browser layers (`test-web-wasm`, `e2e-web`) and
+# the mutation jobs are PR-only; they are strong gates there and re-running
+# them on the merge commit is not worth the runner time. `e2e-desktop` is
+# the exception — it also runs on push to main, because it gates
+# `publish-desktop-release` and desktop changes can land straight on main
+# without a PR. Pair the PR-only jobs with branch protection's "require
+# branches up to date before merging" so the PR is re-checked against the
+# latest `main`. A manual run (`workflow_dispatch`) runs everything.
 #
 # Repeated setup (Rust toolchain + cache + tool, or pnpm + Node) lives in
 # the local composite actions under `.github/actions/`.
@@ -379,8 +381,11 @@ jobs:
   e2e-desktop:
     name: E2E desktop (Playwright _electron, xvfb)
     needs: [changes, test-desktop]
-    # PR + manual only — skipped on push to main (header note).
-    if: needs.changes.outputs.desktop == 'true' && github.event_name != 'push'
+    # Runs on every event (PR, push to main, manual) whenever desktop/
+    # changed — unlike the web browser layers, this one also gates
+    # `publish-desktop-release`, and desktop changes can land straight on
+    # main without a PR, so it has to run there too.
+    if: needs.changes.outputs.desktop == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -476,10 +481,10 @@ jobs:
 
   publish-desktop-release:
     name: Publish desktop installers
-    # No `e2e-desktop` here: it does not run on push to main, and a
-    # `needs:` on a skipped job would cascade-skip this one. `e2e-desktop`
-    # is a required PR check instead (branch protection).
-    needs: [changes, test-desktop, build-desktop-linux, build-desktop-windows]
+    # `e2e-desktop` is a hard gate: it now runs on push to main too, so a
+    # desktop change landing straight on main (no PR) still can't publish
+    # installers without the packaged-app boot / IPC / picker flow passing.
+    needs: [changes, test-desktop, e2e-desktop, build-desktop-linux, build-desktop-windows]
     if: needs.changes.outputs.desktop == 'true' && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     permissions:
