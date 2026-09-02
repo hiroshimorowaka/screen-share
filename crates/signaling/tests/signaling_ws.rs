@@ -289,6 +289,18 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     };
     recv_json(&mut sharer_ws).await; // drena o PeerJoined
 
+    // `add_watcher` server-side só tem efeito para um par que está de fato
+    // compartilhando (endurecimento da F07) — o sharer precisa dar
+    // StartShare antes. Esperar o PeerStartedSharing no viewer garante que
+    // o servidor já processou o StartShare antes do WatchShare abaixo.
+    send_json(&mut sharer_ws, &ClientMessage::StartShare).await;
+    assert_eq!(
+        recv_json(&mut viewer_ws).await,
+        ServerMessage::PeerStartedSharing {
+            peer_id: sharer_id.clone()
+        }
+    );
+
     send_json(
         &mut viewer_ws,
         &ClientMessage::WatchShare {

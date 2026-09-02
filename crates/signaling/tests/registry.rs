@@ -688,6 +688,11 @@ async fn add_watcher_notifies_sharer_and_broadcasts_count_to_everyone() {
         .unwrap();
     recv(&mut host_rx).await; // drain the PeerJoined
 
+    // `add_watcher` only takes effect for a peer that is actually sharing
+    // (F07 hardening) — start the share first.
+    registry.start_share(&room_code, &creator_snapshot.peer_id);
+    recv(&mut viewer_rx).await; // drain the PeerStartedSharing
+
     registry.add_watcher(
         &room_code,
         &creator_snapshot.peer_id,
@@ -747,6 +752,11 @@ async fn remove_watcher_notifies_sharer_and_broadcasts_updated_count() {
         )
         .unwrap();
     recv(&mut host_rx).await; // drain the PeerJoined
+
+    // `add_watcher` only takes effect for a peer that is actually sharing
+    // (F07 hardening) — start the share first.
+    registry.start_share(&room_code, &creator_snapshot.peer_id);
+    recv(&mut viewer_rx).await; // drain the PeerStartedSharing
 
     registry.add_watcher(
         &room_code,
@@ -985,6 +995,11 @@ async fn leave_room_removes_the_leaver_from_watcher_lists_and_broadcasts_update(
         )
         .unwrap();
     recv(&mut host_rx).await; // drain PeerJoined
+
+    // `add_watcher` only takes effect for a peer that is actually sharing
+    // (F07 hardening) — start the share first. `_viewer_rx` swallows the
+    // PeerStartedSharing broadcast.
+    registry.start_share(&room_code, &creator_snapshot.peer_id);
 
     registry.add_watcher(
         &room_code,
@@ -1763,6 +1778,79 @@ async fn add_watcher_ignores_a_sharer_id_that_is_not_a_member() {
             .await
             .is_err(),
         "watching a non-member must be a no-op"
+    );
+}
+
+/// F07 hardening: `add_watcher` gates on the target actually sharing, not
+/// just on room membership. Without that check a member could `WatchShare`
+/// an idle co-member, which fired a `WatchRequested` at them (opening an
+/// `RTCPeerConnection` and leaking host/srflx ICE) and, via
+/// `watch_related`, opened `relay_peer_signal` between the two for
+/// unsolicited offers.
+#[tokio::test]
+async fn add_watcher_ignores_a_member_that_is_not_sharing() {
+    let registry = Registry::new();
+    let (host_tx, mut host_rx) = member_channel();
+    let (viewer_tx, mut viewer_rx) = member_channel();
+
+    let (room_code, host_snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala".to_string(),
+            password: None,
+            device_id: "device-host".to_string(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create should succeed");
+    let viewer_snapshot = registry
+        .join_room(
+            &room_code,
+            JoinRequest {
+                nick: "Bia".to_string(),
+                color: "sky".to_string(),
+                password: None,
+                device_id: "device-viewer".to_string(),
+                client_key: "client-1".to_string(),
+                sender: viewer_tx,
+            },
+        )
+        .unwrap();
+    recv(&mut host_rx).await; // drain PeerJoined
+
+    // The host never called `start_share`.
+    registry.add_watcher(&room_code, &host_snapshot.peer_id, &viewer_snapshot.peer_id);
+
+    // No WatchRequested to the "sharer", no WatchersChanged to anyone.
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), host_rx.recv())
+            .await
+            .is_err(),
+        "watching a member that isn't sharing must be a no-op"
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), viewer_rx.recv())
+            .await
+            .is_err(),
+        "no WatchersChanged is broadcast for a non-sharer"
+    );
+
+    // The relay gate stays shut: an Offer between the two is still dropped.
+    registry.relay_peer_signal(
+        &room_code,
+        &viewer_snapshot.peer_id,
+        &host_snapshot.peer_id,
+        ServerMessage::Offer {
+            from: viewer_snapshot.peer_id.clone(),
+            sdp: "v=0".to_string(),
+        },
+    );
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), host_rx.recv())
+            .await
+            .is_err(),
+        "relay_peer_signal must not forward without a real watch relationship"
     );
 }
 

@@ -438,6 +438,15 @@ pub(crate) fn build_message_handler(
             }
         }
         ServerMessage::WatchRequested { from } => {
+            // Defence in depth for F07 (mirrors the `Offer` branch): the
+            // relay now only sends `WatchRequested` for a peer that is
+            // actually sharing, but ignore one here too unless we have a
+            // local stream to offer. Never open a peer connection — and
+            // leak host/srflx ICE candidates — because a co-member asked
+            // to watch a screen we aren't sharing.
+            if conn.local_stream.borrow().is_none() {
+                return;
+            }
             let conn = conn.clone();
             spawn_local(async move {
                 let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {

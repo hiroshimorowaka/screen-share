@@ -490,11 +490,17 @@ impl Registry {
             return;
         };
 
-        // Ignore a watch request for a peer that isn't in this room:
-        // otherwise a client could pollute `watchers` with entries for
-        // arbitrary ids and trigger spurious `WatchersChanged` broadcasts
-        // (finding F15).
-        if !room.members.contains_key(sharer_id) {
+        // A watch only makes sense for a peer that is in this room *and*
+        // currently sharing. Dropping the `sharers` half of this let a
+        // member `WatchShare` an idle co-member: that still fired a
+        // `WatchRequested` at the target (whose client then opened an
+        // `RTCPeerConnection` and trickled host/srflx ICE, leaking its
+        // LAN + public address) and, because `watch_related` now held,
+        // opened the `relay_peer_signal` gate between the two for
+        // unsolicited offers / renegotiation / quality spam — the exact
+        // surface F07 closed. The membership half still guards against a
+        // `sharer_id` that isn't in the room at all (finding F15).
+        if !room.members.contains_key(sharer_id) || !room.sharers.contains(sharer_id) {
             return;
         }
 
