@@ -112,6 +112,93 @@ test('switching the shared source keeps the share alive and the viewer decoding'
   await bobCtx.close();
 });
 
+test('switching to an audio-less source updates the audio chip', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  // First getDisplayMedia keeps the fake audio track (shared "tab" with
+  // audio); the second strips it (switching to a whole-screen share).
+  await anaCtx.addInitScript(() => {
+    const devices = navigator.mediaDevices;
+    const original = devices.getDisplayMedia.bind(devices);
+    let call = 0;
+    devices.getDisplayMedia = async (...args: Parameters<typeof original>) => {
+      const stream = await original(...args);
+      if (++call >= 2) {
+        for (const track of stream.getAudioTracks()) {
+          track.stop();
+          stream.removeTrack(track);
+        }
+      }
+      return stream;
+    };
+  });
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala chip');
+
+  await startSharing(ana);
+  await expect(ana.locator('.audio-chip')).toContainText('Áudio ligado');
+
+  await ana.getByRole('button', { name: SWITCH_SOURCE }).click();
+  await expect(ana.locator('.share-chip')).toBeVisible();
+  // The chip must reflect the new source, not stay stuck on "ligado".
+  await expect(ana.locator('.audio-chip')).toContainText('Áudio desligado');
+
+  await anaCtx.close();
+});
+
+test('a source switch that gains audio reaches a watcher without them re-watching', async ({
+  browser,
+}) => {
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+  // First getDisplayMedia strips the audio track (share starts silent);
+  // the second keeps it (switched to a shared "tab" with audio).
+  await anaCtx.addInitScript(() => {
+    const devices = navigator.mediaDevices;
+    const original = devices.getDisplayMedia.bind(devices);
+    let call = 0;
+    devices.getDisplayMedia = async (...args: Parameters<typeof original>) => {
+      const stream = await original(...args);
+      if (++call < 2) {
+        for (const track of stream.getAudioTracks()) {
+          track.stop();
+          stream.removeTrack(track);
+        }
+      }
+      return stream;
+    };
+  });
+  const { page: ana, url } = await createPublicRoom(anaCtx, 'Ana', 'Sala troca audio');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+
+  await startSharing(ana);
+  await watchSharer(bob, 'Ana');
+
+  // Bob is watching a silent share; a live, unmuted audio track only
+  // appears on his received stream after Ana switches source — and it must
+  // arrive without him stopping and restarting the watch.
+  const receivedAudio = () =>
+    memberCard(bob, 'Ana')
+      .locator('video')
+      .nth(1)
+      .evaluate((v: HTMLVideoElement) => {
+        const [audio] = (v.srcObject as MediaStream | null)?.getAudioTracks() ?? [];
+        return { present: !!audio, muted: audio?.muted ?? true };
+      });
+
+  await ana.getByRole('button', { name: SWITCH_SOURCE }).click();
+  await expect(ana.locator('.share-chip')).toBeVisible();
+
+  await expect
+    .poll(receivedAudio, { timeout: MEDIA_SETTLE_MS })
+    .toEqual({ present: true, muted: false });
+  // Video keeps decoding across the switch.
+  await expect
+    .poll(async () => (await videoState(bob, 'Ana')).readyState, { timeout: MEDIA_SETTLE_MS })
+    .toBeGreaterThanOrEqual(2);
+
+  await anaCtx.close();
+  await bobCtx.close();
+});
+
 test('leaving the room navigates back to the home page', async ({ browser }) => {
   const anaCtx = await browser.newContext();
   const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida');
@@ -119,6 +206,55 @@ test('leaving the room navigates back to the home page', async ({ browser }) => 
   await ana.getByRole('button', { name: 'Sair da sala' }).click();
   await expect(ana).toHaveURL(/\/$/);
   await expect(ana.getByRole('heading', { name: 'Criar sala' })).toBeVisible();
+
+  await anaCtx.close();
+});
+
+test('a mouse move after leaving the room does not hit a disposed signal', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida 2');
+
+  // A WASM panic (e.g. touching an already-disposed reactive value from a
+  // leaked window listener) surfaces here.
+  const panics: string[] = [];
+  ana.on('pageerror', (err) => panics.push(String(err)));
+
+  await ana.getByRole('button', { name: 'Sair da sala' }).click();
+  await expect(ana).toHaveURL(/\/$/);
+
+  // The room grid's auto-hide / adaptive-grid listeners were attached to
+  // `window`; if they outlive RoomPage, this fires them against disposed
+  // signals.
+  for (let i = 0; i < 5; i++) {
+    await ana.mouse.move(100 + i * 40, 100 + i * 30);
+  }
+  await ana.waitForTimeout(100);
+
+  expect(panics, `page errors after leaving the room:\n${panics.join('\n')}`).toEqual([]);
+  // Still interactive.
+  await ana.getByLabel('Nick').fill('Ana again');
+  await expect(ana.getByLabel('Nick')).toHaveValue('Ana again');
+
+  await anaCtx.close();
+});
+
+test('the ping loop stops after leaving the room', async ({ browser }) => {
+  const anaCtx = await browser.newContext();
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala saida 3');
+
+  const wsErrors: string[] = [];
+  ana.on('console', (msg) => {
+    if (msg.text().includes('CLOSING or CLOSED')) wsErrors.push(msg.text());
+  });
+
+  await ana.getByRole('button', { name: 'Sair da sala' }).click();
+  await expect(ana).toHaveURL(/\/$/);
+
+  // The self-ping interval fires every 5s; if it outlives the room it
+  // calls `WsClient::send` on the closed socket.
+  await ana.waitForTimeout(6000);
+
+  expect(wsErrors, wsErrors.join('\n')).toEqual([]);
 
   await anaCtx.close();
 });

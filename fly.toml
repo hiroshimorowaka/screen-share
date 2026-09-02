@@ -9,6 +9,15 @@ primary_region = "gru"
   LEPTOS_SITE_ROOT = "site"
   LEPTOS_SITE_PKG_DIR = "pkg"
   LEPTOS_ENV = "PROD"
+  # Only this origin may open a /ws signaling socket from a browser
+  # (defence in depth — see crates/signaling/src/handshake.rs). Update
+  # alongside the app's public hostname and the desktop APP_URL.
+  SIGNALING_ALLOWED_ORIGINS = "https://screen-share-h0rb5w.fly.dev"
+  # Behind Fly's edge, which rewrites fly-client-ip from the real TCP
+  # connection, so it's safe to key the wrong-password lockout on it.
+  # MUST stay unset (or false) on any deployment where the app is
+  # reachable without going through a trusted proxy.
+  TRUST_PROXY_HEADERS = "true"
   # TURN_SECRET is NOT set here, it's a secret:
   #   fly secrets set TURN_SECRET=$(openssl rand -hex 32)
   #
@@ -23,6 +32,10 @@ primary_region = "gru"
   TURN_EXTERNAL_IP = "137.66.9.162"
   TURN_RELAY_IP = "172.19.29.58"
   TURN_URLS = "turn:137.66.9.162:3478"
+  # Set explicitly rather than falling back to the public `screenshare`
+  # default in docker-entrypoint.sh (finding F13). Any non-guessable
+  # string works; it just scopes coturn's auth realm.
+  TURN_REALM = "screen-share-h0rb5w.fly.dev"
 
 [http_service]
   internal_port = 8080

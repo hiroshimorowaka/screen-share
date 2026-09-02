@@ -29,3 +29,16 @@ fn avatar_letter_falls_back_to_question_mark_for_empty_nick() {
 fn default_color_is_a_valid_palette_id() {
     assert!(palette_ids().any(|id| id == DEFAULT_COLOR));
 }
+
+#[test]
+fn render_palette_matches_the_protocol_colour_allowlist() {
+    use screen_share_protocol::validate;
+
+    let render_ids: Vec<&str> = palette_ids().collect();
+    assert_eq!(
+        render_ids,
+        validate::PALETTE_IDS,
+        "the render palette and the relay's colour allowlist must not drift"
+    );
+    assert_eq!(DEFAULT_COLOR, validate::DEFAULT_COLOR);
+}

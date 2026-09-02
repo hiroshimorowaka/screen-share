@@ -79,6 +79,7 @@ pub(super) fn stop_watching_click_handler(
         if let Some(pc) = conn.incoming.borrow_mut().remove(&member.peer_id) {
             pc.close();
         }
+        conn.incoming_callbacks.borrow_mut().remove(&member.peer_id);
         if let Some(ws) = conn.ws.borrow().as_ref() {
             ws.send(&ClientMessage::StopWatching {
                 sharer_id: member.peer_id,
@@ -123,13 +124,11 @@ pub(super) fn leave_room(
     }
 
     crate::infra::storage::clear_room_session(room_code);
-    // A deliberate leave: mark the close expected so the reconnect loop
-    // (`session::reconnect`) doesn't treat it as a dropped connection and
-    // start trying to rejoin.
-    conn.expected_close.set(true);
-    if let Some(ws) = conn.ws.borrow().as_ref() {
-        ws.close();
-    }
+    // Same teardown every non-button exit gets (see `session::reconnect`):
+    // mark the close expected so the reconnect loop doesn't treat it as a
+    // drop, stop any in-flight reconnect, drop the peer connections, and
+    // take the socket out of its `RefCell` so the session actually frees.
+    crate::session::reconnect::teardown_session(conn);
     let navigate = use_navigate();
     navigate("/", Default::default());
 }
@@ -173,6 +172,9 @@ pub(super) fn leave_or_stop_watching_handler(
         if let Some(pc) = conn.incoming.borrow_mut().remove(&focused_peer_id) {
             pc.close();
         }
+        conn.incoming_callbacks
+            .borrow_mut()
+            .remove(&focused_peer_id);
         if let Some(ws) = conn.ws.borrow().as_ref() {
             ws.send(&ClientMessage::StopWatching {
                 sharer_id: focused_peer_id,

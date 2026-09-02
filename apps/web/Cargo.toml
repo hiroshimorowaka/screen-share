@@ -13,6 +13,10 @@ leptos = { version = "0.8.0" }
 leptos_router = { version = "0.8.0" }
 leptos_meta = { version = "0.8.0" }
 axum = { version = "0.8.0", optional = true }
+# SSR-only DoS layers on the HTTP routes (request timeout + global
+# concurrency cap); already in the tree via axum/leptos_axum.
+tower = { version = "0.5", features = ["util", "limit"], optional = true }
+tower-http = { version = "0.6", features = ["timeout"], optional = true }
 console_error_panic_hook = { version = "0.1", optional = true }
 leptos_axum = { version = "0.8.0", optional = true }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"], optional = true }
@@ -21,6 +25,11 @@ serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
 wasm-bindgen-futures = { version = "0.4.77", optional = true }
 js-sys = { version = "0.3.104", optional = true }
+# Wraps a `!Send` browser handle so it can be moved into `on_cleanup`
+# (which is `Send + Sync` bound). Sound on wasm: single-threaded, and the
+# wrapper panics if ever touched from another thread. Already in the tree
+# via leptos.
+send_wrapper = { version = "0.6", optional = true }
 web-sys = { version = "0.3.104", optional = true, features = [
     "WebSocket",
     "MessageEvent",
@@ -49,6 +58,10 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "RtcTrackEvent",
     "RtcIceConnectionState",
     "RtcRtpSender",
+    "RtcRtpReceiver",
+    "RtcRtpTransceiver",
+    "RtcRtpTransceiverInit",
+    "RtcRtpTransceiverDirection",
     "RtcRtpParameters",
     "RtcRtpEncodingParameters",
     "HtmlVideoElement",
@@ -73,6 +86,8 @@ web-sys = { version = "0.3.104", optional = true, features = [
     "Crypto",
     "Performance",
     "console",
+    # Synthetic event dispatch, used by `infra::dom`'s wasm tests.
+    "Event",
 ] }
 
 [dev-dependencies]
@@ -82,6 +97,12 @@ web-sys = { version = "0.3.104", optional = true, features = [
 # exact `=` requirement on `wasm-bindgen`, so Cargo enforces the pairing.
 wasm-bindgen-test = "=0.3.77"
 
+# Native-only: the `ssr` integration tests name `HandshakeConfig` to
+# exercise the SSR rate-limit middleware. Kept off the wasm32 target so
+# the `hydrate` `--lib` test build doesn't pull tokio/mio.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+screen-share-signaling = { path = "../../crates/signaling" }
+
 [features]
 hydrate = [
     "leptos/hydrate",
@@ -90,13 +111,19 @@ hydrate = [
     "dep:wasm-bindgen-futures",
     "dep:js-sys",
     "dep:web-sys",
+    "dep:send_wrapper",
 ]
 ssr = [
     "dep:axum",
+    "dep:tower",
+    "dep:tower-http",
     "dep:tokio",
     "dep:leptos_axum",
     "dep:screen-share-signaling",
     "leptos/ssr",
+    # Per-request CSP nonce on the inline hydration bootstrap, so
+    # `script-src` can drop `'unsafe-inline'` (see `http_security`).
+    "leptos/nonce",
     "leptos_meta/ssr",
     "leptos_router/ssr",
 ]

@@ -11,6 +11,21 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.1
+
+- Reforço de segurança do app. Nada muda no uso do dia a dia:
+  - a janela do app fica presa ao site oficial — se algo tentar levá-la
+    para outro endereço, é bloqueado;
+  - só a própria tela do app pode acionar as funções nativas (áudio do
+    sistema, cópia do link, notificações); qualquer outra origem é
+    recusada;
+  - o app nega qualquer pedido de permissão do navegador (câmera,
+    microfone, localização e afins), que ele não usa;
+  - a captura de áudio do sistema para sozinha quando a página recarrega,
+    fecha ou trava, sem deixar processos ou ligações de som soltos;
+  - no Windows, uma atualização automática só é aplicada se estiver
+    assinada pela mesma origem do app.
+
 ## 0.3.0
 
 - O app agora se atualiza sozinho no Windows: quando sai uma versão nova,

@@ -27,8 +27,14 @@ pub struct LatencyInfo {
     pub ms: u32,
 }
 
-/// Response for `GET /api/rooms/:code`. `name`/`member_count`/
-/// `requires_password` are omitted from the JSON when `exists` is `false`.
+/// Response for `GET /api/rooms/:code` — the minimum the client needs for
+/// its dead-link check and to decide whether to show the password field.
+///
+/// `name` and `member_count` are part of the shape for compatibility but
+/// the server no longer populates them for this unauthenticated endpoint
+/// (finding F06 — they leaked the human-chosen room name and occupancy to
+/// anyone holding a code). The room name arrives in the `Joined` snapshot
+/// instead. Absent fields are omitted from the JSON.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoomStatus {
     pub exists: bool,

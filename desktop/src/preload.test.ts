@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const exposed = new Map<string, Record<string, unknown>>();
-const ipc = vi.hoisted(() => ({ send: vi.fn(), invoke: vi.fn(), on: vi.fn() }));
+const ipc = vi.hoisted(() => ({
+  send: vi.fn(),
+  invoke: vi.fn(),
+  on: vi.fn(),
+  once: vi.fn(),
+  removeAllListeners: vi.fn(),
+}));
 
 vi.mock('electron', () => ({
   contextBridge: {
@@ -75,5 +81,31 @@ describe('preload bridges', () => {
 
     await loadPreloadOn('win32');
     expect(exposed.get('desktopAudio')).toHaveProperty('onPcmChunk');
+  });
+
+  it('onSources registers a one-shot listener (finding 8c)', async () => {
+    await loadPreloadOn('linux');
+    const picker = exposed.get('picker') as Record<string, (cb: () => void) => void>;
+
+    picker.onSources(() => {});
+    picker.onSources(() => {});
+
+    expect(ipc.once).toHaveBeenCalledTimes(2);
+    expect(ipc.once).toHaveBeenCalledWith('picker:sources', expect.any(Function));
+    expect(ipc.on).not.toHaveBeenCalledWith('picker:sources', expect.anything());
+  });
+
+  it('onPcmChunk clears the previous listener before re-adding, and offPcmChunk removes it (finding 8c)', async () => {
+    await loadPreloadOn('win32');
+    const audio = exposed.get('desktopAudio') as Record<string, (cb?: () => void) => void>;
+
+    audio.onPcmChunk?.(() => {});
+    audio.onPcmChunk?.(() => {});
+    expect(ipc.removeAllListeners).toHaveBeenCalledWith('desktop-audio-pcm-chunk');
+    expect(ipc.removeAllListeners).toHaveBeenCalledTimes(2);
+    expect(ipc.on).toHaveBeenCalledTimes(2);
+
+    audio.offPcmChunk?.();
+    expect(ipc.removeAllListeners).toHaveBeenCalledTimes(3);
   });
 });

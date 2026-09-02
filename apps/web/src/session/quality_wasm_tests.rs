@@ -75,7 +75,7 @@ fn is_auto_polling_reflects_whether_a_viewers_auto_poll_is_registered() {
 
     conn.quality_auto_intervals
         .borrow_mut()
-        .insert("viewer-1".to_string(), 42);
+        .insert("viewer-1".to_string(), AutoPoll::for_test(42));
     assert!(is_auto_polling(&conn, "viewer-1"));
 
     // A fixed-tier switch tears the poll down — `is_auto_polling` must then

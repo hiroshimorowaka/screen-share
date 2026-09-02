@@ -134,28 +134,40 @@ async fn listen_for_sound(stream: &web_sys::MediaStream) -> Result<bool, wasm_bi
     use wasm_bindgen_futures::JsFuture;
 
     let ctx = web_sys::AudioContext::new()?;
+    // Every `?` inside `run_probe` used to leak `ctx`, and a browser caps a
+    // page at ~6 `AudioContext`s — after a handful of failed probes (one
+    // per share-start *and* per source-switch) `AudioContext::new()` starts
+    // throwing and the probe is dead for the rest of the session (finding
+    // F09). Close the context unconditionally, whatever the inner result.
+    let result = run_probe(&ctx, stream).await;
+    if let Ok(promise) = ctx.close() {
+        let _ = JsFuture::from(promise).await;
+    }
+    result
+}
+
+/// Builds the analyser graph on `ctx` and measures the track. Kept
+/// separate so [`listen_for_sound`] can `close()` the context on every
+/// exit, error paths included.
+#[cfg(feature = "hydrate")]
+async fn run_probe(
+    ctx: &web_sys::AudioContext,
+    stream: &web_sys::MediaStream,
+) -> Result<bool, wasm_bindgen::JsValue> {
     let source = ctx.create_media_stream_source(stream)?;
     let analyser = ctx.create_analyser()?;
     analyser.set_fft_size(PROBE_FFT_SIZE);
     source.connect_with_audio_node(&analyser)?;
 
     let mut block = vec![0.0f32; analyser.fft_size() as usize];
-    let mut heard = false;
     for _ in 0..PROBE_BLOCKS {
         analyser.get_float_time_domain_data(&mut block);
         if !is_effectively_silent(rms(&block)) {
-            heard = true;
-            break;
+            return Ok(true);
         }
         sleep(PROBE_BLOCK_INTERVAL_MS).await;
     }
-
-    // Best-effort teardown — a leaked context would keep the tab's audio
-    // graph alive, but a failing `close()` isn't worth surfacing.
-    if let Ok(promise) = ctx.close() {
-        let _ = JsFuture::from(promise).await;
-    }
-    Ok(heard)
+    Ok(false)
 }
 
 #[cfg(feature = "hydrate")]

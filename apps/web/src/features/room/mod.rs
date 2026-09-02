@@ -111,6 +111,11 @@ pub fn RoomPage() -> impl IntoView {
     // it drives the header audio chip's on/off wording. Reset when sharing
     // stops.
     let share_has_audio = RwSignal::new(false);
+    // Bumped on every source switch so the audio self-test effect below
+    // re-runs — `is_sharing` stays `true` across a switch, so without this
+    // the effect wouldn't re-read the new stream and the "Áudio ligado"
+    // chip would keep a stale value.
+    let share_generation = RwSignal::new(0u32);
     let controls_visible = RwSignal::new(true);
     // Touch device? Drives the tap-to-toggle chrome and the touch-only
     // auto-hide behaviour; everything else adapts in CSS. Starts `false`
@@ -214,7 +219,6 @@ pub fn RoomPage() -> impl IntoView {
         initial_code.clone(),
         authenticated,
         set_room_exists,
-        set_room_name,
         set_requires_password,
     );
 
@@ -271,6 +275,7 @@ pub fn RoomPage() -> impl IntoView {
         expanded,
         audio_muted.read_only(),
         video_mode.read_only(),
+        share_generation,
     );
     let leave_or_stop_watching = leave_or_stop_watching_handler(
         conn.clone(),
@@ -284,6 +289,10 @@ pub fn RoomPage() -> impl IntoView {
     setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
     setup_ping_loop(conn.clone());
+    // On leaving the room, tear down every peer connection, its callbacks,
+    // and the Auto-quality polls — otherwise a leaked callback keeps the
+    // whole session alive in memory.
+    crate::session::reconnect::drop_peers_on_cleanup(conn.clone());
 
     // Audio self-test: whenever a share of ours starts, tap the captured
     // stream for a couple of seconds and warn the sharer if no sound came
@@ -293,6 +302,8 @@ pub fn RoomPage() -> impl IntoView {
     {
         let conn_for_probe = conn.clone();
         Effect::new(move |_| {
+            // Re-run after a source switch (see `share_generation`).
+            share_generation.track();
             if !is_sharing.get() {
                 audio_warning.set(None);
                 share_has_audio.set(false);
@@ -368,9 +379,9 @@ pub fn RoomPage() -> impl IntoView {
         // `Rc<RefCell<WsClient>>`, which is not.
         <div class="panel" class:hidden=move || authenticated.get() || room_exists.get() != Some(true)>
             <h1>"Entrar na sala"</h1>
-            <p class="status-row__meta">
-                {move || room_name.get().unwrap_or_default()} " — " {code}
-            </p>
+            // Just the code here: the room name isn't known until the
+            // `Joined` snapshot (finding F06), and this panel is pre-join.
+            <p class="status-row__meta">{code}</p>
             <form on:submit=manual_join.clone()>
                 <label class="field">
                     <span class="field__label">"Nick"</span>

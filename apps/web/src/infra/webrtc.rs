@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
@@ -134,12 +134,21 @@ pub async fn capture_display() -> Result<MediaStream, JsValue> {
         return Ok(video_stream);
     }
 
+    // The share picker (Electron side) already decided whether this share
+    // includes audio, and started the platform loopback if so. Only probe
+    // for the captured audio when it's actually running — otherwise a
+    // deliberately audio-less share logs a spurious "device not found"
+    // and, worse, `getUserMedia` for a vanished device can be rerouted to
+    // the default mic.
+    if !desktop_audio_loopback_active().await {
+        return Ok(video_stream);
+    }
+
     // The Windows desktop app bridges captured PCM over IPC instead of
-    // exposing a capturable device — same intent as the Linux path below
-    // (audio was already decided inside the share picker; a missing
-    // bridge/device just means audio wasn't requested), different
-    // mechanism. `has_pcm_bridge()` is the one signal that distinguishes
-    // them, since it's never true outside the Windows desktop app.
+    // exposing a capturable device — same intent as the Linux path below,
+    // different mechanism. `has_pcm_bridge()` is the one signal that
+    // distinguishes them, since it's never true outside the Windows
+    // desktop app.
     if has_pcm_bridge() {
         return match build_track_from_pcm_bridge().await {
             Ok(audio_stream) => combine_video_and_audio(&video_stream, &audio_stream),
@@ -178,12 +187,55 @@ fn has_pcm_bridge() -> bool {
     js_sys::Reflect::has(&desktop_audio, &JsValue::from_str("onPcmChunk")).unwrap_or(false)
 }
 
+/// Whether the Electron shell currently has an audio loopback running for
+/// this share — i.e. the sharer ticked "compartilhar áudio" in the
+/// picker. `false` (its own default) on any error or outside the desktop
+/// app.
+async fn desktop_audio_loopback_active() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(desktop_audio) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))
+    else {
+        return false;
+    };
+    let Ok(active_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("active")) else {
+        return false;
+    };
+    let Ok(active_fn) = active_fn.dyn_into::<js_sys::Function>() else {
+        return false;
+    };
+    let Ok(result) = active_fn.call0(&desktop_audio) else {
+        return false;
+    };
+    let Ok(promise) = result.dyn_into::<js_sys::Promise>() else {
+        return false;
+    };
+    JsFuture::from(promise)
+        .await
+        .map(|value| value.is_truthy())
+        .unwrap_or(false)
+}
+
 // The mix the native Windows module (`desktop/native/windows-audio`)
 // produces and sends over IPC — interleaved stereo f32 PCM, matching
 // exactly what its `capture.rs` mixer emits.
 const PCM_BRIDGE_CHANNELS: u32 = 2;
 const PCM_BRIDGE_SAMPLE_RATE: f32 = 48_000.0;
 const PCM_BRIDGE_BYTES_PER_SAMPLE: u32 = 4;
+
+/// The `window.desktopAudio.onPcmChunk` listener for the current desktop
+/// (Windows) audio bridge — it owns the `WritableStreamDefaultWriter` and
+/// `MediaStreamTrackGenerator` by move.
+type PcmBridgeCallback = Closure<dyn FnMut(JsValue)>;
+
+thread_local! {
+    /// Held here rather than `Closure::forget`'d so each new bridge and
+    /// each `stop_desktop_audio_loopback` replaces / clears the previous
+    /// one instead of leaking it once per share (finding F08b). Single
+    /// slot: only one local capture exists at a time.
+    static PCM_BRIDGE_CALLBACK: RefCell<Option<PcmBridgeCallback>> = const { RefCell::new(None) };
+}
 
 /// Turns the desktop app's `window.desktopAudio.onPcmChunk` PCM stream
 /// into a real `MediaStreamTrack` via `MediaStreamTrackGenerator` +
@@ -279,11 +331,10 @@ async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
     });
 
     on_pcm_chunk.call1(&desktop_audio, on_chunk.as_ref().unchecked_ref())?;
-    // Leaked deliberately — this closure, and the writer it holds by
-    // move, need to outlive this function call for the rest of the
-    // share. Standard wasm-bindgen practice for a listener with no
-    // natural single owner to drop it later.
-    on_chunk.forget();
+    // Outlives this call for the rest of the share, but is owned rather
+    // than forgotten: `stop_desktop_audio_loopback` (share teardown /
+    // source switch) clears the slot, and a fresh bridge replaces it.
+    PCM_BRIDGE_CALLBACK.with(|slot| *slot.borrow_mut() = Some(on_chunk));
 
     let tracks = js_sys::Array::new();
     tracks.push(generator.as_ref());
@@ -297,6 +348,17 @@ pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
         js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("stop"))?.dyn_into()?;
     let promise: js_sys::Promise = stop_fn.call0(&desktop_audio)?.dyn_into()?;
     JsFuture::from(promise).await?;
+    // The native side has stopped emitting PCM chunks now, so the bridge
+    // listener (and the writer + generator it owns) can be released
+    // instead of leaking until the tab closes (finding F08b). Also drop
+    // the preload's `ipcRenderer` listener for the channel if the shell
+    // exposes the hook (finding 8c of the follow-up audit).
+    PCM_BRIDGE_CALLBACK.with(|slot| slot.borrow_mut().take());
+    if let Ok(off_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("offPcmChunk")) {
+        if let Ok(off_fn) = off_fn.dyn_into::<js_sys::Function>() {
+            let _ = off_fn.call0(&desktop_audio);
+        }
+    }
     Ok(())
 }
 
@@ -388,6 +450,29 @@ pub fn new_peer_connection(
     config.set_ice_servers(&JsValue::from(servers));
 
     RtcPeerConnection::new_with_configuration(&config)
+}
+
+/// Negotiates a `sendonly` audio m-line on `pc` up front, with no track,
+/// tied to `stream` (the share's video stream).
+///
+/// Used when a share starts without audio. A later "trocar fonte" can add
+/// audio (a shared tab with sound, or the desktop system-audio loopback),
+/// and `session::media::replace_outgoing_tracks` swaps it in with
+/// `RTCRtpSender.replaceTrack` — which needs no renegotiation, but only
+/// reaches an m-line that already existed when the connection was
+/// answered. This signaling path never re-offers an open viewer
+/// connection, so without this reservation a viewer already watching a
+/// silent share would stay silent after the switch until they re-watched.
+/// Binding it to `stream` makes the viewer group the eventual audio track
+/// with the video it is already playing, so `ontrack` doesn't need a
+/// second stream to attach.
+pub fn reserve_audio_mline(pc: &RtcPeerConnection, stream: &MediaStream) {
+    let streams = js_sys::Array::new();
+    streams.push(stream);
+    let init = web_sys::RtcRtpTransceiverInit::new();
+    init.set_direction(web_sys::RtcRtpTransceiverDirection::Sendonly);
+    init.set_streams(&streams);
+    pc.add_transceiver_with_str_and_init("audio", &init);
 }
 
 pub async fn create_offer(pc: &RtcPeerConnection) -> Result<String, JsValue> {

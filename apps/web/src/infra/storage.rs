@@ -31,8 +31,16 @@ fn room_session_key(room_code: &str) -> String {
 
 /// What's needed to silently rejoin a room after a same-tab reload, without
 /// showing the nick/password gate again. Unlike `RecentRoom`, this *does*
-/// carry the password — `sessionStorage`'s tab-scoped, auto-clearing
-/// lifetime is exactly the boundary that makes that acceptable here.
+/// carry the room password — `sessionStorage`'s tab-scoped, auto-clearing
+/// lifetime is the boundary that makes that acceptable.
+///
+/// Security note (finding F14): any script running on this origin can read
+/// this back. That risk is accepted rather than replaced with a
+/// server-issued rejoin token — see ADR-0008. The mitigations are the
+/// `Content-Security-Policy` (F12), which is what keeps injected script off
+/// the origin in the first place, and the desktop `senderFrame` IPC guard
+/// (F11). If an XSS foothold on this origin ever becomes plausible, revisit
+/// with a short-lived rejoin token minted in the `Joined` snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoomSession {
     pub nick: String,

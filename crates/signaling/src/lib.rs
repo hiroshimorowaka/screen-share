@@ -7,6 +7,7 @@
 //! rate limiting, roster/sharer/watcher fan-out, TURN credential minting).
 
 pub mod auth;
+pub mod handshake;
 pub mod registry;
 pub mod rooms_status;
 pub mod state;

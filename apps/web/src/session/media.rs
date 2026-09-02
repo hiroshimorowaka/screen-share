@@ -100,9 +100,10 @@ fn attach_native_stop_listener(
     let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() else {
         return;
     };
+    let callback_conn = conn.clone();
     let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
         stop_sharing(
-            &conn,
+            &callback_conn,
             set_is_sharing,
             own_preview_hidden,
             expanded,
@@ -110,7 +111,74 @@ fn attach_native_stop_listener(
         );
     });
     track.set_onended(Some(onended.as_ref().unchecked_ref()));
-    onended.forget();
+    store_local_capture_callback(&conn, onended);
+}
+
+/// Stores the native-"Stop sharing" listener on `conn`, replacing any
+/// previous one. The old closure is dropped only after the current call
+/// stack unwinds: on a source switch the listener being replaced is the
+/// one whose `onended` fired and is still on the stack (it runs
+/// `stop_sharing`), and dropping a `Closure` from inside its own body
+/// would free a box that's still executing.
+#[cfg(feature = "hydrate")]
+fn store_local_capture_callback(
+    conn: &RoomSession,
+    callback: wasm_bindgen::prelude::Closure<dyn FnMut()>,
+) {
+    let previous = conn.local_capture_callback.borrow_mut().replace(callback);
+    defer_drop_capture_callback(previous);
+}
+
+/// Clears the stored native-stop listener (share teardown). Same
+/// deferred-drop reasoning as [`store_local_capture_callback`].
+#[cfg(feature = "hydrate")]
+fn clear_local_capture_callback(conn: &RoomSession) {
+    let previous = conn.local_capture_callback.borrow_mut().take();
+    defer_drop_capture_callback(previous);
+}
+
+#[cfg(feature = "hydrate")]
+fn defer_drop_capture_callback(previous: Option<wasm_bindgen::prelude::Closure<dyn FnMut()>>) {
+    if let Some(previous) = previous {
+        wasm_bindgen_futures::spawn_local(async move { drop(previous) });
+    }
+}
+
+/// Points `<video id="{element_id}">` at `stream` and starts playback,
+/// idempotently. `ontrack` fires once per track (a shared tab with audio
+/// gives video + audio, so twice); without the identity check the second
+/// `set_src_object` aborts the first `play()` and Chrome logs
+/// `AbortError: The play() request was interrupted by a new load request`.
+/// Any `AbortError` that a genuine rapid swap still produces is awaited and
+/// dropped rather than left as an unhandled promise rejection.
+#[cfg(feature = "hydrate")]
+pub(crate) fn play_stream_in(element_id: &str, stream: &web_sys::MediaStream, muted: bool) {
+    use wasm_bindgen::JsCast;
+
+    let Some(element) = web_sys::window()
+        .and_then(|w| w.document())
+        .and_then(|d| d.get_element_by_id(element_id))
+    else {
+        return;
+    };
+    let video: web_sys::HtmlVideoElement = element.unchecked_into();
+    if muted {
+        video.set_muted(true);
+    }
+    if video.src_object().as_ref() != Some(stream) {
+        video.set_src_object(Some(stream));
+    }
+    if let Ok(promise) = video.play() {
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        });
+    }
+}
+
+/// [`play_stream_in`] for the sharer's own always-muted self-preview.
+#[cfg(feature = "hydrate")]
+fn play_stream_in_self_preview(peer_id: &str, stream: &web_sys::MediaStream) {
+    play_stream_in(&format!("video-self-{peer_id}"), stream, true);
 }
 
 /// Requests the display picker and, once a stream comes back, wires it up
@@ -131,7 +199,6 @@ pub(crate) fn start_sharing(
     on_cancelled: impl Fn() + 'static,
 ) {
     use leptos::task::spawn_local;
-    use wasm_bindgen::JsCast;
 
     use crate::infra::webrtc::capture_display;
     use screen_share_protocol::ClientMessage;
@@ -149,21 +216,12 @@ pub(crate) fn start_sharing(
             }
         };
 
+        // `play_stream_in` forces `.muted` on the element (the `muted`
+        // attribute only sets the parse-time default, so a stream whose
+        // audio track is attached later would still play out loud) — the
+        // sharer must never hear their own shared audio.
         if let Some(peer_id) = my_peer_id_value.as_deref() {
-            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                if let Some(video) = document.get_element_by_id(&format!("video-self-{peer_id}")) {
-                    let video: web_sys::HtmlVideoElement = video.unchecked_into();
-                    video.set_src_object(Some(&stream));
-                    // The `muted` attribute only sets the element's
-                    // *default* muted state at parse time — it doesn't
-                    // reflect the live `.muted` property, so a stream
-                    // with an audio track attached later can still play
-                    // out loud unless this is set explicitly. The
-                    // sharer must never hear their own shared audio.
-                    video.set_muted(true);
-                    let _ = video.play();
-                }
-            }
+            play_stream_in_self_preview(peer_id, &stream);
         }
         // Keep `set_is_sharing` and the `local_stream` assignment below in
         // the same synchronous run, with no `.await` between them: the
@@ -220,14 +278,19 @@ fn video_and_audio_tracks(
     (video, audio)
 }
 
-/// Swaps the tracks every viewer connection is sending for `new_stream`'s,
-/// via `RTCRtpSender.replaceTrack` — no renegotiation, so viewers see only
-/// a source change, not a reconnect. A sender is only replaced if
-/// `new_stream` has a track of the same kind; a share that gains or loses
-/// audio on the switch keeps its old audio sender state until the next full
-/// re-share. Returns how many senders were swapped. Sender encoding params
-/// (tier, audio preset) survive `replaceTrack`, so nothing needs
-/// re-applying.
+/// Swaps the tracks every viewer connection is sending over to
+/// `new_stream`'s, via `RTCRtpSender.replaceTrack` — no renegotiation, so
+/// viewers see a source change, not a reconnect. The video sender takes
+/// the new video track; the audio sender takes the new audio track, or is
+/// cleared (`replaceTrack(null)`) when the new source carries none — a
+/// switch that drops audio must actually stop sending it, not leave the
+/// old (now stopped) track on the wire. Returns how many senders changed.
+/// Sender encoding params (tier, audio preset) survive `replaceTrack`.
+///
+/// Iterates transceivers, not `getSenders()`, so the still-track-less
+/// audio m-line reserved by `webrtc::reserve_audio_mline` (a share that
+/// started silent) is matched too — that's the sender a switch that
+/// *gains* audio must fill.
 #[cfg(feature = "hydrate")]
 pub(crate) async fn replace_outgoing_tracks(
     conn: &RoomSession,
@@ -238,27 +301,32 @@ pub(crate) async fn replace_outgoing_tracks(
 
     let (new_video, new_audio) = video_and_audio_tracks(new_stream);
 
-    let mut replacements: Vec<(web_sys::RtcRtpSender, web_sys::MediaStreamTrack)> = Vec::new();
+    // `Option<Option<track>>`: outer `None` = not a sender we touch; inner
+    // `None` = clear this sender.
+    let mut replacements: Vec<(web_sys::RtcRtpSender, Option<web_sys::MediaStreamTrack>)> =
+        Vec::new();
     for pc in conn.outgoing.borrow().values() {
-        for entry in pc.get_senders().iter() {
-            let sender: web_sys::RtcRtpSender = entry.unchecked_into();
-            let Some(kind) = sender.track().map(|t| t.kind()) else {
-                continue;
-            };
-            let replacement = match kind.as_str() {
-                "video" => new_video.clone(),
-                "audio" => new_audio.clone(),
-                _ => None,
-            };
-            if let Some(track) = replacement {
-                replacements.push((sender, track));
+        for entry in pc.get_transceivers().iter() {
+            let transceiver: web_sys::RtcRtpTransceiver = entry.unchecked_into();
+            let sender = transceiver.sender();
+            // The sender's own track kind once it has one, otherwise the
+            // transceiver's media kind (its receiver track always carries
+            // it) — so a reserved audio sender with no track yet still matches.
+            let kind = sender
+                .track()
+                .map(|t| t.kind())
+                .unwrap_or_else(|| transceiver.receiver().track().kind());
+            match kind.as_str() {
+                "video" => replacements.push((sender, new_video.clone())),
+                "audio" => replacements.push((sender, new_audio.clone())),
+                _ => {}
             }
         }
     }
 
     let mut swapped = 0;
     for (sender, track) in replacements {
-        if JsFuture::from(sender.replace_track(Some(&track)))
+        if JsFuture::from(sender.replace_track(track.as_ref()))
             .await
             .is_ok()
         {
@@ -333,19 +401,11 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     for (_, pc) in conn.outgoing.borrow_mut().drain() {
         pc.close();
     }
-    // Each viewer's Auto poll (if any) would otherwise keep firing against
-    // a connection that's already closed. Collect into a `let` binding
-    // first: a `for … in conn.…borrow().keys()…` keeps the borrow alive for
-    // the whole loop, and `stop_auto_polling` takes `borrow_mut()`.
-    let auto_poll_viewers: Vec<String> = conn
-        .quality_auto_intervals
-        .borrow()
-        .keys()
-        .cloned()
-        .collect();
-    for viewer_peer_id in auto_poll_viewers {
-        super::quality::stop_auto_polling(conn, &viewer_peer_id);
-    }
+    conn.outgoing_callbacks.borrow_mut().clear();
+    clear_local_capture_callback(conn);
+    // Every viewer's Auto poll would otherwise keep firing against a
+    // connection that's already closed.
+    super::quality::stop_all_auto_polling(conn);
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);
     }
@@ -386,6 +446,7 @@ pub(crate) fn switch_source_handler(
     _expanded: RwSignal<Option<String>>,
     _audio_muted: ReadSignal<bool>,
     _video_mode: ReadSignal<crate::session::video_mode::VideoMode>,
+    _share_generation: RwSignal<u32>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     move |_| {}
 }
@@ -410,6 +471,7 @@ pub(crate) fn switch_source_handler(
     expanded: RwSignal<Option<String>>,
     audio_muted: ReadSignal<bool>,
     video_mode: ReadSignal<crate::session::video_mode::VideoMode>,
+    share_generation: RwSignal<u32>,
 ) -> impl Fn(leptos::ev::MouseEvent) + Clone + 'static {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
@@ -425,6 +487,22 @@ pub(crate) fn switch_source_handler(
         let my_peer_id_value = my_peer_id.get_untracked();
 
         spawn_local(async move {
+            // Stop the current outgoing audio track *before* its capture
+            // device goes away. The desktop loopback is torn down and
+            // re-created for the new source below; Chromium reroutes a
+            // still-live `getUserMedia` audio track whose device vanishes
+            // to the default microphone, and viewers then hear the mic
+            // (it stuck until the share was fully restarted). A stopped
+            // track can't be rerouted.
+            if let Some(stream) = conn.local_stream.borrow().as_ref() {
+                for entry in stream.get_tracks().iter() {
+                    let track: web_sys::MediaStreamTrack = entry.unchecked_into();
+                    if track.kind() == "audio" {
+                        track.stop();
+                    }
+                }
+            }
+
             // Release the old desktop audio loopback first so re-capturing
             // doesn't stack a second one; a no-op in a plain browser.
             let _ = stop_desktop_audio_loopback().await;
@@ -440,27 +518,7 @@ pub(crate) fn switch_source_handler(
             replace_outgoing_tracks(&conn, &new_stream).await;
 
             if let Some(peer_id) = my_peer_id_value.as_deref() {
-                if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                    if let Some(video) =
-                        document.get_element_by_id(&format!("video-self-{peer_id}"))
-                    {
-                        let video: web_sys::HtmlVideoElement = video.unchecked_into();
-                        video.set_src_object(Some(&new_stream));
-                        video.set_muted(true);
-                        let _ = video.play();
-                    }
-                }
-            }
-
-            // Stop the tracks of the stream we just switched away from and
-            // drop it, mirroring `stop_sharing`'s indicator-release dance,
-            // then hold onto the new one.
-            if let Some(old_stream) = conn.local_stream.borrow_mut().replace(new_stream.clone()) {
-                for entry in old_stream.get_tracks().iter() {
-                    let track: web_sys::MediaStreamTrack = entry.unchecked_into();
-                    track.stop();
-                    old_stream.remove_track(&track);
-                }
+                play_stream_in_self_preview(peer_id, &new_stream);
             }
 
             attach_native_stop_listener(
@@ -471,8 +529,26 @@ pub(crate) fn switch_source_handler(
                 expanded,
                 my_peer_id,
             );
+
+            // Release the stream we switched away from (stop + detach its
+            // tracks — the `stop_sharing` indicator dance), then store the
+            // *exact* new stream. Storing a clone and letting the original
+            // wrapper drop here leaves Chrome's native "sharing" indicator
+            // lit for that capture forever, so every switch stacked
+            // another bar (see the matching note in `start_sharing`).
+            let old_stream = conn.local_stream.borrow_mut().take();
+            if let Some(old_stream) = old_stream {
+                for entry in old_stream.get_tracks().iter() {
+                    let track: web_sys::MediaStreamTrack = entry.unchecked_into();
+                    track.stop();
+                    old_stream.remove_track(&track);
+                }
+            }
+            *conn.local_stream.borrow_mut() = Some(new_stream);
+
             super::audio::set_shared_audio_muted(&conn, audio_muted.get_untracked());
             super::video_mode::apply_video_mode_to_all(&conn, video_mode.get_untracked()).await;
+            share_generation.update(|generation| *generation = generation.wrapping_add(1));
             set_status.set("Conectado.".to_string());
         });
     }

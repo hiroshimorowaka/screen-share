@@ -1,14 +1,60 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use rand::RngExt;
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use super::auth::{hash_password, verify_password};
+use super::auth::{hash_password, verify_password, MAX_PASSWORD_LEN};
+use screen_share_protocol::validate::{clean_nick, clean_room_name, is_valid_color};
 use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+
+/// Upper bound on a self-reported `Ping`/`Pong` round trip the server will
+/// rebroadcast as a peer's latency. Anything above this is a spoof
+/// attempt, not a real measurement (a full minute of latency means the
+/// connection is already dead) — it's dropped rather than shown on the
+/// other members' cards (finding F15).
+pub const MAX_PLAUSIBLE_LATENCY_MS: u32 = 60_000;
+
+/// Depth of one connection's outbound queue. Bounded so a member that
+/// stops reading its socket can't force the registry to buffer without
+/// limit while the rest of the room keeps broadcasting to it: sends here
+/// are a non-blocking `try_send` that drops once this many messages are
+/// outstanding, trading a wedged (already-broken) peer connection for a
+/// hard memory ceiling. Far above a healthy connection's steady state —
+/// it drains every message immediately.
+pub const OUTBOUND_CAPACITY: usize = 256;
+
+/// Hard cap on rooms the registry holds at once. Creating a room needs no
+/// prior auth, so without a ceiling one client can exhaust the small
+/// production VM's memory by creating rooms in a loop. Far above any
+/// realistic concurrent load for a small-group tool.
+pub const MAX_ROOMS: usize = 5_000;
+
+/// Hard cap on rooms one client (keyed by `client_key`, i.e. Fly's
+/// client-IP header) may hold open at once, so one abusive source can't
+/// consume the whole [`MAX_ROOMS`] budget by itself.
+pub const MAX_ROOMS_PER_CLIENT: usize = 50;
+
+/// Hard cap on concurrent signaling WebSocket connections across every
+/// room — a blunt backstop against a socket flood (slowloris) that opens
+/// connections faster than rooms fill up.
+pub const MAX_WS_CONNECTIONS: usize = 2_000;
+
+/// Sender half of one connection's bounded outbound queue.
+pub type MemberTx = mpsc::Sender<ServerMessage>;
+/// Receiver half of one connection's bounded outbound queue.
+pub type MemberRx = mpsc::Receiver<ServerMessage>;
+
+/// Builds one connection's bounded outbound channel. Production and tests
+/// both go through here so [`OUTBOUND_CAPACITY`] stays the single source
+/// of truth.
+pub fn member_channel() -> (MemberTx, MemberRx) {
+    mpsc::channel(OUTBOUND_CAPACITY)
+}
 
 /// How long a room stays reservable after its last member leaves before it's
 /// actually deleted — long enough to survive a page reload (the old
@@ -30,7 +76,7 @@ struct Member {
     nick: String,
     color: String,
     device_id: String,
-    sender: UnboundedSender<ServerMessage>,
+    sender: MemberTx,
     /// `None` until this member's first `Ping`/`Pong` round trip completes.
     latency_ms: Option<u32>,
 }
@@ -47,6 +93,17 @@ struct Room {
     /// Timestamps of recent wrong-password join attempts, keyed by client
     /// and pruned to `PASSWORD_ATTEMPT_WINDOW` on every check.
     failed_password_attempts: HashMap<String, Vec<Instant>>,
+    /// `client_key` (see `ws.rs`) of whoever created this room — used only
+    /// to enforce [`MAX_ROOMS_PER_CLIENT`].
+    owner_key: String,
+    /// When the room most recently became empty, or `None` while it has
+    /// members. The cleanup task deletes the room once this is at least
+    /// [`EMPTY_ROOM_GRACE_PERIOD`] in the past.
+    emptied_at: Option<Instant>,
+    /// `true` while a cleanup task is live for this room, so
+    /// leave -> rejoin -> leave churn can't stack a second one (P3
+    /// follow-up: one 30 s task per emptying event otherwise).
+    cleanup_scheduled: bool,
 }
 
 #[derive(Debug)]
@@ -65,6 +122,21 @@ pub struct RoomSummary {
     pub requires_password: bool,
 }
 
+/// Everything about a client creating a room, bundled so `create_room`
+/// takes one argument instead of a long positional list — same idea as
+/// [`JoinRequest`].
+pub struct CreateRoomRequest {
+    pub nick: String,
+    pub color: String,
+    pub room_name: String,
+    pub password: Option<String>,
+    pub device_id: String,
+    /// See `client_key` in `ws.rs` — used to enforce
+    /// [`MAX_ROOMS_PER_CLIENT`].
+    pub client_key: String,
+    pub sender: MemberTx,
+}
+
 /// Everything about a client trying to join a room, bundled so `join_room`
 /// takes one argument for it instead of six — same idea as `JoinedSnapshot`.
 pub struct JoinRequest {
@@ -75,7 +147,7 @@ pub struct JoinRequest {
     /// See `client_key` in `ws.rs` — scopes the wrong-password lockout to
     /// this one client rather than the whole room.
     pub client_key: String,
-    pub sender: UnboundedSender<ServerMessage>,
+    pub sender: MemberTx,
 }
 
 #[derive(Debug, PartialEq)]
@@ -84,16 +156,66 @@ pub enum JoinError {
     WrongPassword,
     Full,
     TooManyAttempts,
+    /// The nick or colour failed [`screen_share_protocol::validate`].
+    InvalidInput,
+}
+
+/// Why [`Registry::create_room`] refused.
+#[derive(Debug, PartialEq)]
+pub enum CreateRoomError {
+    /// The global [`MAX_ROOMS`] cap, or this client's
+    /// [`MAX_ROOMS_PER_CLIENT`] cap, is already reached. The caller
+    /// should tell the user to try again later — an immediate retry
+    /// won't help.
+    AtCapacity,
+    /// The nick, room name, or colour failed
+    /// [`screen_share_protocol::validate`].
+    InvalidInput,
+}
+
+/// Frees its [`Registry`] connection slot when dropped, so a slot is
+/// always released no matter how the socket task ends.
+pub struct ConnectionGuard {
+    connections: Arc<AtomicUsize>,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.connections.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 #[derive(Clone, Default)]
 pub struct Registry {
     rooms: Arc<Mutex<HashMap<String, Room>>>,
+    /// Live signaling WebSocket connections, capped at [`MAX_WS_CONNECTIONS`].
+    connections: Arc<AtomicUsize>,
 }
 
 impl Registry {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Number of rooms currently held. Used by tests and by the per-client
+    /// room cap.
+    pub fn room_count(&self) -> usize {
+        self.lock_rooms().len()
+    }
+
+    /// Tries to claim one of the [`MAX_WS_CONNECTIONS`] connection slots.
+    /// Returns a guard that frees the slot on drop, or `None` when the
+    /// server is already at the cap — the caller should then refuse the
+    /// WebSocket upgrade.
+    pub fn try_acquire_connection(&self) -> Option<ConnectionGuard> {
+        let previous = self.connections.fetch_add(1, Ordering::AcqRel);
+        if previous >= MAX_WS_CONNECTIONS {
+            self.connections.fetch_sub(1, Ordering::AcqRel);
+            return None;
+        }
+        Some(ConnectionGuard {
+            connections: Arc::clone(&self.connections),
+        })
     }
 
     /// Locks the room table. No code in this module panics while holding the
@@ -106,16 +228,35 @@ impl Registry {
             .expect("room registry mutex should never be poisoned")
     }
 
+    /// Registers a new room with `request`'s creator as its sole member.
+    ///
+    /// # Errors
+    ///
+    /// [`CreateRoomError::AtCapacity`] when the global [`MAX_ROOMS`] cap or
+    /// the creator's [`MAX_ROOMS_PER_CLIENT`] cap is already reached.
     pub fn create_room(
         &self,
-        nick: String,
-        color: String,
-        room_name: String,
-        password: Option<String>,
-        device_id: String,
-        sender: UnboundedSender<ServerMessage>,
-    ) -> (String, JoinedSnapshot) {
-        let room_code = generate_room_code();
+        request: CreateRoomRequest,
+    ) -> Result<(String, JoinedSnapshot), CreateRoomError> {
+        let CreateRoomRequest {
+            nick,
+            color,
+            room_name,
+            password,
+            device_id,
+            client_key,
+            sender,
+        } = request;
+
+        let nick = clean_nick(&nick).map_err(|_| CreateRoomError::InvalidInput)?;
+        let room_name = clean_room_name(&room_name).map_err(|_| CreateRoomError::InvalidInput)?;
+        if !is_valid_color(&color) {
+            return Err(CreateRoomError::InvalidInput);
+        }
+        if password_too_long(password.as_deref()) {
+            return Err(CreateRoomError::InvalidInput);
+        }
+
         let peer_id = Uuid::new_v4().to_string();
         let password_hash = hash_optional_password(password);
 
@@ -132,6 +273,23 @@ impl Registry {
         );
 
         let mut rooms = self.lock_rooms();
+        if rooms.len() >= MAX_ROOMS {
+            return Err(CreateRoomError::AtCapacity);
+        }
+        // Count only rooms this client still has members in. An emptied
+        // room lingers in the map for `EMPTY_ROOM_GRACE_PERIOD` awaiting
+        // cleanup; it's on its way out and must not hold a slot, or a
+        // client that legitimately creates and leaves rooms in quick
+        // succession hits `AtCapacity` on rooms nobody is in.
+        if rooms
+            .values()
+            .filter(|room| room.owner_key == client_key && !room.members.is_empty())
+            .count()
+            >= MAX_ROOMS_PER_CLIENT
+        {
+            return Err(CreateRoomError::AtCapacity);
+        }
+        let room_code = unique_room_code(|code| rooms.contains_key(code), generate_room_code);
         rooms.insert(
             room_code.clone(),
             Room {
@@ -141,6 +299,9 @@ impl Registry {
                 sharers: HashSet::new(),
                 watchers: HashMap::new(),
                 failed_password_attempts: HashMap::new(),
+                owner_key: client_key,
+                emptied_at: None,
+                cleanup_scheduled: false,
             },
         );
 
@@ -156,7 +317,7 @@ impl Registry {
             watcher_info: vec![],
             latencies: vec![],
         };
-        (room_code, snapshot)
+        Ok((room_code, snapshot))
     }
 
     pub fn join_room(
@@ -172,6 +333,14 @@ impl Registry {
             client_key,
             sender,
         } = request;
+
+        let nick = clean_nick(&nick).map_err(|_| JoinError::InvalidInput)?;
+        if !is_valid_color(&color) {
+            return Err(JoinError::InvalidInput);
+        }
+        if password_too_long(password.as_deref()) {
+            return Err(JoinError::InvalidInput);
+        }
 
         let mut rooms = self.lock_rooms();
         let room = rooms.get_mut(room_code).ok_or(JoinError::NotFound)?;
@@ -191,14 +360,21 @@ impl Registry {
         // Same device_id already has an open entry in this room (another tab) —
         // disconnect it before checking capacity, otherwise re-joining from the
         // same device would count as one extra member instead of taking its place.
-        if let Some(previous_peer_id) = room
-            .members
-            .iter()
-            .find(|(_, m)| m.device_id == device_id)
-            .map(|(id, _)| id.clone())
-        {
-            if let Some(removed) = remove_member(room, &previous_peer_id) {
-                let _ = removed.sender.send(ServerMessage::Kicked);
+        //
+        // Skip this entirely for an empty device_id: `ensure_device_id` in the
+        // web client returns `""` on every failure path (no localStorage, no
+        // crypto), so two locked-down browsers would otherwise evict each other
+        // on join to a public room (finding F11).
+        if !device_id.is_empty() {
+            if let Some(previous_peer_id) = room
+                .members
+                .iter()
+                .find(|(_, m)| m.device_id == device_id)
+                .map(|(id, _)| id.clone())
+            {
+                if let Some(removed) = remove_member(room, &previous_peer_id) {
+                    let _ = removed.sender.try_send(ServerMessage::Kicked);
+                }
             }
         }
 
@@ -209,7 +385,7 @@ impl Registry {
         let peer_id = Uuid::new_v4().to_string();
 
         for member in room.members.values() {
-            let _ = member.sender.send(ServerMessage::PeerJoined {
+            let _ = member.sender.try_send(ServerMessage::PeerJoined {
                 peer_id: peer_id.clone(),
                 nick: nick.clone(),
                 color: color.clone(),
@@ -285,7 +461,7 @@ impl Registry {
             room.sharers.insert(peer_id.to_string());
             for (id, member) in room.members.iter() {
                 if id != peer_id {
-                    let _ = member.sender.send(ServerMessage::PeerStartedSharing {
+                    let _ = member.sender.try_send(ServerMessage::PeerStartedSharing {
                         peer_id: peer_id.to_string(),
                     });
                 }
@@ -300,7 +476,7 @@ impl Registry {
             room.watchers.remove(peer_id);
             for (id, member) in room.members.iter() {
                 if id != peer_id {
-                    let _ = member.sender.send(ServerMessage::PeerStoppedSharing {
+                    let _ = member.sender.try_send(ServerMessage::PeerStoppedSharing {
                         peer_id: peer_id.to_string(),
                     });
                 }
@@ -314,12 +490,26 @@ impl Registry {
             return;
         };
 
+        // A watch only makes sense for a peer that is in this room *and*
+        // currently sharing. Dropping the `sharers` half of this let a
+        // member `WatchShare` an idle co-member: that still fired a
+        // `WatchRequested` at the target (whose client then opened an
+        // `RTCPeerConnection` and trickled host/srflx ICE, leaking its
+        // LAN + public address) and, because `watch_related` now held,
+        // opened the `relay_peer_signal` gate between the two for
+        // unsolicited offers / renegotiation / quality spam — the exact
+        // surface F07 closed. The membership half still guards against a
+        // `sharer_id` that isn't in the room at all (finding F15).
+        if !room.members.contains_key(sharer_id) || !room.sharers.contains(sharer_id) {
+            return;
+        }
+
         room.watchers
             .entry(sharer_id.to_string())
             .or_default()
             .insert(viewer_id.to_string());
         if let Some(sharer) = room.members.get(sharer_id) {
-            let _ = sharer.sender.send(ServerMessage::WatchRequested {
+            let _ = sharer.sender.try_send(ServerMessage::WatchRequested {
                 from: viewer_id.to_string(),
             });
         }
@@ -336,7 +526,7 @@ impl Registry {
             watchers.remove(viewer_id);
         }
         if let Some(sharer) = room.members.get(sharer_id) {
-            let _ = sharer.sender.send(ServerMessage::WatchStopped {
+            let _ = sharer.sender.try_send(ServerMessage::WatchStopped {
                 from: viewer_id.to_string(),
             });
         }
@@ -352,25 +542,44 @@ impl Registry {
             return;
         };
 
+        // Drop an implausible self-report rather than rebroadcast it as
+        // this peer's ping on everyone else's card (finding F15).
+        if ms > MAX_PLAUSIBLE_LATENCY_MS {
+            return;
+        }
+
         let Some(member) = room.members.get_mut(peer_id) else {
             return;
         };
         member.latency_ms = Some(ms);
 
         for member in room.members.values() {
-            let _ = member.sender.send(ServerMessage::PeerLatency {
+            let _ = member.sender.try_send(ServerMessage::PeerLatency {
                 peer_id: peer_id.to_string(),
                 ms,
             });
         }
     }
 
-    pub fn relay(&self, room_code: &str, to: &str, message: ServerMessage) {
+    /// Relays a peer-to-peer signaling message (`Offer` / `Answer` /
+    /// `IceCandidate` / `QualityRequested`) from `from` to `to`, but only
+    /// while the two are in a watch relationship in this room — one is
+    /// watching the other. Without that gate any co-member could push an
+    /// unsolicited `Offer` at any other, making their client open an
+    /// `RTCPeerConnection` and leak its host/srflx ICE candidates (LAN +
+    /// public IP), or spam renegotiation / quality changes (finding F07).
+    /// `from` is the connection's server-assigned `peer_id`, never a
+    /// client-supplied value.
+    pub fn relay_peer_signal(&self, room_code: &str, from: &str, to: &str, message: ServerMessage) {
         let rooms = self.lock_rooms();
-        if let Some(room) = rooms.get(room_code) {
-            if let Some(member) = room.members.get(to) {
-                let _ = member.sender.send(message);
-            }
+        let Some(room) = rooms.get(room_code) else {
+            return;
+        };
+        if !watch_related(room, from, to) {
+            return;
+        }
+        if let Some(member) = room.members.get(to) {
+            let _ = member.sender.try_send(message);
         }
     }
 
@@ -379,34 +588,64 @@ impl Registry {
     /// joinable if whoever just left (e.g. reloading the page) reconnects.
     pub fn leave_room(&self, room_code: &str, peer_id: &str) {
         let mut rooms = self.lock_rooms();
-        let became_empty = if let Some(room) = rooms.get_mut(room_code) {
+        let needs_cleanup_task = if let Some(room) = rooms.get_mut(room_code) {
             remove_member(room, peer_id);
-            room.members.is_empty()
+            if room.members.is_empty() {
+                room.emptied_at = Some(Instant::now());
+                // Only spawn a task if one isn't already watching this
+                // room — the live one picks up the refreshed `emptied_at`.
+                let first = !room.cleanup_scheduled;
+                room.cleanup_scheduled = true;
+                first
+            } else {
+                false
+            }
         } else {
             false
         };
         drop(rooms);
 
-        if became_empty {
+        if needs_cleanup_task {
             self.schedule_empty_room_cleanup(room_code.to_string());
         }
     }
 
+    /// One task per room (not per emptying event): it waits out the grace
+    /// period, then deletes the room unless it filled back up or was
+    /// re-emptied more recently — in which case it waits again.
     fn schedule_empty_room_cleanup(&self, room_code: String) {
         let registry = self.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(EMPTY_ROOM_GRACE_PERIOD).await;
-            let mut rooms = registry.lock_rooms();
-            // Someone may have rejoined during the grace period — only
-            // remove the room if it's *still* empty.
-            if rooms
-                .get(&room_code)
-                .is_some_and(|room| room.members.is_empty())
-            {
-                rooms.remove(&room_code);
+            loop {
+                tokio::time::sleep(EMPTY_ROOM_GRACE_PERIOD).await;
+                let mut rooms = registry.lock_rooms();
+                let Some(room) = rooms.get_mut(&room_code) else {
+                    return;
+                };
+                if !room.members.is_empty() {
+                    // Someone rejoined for good; let a future emptying
+                    // schedule a fresh task.
+                    room.cleanup_scheduled = false;
+                    return;
+                }
+                match room.emptied_at {
+                    Some(at) if at.elapsed() >= EMPTY_ROOM_GRACE_PERIOD => {
+                        rooms.remove(&room_code);
+                        return;
+                    }
+                    // Re-emptied during our sleep (rejoin + releave) — wait
+                    // out the rest of the new grace period.
+                    _ => continue,
+                }
             }
         });
     }
+}
+
+/// Rejects a password longer than [`MAX_PASSWORD_LEN`] before it ever
+/// reaches argon2 (finding F02). Absent or empty is always fine.
+fn password_too_long(password: Option<&str>) -> bool {
+    password.is_some_and(|password| password.chars().count() > MAX_PASSWORD_LEN)
 }
 
 /// `None` or an empty string both mean "no password".
@@ -437,11 +676,20 @@ fn password_attempts_exceeded(
     client_key: &str,
 ) -> bool {
     let now = Instant::now();
-    let attempts = attempts_by_client
-        .entry(client_key.to_string())
-        .or_default();
-    attempts.retain(|&attempt| now.duration_since(attempt) < PASSWORD_ATTEMPT_WINDOW);
-    attempts.len() >= MAX_PASSWORD_ATTEMPTS
+
+    // Sweep every client's window, not just this one's, and drop entries
+    // that have gone empty. Pruning only the caller's key leaks one
+    // `String` + `Vec` per distinct attacker IP forever (finding F04): a
+    // slow distributed brute force never revisits a key, so it would never
+    // be cleaned up.
+    attempts_by_client.retain(|_, attempts| {
+        attempts.retain(|&attempt| now.duration_since(attempt) < PASSWORD_ATTEMPT_WINDOW);
+        !attempts.is_empty()
+    });
+
+    attempts_by_client
+        .get(client_key)
+        .is_some_and(|attempts| attempts.len() >= MAX_PASSWORD_ATTEMPTS)
 }
 
 fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
@@ -455,11 +703,11 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
         .collect();
 
     for member in room.members.values() {
-        let _ = member.sender.send(ServerMessage::PeerLeft {
+        let _ = member.sender.try_send(ServerMessage::PeerLeft {
             peer_id: peer_id.to_string(),
         });
         if was_sharing {
-            let _ = member.sender.send(ServerMessage::PeerStoppedSharing {
+            let _ = member.sender.try_send(ServerMessage::PeerStoppedSharing {
                 peer_id: peer_id.to_string(),
             });
         }
@@ -471,6 +719,14 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
     Some(removed)
 }
 
+/// Whether `a` and `b` are in a watch relationship in `room` — either one
+/// is watching the other. The direction doesn't matter: an `Offer` flows
+/// sharer -> viewer, the `Answer` and half the ICE flow viewer -> sharer.
+fn watch_related(room: &Room, a: &str, b: &str) -> bool {
+    room.watchers.get(a).is_some_and(|w| w.contains(b))
+        || room.watchers.get(b).is_some_and(|w| w.contains(a))
+}
+
 fn broadcast_watchers_changed(room: &Room, sharer_id: &str) {
     let watchers: Vec<String> = room
         .watchers
@@ -478,7 +734,7 @@ fn broadcast_watchers_changed(room: &Room, sharer_id: &str) {
         .map(|w| w.iter().cloned().collect())
         .unwrap_or_default();
     for member in room.members.values() {
-        let _ = member.sender.send(ServerMessage::WatchersChanged {
+        let _ = member.sender.try_send(ServerMessage::WatchersChanged {
             sharer_id: sharer_id.to_string(),
             watchers: watchers.clone(),
         });
@@ -496,3 +752,30 @@ fn generate_room_code() -> String {
         .map(|_| ROOM_CODE_ALPHABET[rng.random_range(0..ROOM_CODE_ALPHABET.len())] as char)
         .collect()
 }
+
+/// Tries `generate` until it yields a code `is_taken` rejects, up to
+/// [`ROOM_CODE_COLLISION_RETRIES`] times. A collision in the 31^8 code
+/// space against [`MAX_ROOMS`] rooms is ~6e-9, but without this check the
+/// `rooms.insert` on a collision silently overwrites a live room and
+/// strands its members (P3 follow-up). The last try is accepted as-is:
+/// after this many misses the space is effectively exhausted and there is
+/// nothing better to return.
+const ROOM_CODE_COLLISION_RETRIES: usize = 8;
+
+fn unique_room_code(
+    is_taken: impl Fn(&str) -> bool,
+    mut generate: impl FnMut() -> String,
+) -> String {
+    let mut code = generate();
+    for _ in 1..ROOM_CODE_COLLISION_RETRIES {
+        if !is_taken(&code) {
+            break;
+        }
+        code = generate();
+    }
+    code
+}
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod tests;

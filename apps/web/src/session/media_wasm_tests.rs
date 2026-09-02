@@ -96,9 +96,14 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
         // A live Auto poll for this viewer — teardown must stop it without
         // deadlocking on `quality_auto_intervals` (the id is a throwaway;
         // `clear_interval` no-ops on an unknown handle).
-        conn.quality_auto_intervals
-            .borrow_mut()
-            .insert(peer.to_string(), 0);
+        conn.quality_auto_intervals.borrow_mut().insert(
+            peer.to_string(),
+            crate::session::quality::AutoPoll::for_test(0),
+        );
+        conn.outgoing_callbacks.borrow_mut().insert(
+            peer.to_string(),
+            crate::session::handler::PeerCallbacks::empty_for_test(),
+        );
     }
     *conn.local_stream.borrow_mut() = Some(shared.clone());
 
@@ -123,10 +128,14 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
         conn.quality_auto_intervals.borrow().is_empty(),
         "every Auto poll is stopped"
     );
+    assert!(
+        conn.outgoing_callbacks.borrow().is_empty(),
+        "every viewer connection's callbacks are dropped"
+    );
 }
 
 #[wasm_bindgen_test]
-async fn replace_outgoing_tracks_leaves_audio_senders_alone_when_the_new_stream_has_no_audio() {
+async fn replace_outgoing_tracks_clears_the_audio_sender_when_the_new_stream_has_no_audio() {
     let conn = crate::session::RoomSession::new();
 
     let old = stream_of(&["video", "audio"]);
@@ -136,14 +145,119 @@ async fn replace_outgoing_tracks_leaves_audio_senders_alone_when_the_new_stream_
     pc.add_track_0(&old_audio.clone().unwrap(), &old);
     conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
 
-    // New source is video-only.
+    // New source is video-only: the audio sender is cleared, not left
+    // holding the old (by then stopped) track (bug: a desktop switch that
+    // dropped audio kept sending a dead/mic track).
     let swapped = replace_outgoing_tracks(&conn, &stream_of(&["video"])).await;
 
-    assert_eq!(swapped, 1, "only the video sender is swapped");
+    assert_eq!(
+        swapped, 2,
+        "the video sender is swapped and the audio sender cleared"
+    );
     let pc = conn.outgoing.borrow().values().next().unwrap().clone();
-    let audio_still_there = pc.get_senders().iter().any(|entry| {
+    let any_audio_track = pc.get_senders().iter().any(|entry| {
         let sender: web_sys::RtcRtpSender = entry.unchecked_into();
         sender.track().map(|t| t.kind()) == Some("audio".to_string())
     });
-    assert!(audio_still_there, "the old audio sender keeps its track");
+    assert!(!any_audio_track, "no sender still carries an audio track");
+}
+
+#[wasm_bindgen_test]
+async fn replace_outgoing_tracks_fills_a_reserved_audio_mline_when_a_switch_gains_audio() {
+    let conn = crate::session::RoomSession::new();
+
+    // A viewer connection for a share that started silent: the video track
+    // plus the reserved (track-less) `sendonly` audio m-line, exactly what
+    // `WatchRequested` builds now.
+    let started_silent = stream_of(&["video"]);
+    let (silent_video, _) = video_and_audio_tracks(&started_silent);
+    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    pc.add_track_0(&silent_video.unwrap(), &started_silent);
+    crate::infra::webrtc::reserve_audio_mline(&pc, &started_silent);
+    conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
+
+    // "Trocar fonte" to a source that now carries audio.
+    let with_audio = stream_of(&["video", "audio"]);
+    let (_, switched_in_audio) = video_and_audio_tracks(&with_audio);
+    let switched_in_audio_id = switched_in_audio.unwrap().id();
+
+    let swapped = replace_outgoing_tracks(&conn, &with_audio).await;
+
+    assert_eq!(
+        swapped, 2,
+        "the video sender and the reserved audio sender both take a track"
+    );
+    let pc = conn.outgoing.borrow().values().next().unwrap().clone();
+    let carries_switched_in_audio = pc.get_senders().iter().any(|entry| {
+        let sender: web_sys::RtcRtpSender = entry.unchecked_into();
+        sender.track().map(|t| t.id()) == Some(switched_in_audio_id.clone())
+    });
+    assert!(
+        carries_switched_in_audio,
+        "the reserved audio sender now carries the switched-in audio track"
+    );
+}
+
+#[wasm_bindgen_test]
+fn reserve_audio_mline_adds_one_sendonly_audio_transceiver() {
+    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let stream = stream_of(&["video"]);
+    pc.add_track_0(&video_and_audio_tracks(&stream).0.unwrap(), &stream);
+
+    crate::infra::webrtc::reserve_audio_mline(&pc, &stream);
+
+    let audio_transceivers = pc
+        .get_transceivers()
+        .iter()
+        .filter(|entry| {
+            let transceiver: web_sys::RtcRtpTransceiver = entry.clone().unchecked_into();
+            transceiver.receiver().track().kind() == "audio"
+        })
+        .count();
+    assert_eq!(audio_transceivers, 1, "one audio m-line is reserved");
+}
+
+#[wasm_bindgen_test]
+fn play_stream_in_is_idempotent_across_repeat_calls() {
+    let doc = web_sys::window().unwrap().document().unwrap();
+    let video = doc.create_element("video").unwrap();
+    video.set_id("test-play-target");
+    doc.body().unwrap().append_child(&video).unwrap();
+
+    let stream = stream_of(&["video", "audio"]);
+
+    // `ontrack` fires once per track — call twice with the same stream and
+    // expect no panic and the element left pointing at that stream (the
+    // real fix also swallows the `play()` AbortError this would trigger).
+    crate::session::media::play_stream_in("test-play-target", &stream, false);
+    crate::session::media::play_stream_in("test-play-target", &stream, false);
+
+    let v: web_sys::HtmlVideoElement = video.unchecked_into();
+    assert_eq!(v.src_object().as_ref(), Some(&stream));
+    v.remove();
+}
+
+#[wasm_bindgen_test]
+fn native_stop_listener_is_retained_on_the_session_and_cleared_on_teardown() {
+    let conn = crate::session::RoomSession::new();
+
+    // Previously `Closure::forget`'d once per share and once per source
+    // switch, never freed (finding F08a).
+    let cb = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(|| {});
+    store_local_capture_callback(&conn, cb);
+    assert!(
+        conn.local_capture_callback.borrow().is_some(),
+        "the listener is kept on the session, not forgotten"
+    );
+
+    // A source switch replaces the single slot rather than stacking.
+    let cb2 = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(|| {});
+    store_local_capture_callback(&conn, cb2);
+    assert!(conn.local_capture_callback.borrow().is_some());
+
+    clear_local_capture_callback(&conn);
+    assert!(
+        conn.local_capture_callback.borrow().is_none(),
+        "share teardown clears the stored listener"
+    );
 }

@@ -1,3 +1,5 @@
+use std::cell::RefCell;
+
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use web_sys::{MessageEvent, WebSocket};
@@ -7,6 +9,13 @@ use screen_share_protocol::{ClientMessage, ServerMessage};
 pub struct WsClient {
     socket: WebSocket,
     _on_message: Closure<dyn FnMut(MessageEvent)>,
+    // Held so it's freed with the `WsClient`. `on_close` deliberately
+    // stays a `once_into_js` leak instead: a socket always eventually
+    // closes, so it fires (no leak), and its handler must outlive this
+    // `WsClient` to run the reconnect check. `on_open` can genuinely never
+    // fire — a failed `connect()` — so keeping its closure here means it's
+    // dropped with the client rather than leaked (P3 follow-up).
+    _on_open: RefCell<Option<Closure<dyn FnMut()>>>,
 }
 
 fn message_closure(
@@ -45,6 +54,7 @@ impl WsClient {
         Ok(Self {
             socket,
             _on_message: on_message_cb,
+            _on_open: RefCell::new(None),
         })
     }
 
@@ -62,8 +72,9 @@ impl WsClient {
     }
 
     pub fn on_open(&self, callback: impl FnOnce() + 'static) {
-        let cb = Closure::once_into_js(callback);
+        let cb = Closure::once(callback);
         self.socket.set_onopen(Some(cb.as_ref().unchecked_ref()));
+        *self._on_open.borrow_mut() = Some(cb);
     }
 
     pub fn on_close(&self, callback: impl FnOnce() + 'static) {
@@ -72,6 +83,16 @@ impl WsClient {
     }
 
     pub fn close(&self) {
+        let _ = self.socket.close();
+    }
+}
+
+impl Drop for WsClient {
+    /// A dropped `WsClient` whose socket was never explicitly closed would
+    /// otherwise leave the underlying browser `WebSocket` open until GC —
+    /// long enough for the server's idle reap to fire. Closing on drop is
+    /// idempotent with an earlier explicit `close()`.
+    fn drop(&mut self) {
         let _ = self.socket.close();
     }
 }

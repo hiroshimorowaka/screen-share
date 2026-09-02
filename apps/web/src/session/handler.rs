@@ -5,6 +5,25 @@ use crate::session::RoomSignals;
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 
+/// The JS event callbacks bound to one peer's `RTCPeerConnection`
+/// (`ontrack` — only for a connection we receive on — plus
+/// `onicecandidate` and `oniceconnectionstatechange`). Held in
+/// `RoomSession::{outgoing,incoming}_callbacks` so they — and the
+/// `RoomSession` clone one of them captures — drop when the connection is
+/// removed or the room page unmounts, instead of being `Closure::forget`'d
+/// and leaked for the life of the tab. Never read; the `Vec` just owns the
+/// closures for exactly that long.
+#[cfg(feature = "hydrate")]
+pub(crate) struct PeerCallbacks(#[allow(dead_code)] Vec<Box<dyn std::any::Any>>);
+
+#[cfg(all(feature = "hydrate", test))]
+impl PeerCallbacks {
+    /// An empty entry, for tests that only need something in the map.
+    pub(crate) fn empty_for_test() -> Self {
+        Self(Vec::new())
+    }
+}
+
 /// Everything the `Joined` snapshot carries, bundled so `apply_joined_snapshot`
 /// takes one argument for it instead of seven — same idea as `RoomSignals`.
 #[cfg(feature = "hydrate")]
@@ -146,6 +165,16 @@ pub(crate) fn build_message_handler(
         ServerMessage::RoomFull => {
             set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string())
         }
+        ServerMessage::AlreadyInRoom => set_status.set(
+            "Esta conexão já está em uma sala. Recarregue a página para entrar em outra."
+                .to_string(),
+        ),
+        ServerMessage::ServerAtCapacity => set_status.set(
+            "O servidor está sem capacidade no momento. Tente novamente em alguns minutos."
+                .to_string(),
+        ),
+        ServerMessage::InvalidInput => set_status
+            .set("Nick, nome da sala ou cor inválidos. Verifique e tente de novo.".to_string()),
         ServerMessage::TooManyAttempts => set_status.set(
             "Muitas tentativas de senha erradas. Aguarde um pouco antes de tentar de novo."
                 .to_string(),
@@ -188,9 +217,11 @@ pub(crate) fn build_message_handler(
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            conn.outgoing_callbacks.borrow_mut().remove(&peer_id);
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            conn.incoming_callbacks.borrow_mut().remove(&peer_id);
             let was_fullscreen =
                 crate::features::room::media_controls::exit_fullscreen_if_showing(&peer_id);
             expanded.update(|current| {
@@ -228,6 +259,7 @@ pub(crate) fn build_message_handler(
             if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
                 pc.close();
             }
+            conn.incoming_callbacks.borrow_mut().remove(&peer_id);
         }
         ServerMessage::WatchersChanged {
             sharer_id,
@@ -255,6 +287,14 @@ pub(crate) fn build_message_handler(
             });
         }
         ServerMessage::Offer { from, sdp } => {
+            // Defence in depth for F07: the relay only forwards an Offer
+            // between peers already in a watch relationship, but ignore
+            // one here too unless the user actually chose to watch `from`.
+            // Never open a peer connection — and leak host/srflx ICE
+            // candidates — for an unsolicited offer.
+            if !watching.get_untracked().contains(&from) {
+                return;
+            }
             let conn = conn.clone();
             spawn_local(async move {
                 let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
@@ -278,21 +318,18 @@ pub(crate) fn build_message_handler(
                 let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
                     move |event: RtcTrackEvent| {
                         if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
-                            if let Some(document) = web_sys::window().and_then(|w| w.document()) {
-                                if let Some(video_el) =
-                                    document.get_element_by_id(&format!("video-{sharer_id}"))
-                                {
-                                    let video: web_sys::HtmlVideoElement =
-                                        video_el.unchecked_into();
-                                    video.set_src_object(Some(&stream));
-                                    let _ = video.play();
-                                }
-                            }
+                            // Fires once per track (video + tab audio =
+                            // twice); `play_stream_in` is idempotent and
+                            // swallows the resulting play/AbortError.
+                            crate::session::media::play_stream_in(
+                                &format!("video-{sharer_id}"),
+                                &stream,
+                                false,
+                            );
                         }
                     },
                 );
                 pc.set_ontrack(Some(ontrack.as_ref().unchecked_ref()));
-                ontrack.forget();
 
                 let target_id = from.clone();
                 let conn_for_ice = conn.clone();
@@ -313,7 +350,6 @@ pub(crate) fn build_message_handler(
                         },
                     );
                 pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-                onicecandidate.forget();
 
                 let failed_peer_id = from.clone();
                 let oniceconnectionstatechange = {
@@ -331,7 +367,15 @@ pub(crate) fn build_message_handler(
                 pc.set_oniceconnectionstatechange(Some(
                     oniceconnectionstatechange.as_ref().unchecked_ref(),
                 ));
-                oniceconnectionstatechange.forget();
+
+                conn.incoming_callbacks.borrow_mut().insert(
+                    from.clone(),
+                    PeerCallbacks(vec![
+                        Box::new(ontrack),
+                        Box::new(onicecandidate),
+                        Box::new(oniceconnectionstatechange),
+                    ]),
+                );
 
                 match create_answer(&pc, &sdp).await {
                     Ok(answer_sdp) => {
@@ -394,6 +438,15 @@ pub(crate) fn build_message_handler(
             }
         }
         ServerMessage::WatchRequested { from } => {
+            // Defence in depth for F07 (mirrors the `Offer` branch): the
+            // relay now only sends `WatchRequested` for a peer that is
+            // actually sharing, but ignore one here too unless we have a
+            // local stream to offer. Never open a peer connection — and
+            // leak host/srflx ICE candidates — because a co-member asked
+            // to watch a screen we aren't sharing.
+            if conn.local_stream.borrow().is_none() {
+                return;
+            }
             let conn = conn.clone();
             spawn_local(async move {
                 let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
@@ -414,9 +467,20 @@ pub(crate) fn build_message_handler(
                 });
 
                 if let Some(stream) = conn.local_stream.borrow().as_ref() {
+                    let mut shares_audio = false;
                     for track in stream.get_tracks().iter() {
                         let track: web_sys::MediaStreamTrack = track.unchecked_into();
+                        if track.kind() == "audio" {
+                            shares_audio = true;
+                        }
                         pc.add_track_0(&track, stream);
+                    }
+                    // A silent share can gain audio later via "trocar fonte";
+                    // reserve the audio m-line now so `replace_outgoing_tracks`
+                    // can swap that track in without a renegotiation this path
+                    // never does (see `reserve_audio_mline`).
+                    if !shares_audio {
+                        crate::infra::webrtc::reserve_audio_mline(&pc, stream);
                     }
                 }
 
@@ -472,7 +536,6 @@ pub(crate) fn build_message_handler(
                         },
                     );
                 pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-                onicecandidate.forget();
 
                 let failed_viewer_id = from.clone();
                 let oniceconnectionstatechange = {
@@ -490,7 +553,14 @@ pub(crate) fn build_message_handler(
                 pc.set_oniceconnectionstatechange(Some(
                     oniceconnectionstatechange.as_ref().unchecked_ref(),
                 ));
-                oniceconnectionstatechange.forget();
+
+                conn.outgoing_callbacks.borrow_mut().insert(
+                    from.clone(),
+                    PeerCallbacks(vec![
+                        Box::new(onicecandidate),
+                        Box::new(oniceconnectionstatechange),
+                    ]),
+                );
 
                 match create_offer(&pc).await {
                     Ok(sdp) => {
@@ -510,6 +580,7 @@ pub(crate) fn build_message_handler(
             if let Some(pc) = conn.outgoing.borrow_mut().remove(&from) {
                 pc.close();
             }
+            conn.outgoing_callbacks.borrow_mut().remove(&from);
         }
         ServerMessage::QualityRequested { from, quality } => {
             super::quality::stop_auto_polling(&conn, &from);

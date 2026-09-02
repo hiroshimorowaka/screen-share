@@ -17,12 +17,12 @@ pub(super) fn setup_touch_signal(_set_is_touch: WriteSignal<bool>) {}
 
 /// Sets `set_is_touch` from `TOUCH_QUERY` now and on every change (a tablet
 /// paired with a mouse, or DevTools device emulation, can flip it at
-/// runtime). The listener is leaked with `Closure::forget` — it must live
-/// for the whole page.
+/// runtime). The listener is removed when `RoomPage` is disposed — the
+/// signal it writes belongs to `RoomPage`, so a `change` firing after that
+/// would hit an already-disposed value.
 #[cfg(feature = "hydrate")]
 pub(super) fn setup_touch_signal(set_is_touch: WriteSignal<bool>) {
     use wasm_bindgen::prelude::Closure;
-    use wasm_bindgen::JsCast;
 
     let Some(window) = web_sys::window() else {
         return;
@@ -37,6 +37,5 @@ pub(super) fn setup_touch_signal(set_is_touch: WriteSignal<bool>) {
         let query = query.clone();
         move || set_is_touch.set(query.matches())
     });
-    let _ = query.add_event_listener_with_callback("change", on_change.as_ref().unchecked_ref());
-    on_change.forget();
+    crate::infra::dom::listen_until_cleanup(&query, "change", on_change);
 }

@@ -21,6 +21,19 @@ pub enum ServerMessage {
     AuthFailed,
     RoomNotFound,
     RoomFull,
+    /// This connection already created or joined a room. Signaling state
+    /// is bound to the connection, so a second `CreateRoom`/`JoinRoom` on
+    /// the same socket is refused rather than silently leaking the first
+    /// room's membership — a new room needs a new connection.
+    AlreadyInRoom,
+    /// The server is at its room capacity — the global cap or this
+    /// client's per-client cap (see `MAX_ROOMS` / `MAX_ROOMS_PER_CLIENT`
+    /// in `signaling::registry`). Retrying immediately won't help.
+    ServerAtCapacity,
+    /// A `CreateRoom`/`JoinRoom` field failed validation — nick or room
+    /// name empty, too long, or carrying control / bidi characters, or an
+    /// unknown colour id (see `protocol::validate`).
+    InvalidInput,
     /// Too many wrong-password attempts against this room recently — see
     /// `MAX_PASSWORD_ATTEMPTS` in `registry.rs`. Sent instead of
     /// `AuthFailed` even if the password given this time was correct, so a

@@ -21,6 +21,17 @@ function checkNow(): void {
  * shows a native "update ready" notification, and installs it the next
  * time the app quits.
  *
+ * Update integrity (see ADR-0008, finding F04):
+ * - `electron-updater` always verifies the downloaded installer's SHA512
+ *   against `latest.yml`.
+ * - `build.win.verifyUpdateCodeSignature` is left at its default (`true`),
+ *   so on Windows the NSIS updater additionally refuses any installer not
+ *   Authenticode-signed by the same publisher as the running app. This
+ *   means a signed release build is required for auto-update to apply —
+ *   CI must provide `CSC_LINK` / `CSC_KEY_PASSWORD`. An unsigned build
+ *   still runs; its update checks simply never apply an update, which is
+ *   the safe failure mode.
+ *
  * No-op unless:
  * - the app is packaged — a `pnpm start` dev run has no `app-update.yml`
  *   and must not phone GitHub; and

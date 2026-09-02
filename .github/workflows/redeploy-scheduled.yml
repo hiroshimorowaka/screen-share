@@ -1,0 +1,33 @@
+name: Scheduled redeploy
+
+# Rebuilds and redeploys the Fly.io image from scratch on a schedule so
+# security fixes in the base image land without waiting for the next code
+# change. The driver is coturn: the Dockerfile installs it unpinned from
+# `debian:bookworm-slim` (pinning an exact apt version breaks on the next
+# Debian point release), so a stale image keeps a stale coturn until
+# something else triggers a deploy — see the "Deferred (ops, not code)"
+# note in docs/decisions/0008-security-hardening.md (A-03). `--no-cache`
+# forces the `apt-get install` layer to re-resolve to the current
+# package versions instead of reusing a months-old cached layer.
+#
+# Needs the same `FLY_API_TOKEN` secret as `deploy-web` in ci-cd.yml.
+on:
+  schedule:
+    - cron: '23 5 1 * *' # 1st of each month, 05:23 UTC — off-peak
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  redeploy:
+    name: Rebuild + redeploy (no cache)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # SHA-pinned, not @master: this job holds FLY_API_TOKEN (finding
+      # F17). SHA is v1.6.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
+      - run: flyctl deploy --remote-only --no-cache
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -1,10 +1,10 @@
 {
   "name": "screen-share-desktop",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Desktop app for Screen Share — persistent, password-protected screen sharing rooms with system audio.",
   "author": {
     "name": "hiroshimorowaka",
-    "email": "guilhermecabral1204@gmail.com"
+    "url": "https://github.com/hiroshimorowaka"
   },
   "homepage": "https://github.com/hiroshimorowaka/screen-share",
   "private": true,
@@ -49,7 +49,11 @@
   "build": {
     "appId": "com.hiroshimorowaka.screenshare",
     "productName": "Screen Share",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "native/**/*.node",
+      "**/*.node"
+    ],
     "directories": {
       "output": "release"
     },
@@ -75,7 +79,8 @@
         "deb"
       ],
       "category": "Network",
-      "icon": "icons/app-icon.png"
+      "icon": "icons/app-icon.png",
+      "maintainer": "hiroshimorowaka <hiroshimorowaka@users.noreply.github.com>"
     },
     "win": {
       "target": [
@@ -83,7 +88,7 @@
         "portable"
       ],
       "icon": "icons/app-icon.png",
-      "verifyUpdateCodeSignature": false
+      "verifyUpdateCodeSignature": true
     },
     "nsis": {
       "oneClick": false,

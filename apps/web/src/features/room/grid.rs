@@ -83,8 +83,7 @@ pub(super) fn setup_auto_hide_controls(
             show_and_schedule_hide();
         })
     };
-    let _ = window.add_event_listener_with_callback("mousemove", on_move.as_ref().unchecked_ref());
-    on_move.forget();
+    crate::infra::dom::listen_until_cleanup(&window, "mousemove", on_move);
 
     // Touch has no `mousemove`. Outside focus mode keep the (two-button)
     // bar up; entering focus mode arms the fade so the chrome gets out of
@@ -175,12 +174,13 @@ pub(super) fn setup_adaptive_grid(
         schedule_recompute();
     });
 
-    let on_resize = Closure::<dyn FnMut()>::new(schedule_recompute);
     if let Some(window) = web_sys::window() {
-        let _ =
-            window.add_event_listener_with_callback("resize", on_resize.as_ref().unchecked_ref());
+        crate::infra::dom::listen_until_cleanup(
+            &window,
+            "resize",
+            Closure::<dyn FnMut()>::new(schedule_recompute),
+        );
     }
-    on_resize.forget();
 }
 
 /// Picks how many columns get each tile closest to a 16:9 rectangle, given

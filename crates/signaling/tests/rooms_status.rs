@@ -7,9 +7,13 @@ use screen_share_signaling::state::SignalingState;
 use screen_share_signaling::ws::ws_handler;
 
 async fn spawn_test_server() -> (String, String) {
+    use screen_share_signaling::handshake::HandshakeConfig;
+
     let signaling_state = SignalingState {
         registry: Registry::new(),
         turn: None,
+        handshake: HandshakeConfig::permissive(),
+        room_status_limiter: screen_share_signaling::rooms_status::RoomStatusLimiter::new(),
     };
     let app = Router::new()
         .route("/ws", get(ws_handler))
@@ -20,16 +24,19 @@ async fn spawn_test_server() -> (String, String) {
     let addr = listener.local_addr().unwrap();
 
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service())
-            .await
-            .unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
 
     (format!("ws://{addr}/ws"), format!("http://{addr}"))
 }
 
 #[tokio::test]
-async fn room_status_reports_existing_room_with_name_and_member_count() {
+async fn room_status_confirms_an_existing_room_without_leaking_its_name_or_size() {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message;
 
@@ -76,10 +83,34 @@ async fn room_status_reports_existing_room_with_name_and_member_count() {
         status,
         RoomStatus {
             exists: true,
-            name: Some("Sala dos lindos".to_string()),
-            member_count: Some(1),
+            // F06: the human-chosen name and the occupancy are never
+            // handed to this unauthenticated endpoint.
+            name: None,
+            member_count: None,
             requires_password: Some(true),
         }
+    );
+}
+
+#[tokio::test]
+async fn room_status_rate_limits_a_client_that_polls_it_too_fast() {
+    let (_ws_url, http_url) = spawn_test_server().await;
+    let client = reqwest::Client::new();
+    let url = format!("{http_url}/api/rooms/WHATEVER0");
+
+    // The limiter budget is 30 / 10s; a 31st request inside the window
+    // must be refused with 429.
+    let mut got_429 = false;
+    for _ in 0..40 {
+        let status = client.get(&url).send().await.unwrap().status();
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            got_429 = true;
+            break;
+        }
+    }
+    assert!(
+        got_429,
+        "fast polling of the room-status endpoint must eventually hit 429"
     );
 }
 

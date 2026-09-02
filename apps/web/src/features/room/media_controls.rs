@@ -287,9 +287,10 @@ pub(super) fn setup_fullscreen_autohide_controls() {
             schedule_idle();
         })
     };
-    let _ = document
-        .add_event_listener_with_callback("mousemove", on_mousemove.as_ref().unchecked_ref());
-    on_mousemove.forget();
+    // Removed when `RoomPage` is disposed — without this the pair of
+    // `document` listeners piled up on every room entry (each fires on
+    // every mouse move for the whole page).
+    crate::infra::dom::listen_until_cleanup(&document, "mousemove", on_mousemove);
 
     let on_fullscreenchange = {
         let document = document.clone();
@@ -301,9 +302,5 @@ pub(super) fn setup_fullscreen_autohide_controls() {
             }
         })
     };
-    let _ = document.add_event_listener_with_callback(
-        "fullscreenchange",
-        on_fullscreenchange.as_ref().unchecked_ref(),
-    );
-    on_fullscreenchange.forget();
+    crate::infra::dom::listen_until_cleanup(&document, "fullscreenchange", on_fullscreenchange);
 }

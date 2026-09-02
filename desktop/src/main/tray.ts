@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { ipcMain, Menu, Tray } from 'electron';
 
+import { isTrustedFrame } from '#main/ipc-guard.js';
 import { requestQuit } from '#main/lifecycle.js';
 import { showMainWindow, startQuickShare } from '#main/window.js';
 
@@ -28,7 +29,8 @@ export function createTray(): void {
   tray.setContextMenu(menu);
   tray.on('click', showMainWindow);
 
-  ipcMain.on('desktop-share:sharing-changed', (_event, isSharing: boolean) => {
+  ipcMain.on('desktop-share:sharing-changed', (event, isSharing: boolean) => {
+    if (!isTrustedFrame(event)) return;
     setTrayLive(Boolean(isSharing));
   });
 }

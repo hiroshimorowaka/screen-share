@@ -45,20 +45,15 @@ pub(crate) fn round_trip_ms_since(sent_at: f64) -> Option<u32> {
 #[cfg(feature = "hydrate")]
 pub(crate) fn setup_ping_loop(conn: crate::session::RoomSession) {
     use wasm_bindgen::prelude::Closure;
-    use wasm_bindgen::JsCast;
-
-    let Some(window) = web_sys::window() else {
-        return;
-    };
 
     send_ping(&conn); // first reading without waiting a full interval
 
+    // Cleared when `RoomPage` is disposed. Without this the tick keeps
+    // firing after the user leaves the room, calling `WsClient::send` on
+    // an already-closed socket ("WebSocket is already in CLOSING or
+    // CLOSED state").
     let on_tick = Closure::<dyn FnMut()>::new(move || send_ping(&conn));
-    let _ = window.set_interval_with_callback_and_timeout_and_arguments_0(
-        on_tick.as_ref().unchecked_ref(),
-        PING_INTERVAL_MS,
-    );
-    on_tick.forget();
+    crate::infra::dom::interval_until_cleanup(on_tick, PING_INTERVAL_MS);
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]

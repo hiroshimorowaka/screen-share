@@ -109,4 +109,16 @@ describe('startAudioLoopback / stopAudioLoopback', () => {
     stopAudioLoopback();
     expect(mix.kill).toHaveBeenCalledOnce();
   });
+
+  it('isAudioLoopbackActive tracks the session', async () => {
+    const mix = fakeMixProcess();
+    pw.spawnMixProcess.mockReturnValue(mix);
+    const { startAudioLoopback, stopAudioLoopback, isAudioLoopbackActive } = await load();
+
+    expect(isAudioLoopbackActive()).toBe(false);
+    await startAudioLoopback({ mode: 'screen', excludedBinaries: [] });
+    expect(isAudioLoopbackActive()).toBe(true);
+    stopAudioLoopback();
+    expect(isAudioLoopbackActive()).toBe(false);
+  });
 });
