@@ -36,10 +36,17 @@ limit.
 
 - `--denied-peer-ip` ranges covering `0.0.0.0/8`, `10/8`, `100.64/10`
   (CGNAT), `169.254/16` (link-local / cloud metadata), `172.16/12`,
-  `192.168/16`, IPv6 `::1`, `fc00::/7` (ULA, contains Fly's `fdaa::/16`
-  6PN) and `fe80::/10`. Legit media peers are public browsers, so denying
-  private space costs nothing and removes the relay as an SSRF vantage
-  point onto the cloud metadata endpoint and the internal network.
+  `192.168/16`, `::ffff:0:0/96` (IPv4-mapped IPv6 — see below), IPv6
+  `::1`, `fc00::/7` (ULA, contains Fly's `fdaa::/16` 6PN) and `fe80::/10`.
+  Legit media peers are public browsers, so denying private space costs
+  nothing and removes the relay as an SSRF vantage point onto the cloud
+  metadata endpoint and the internal network.
+- The `::ffff:0.0.0.0-::ffff:255.255.255.255` range was added in the
+  2026-09-02 follow-up pass: the shipped coturn is 4.6.2, and on
+  coturn < 4.9.0 an IPv4-mapped IPv6 peer address (`::ffff:127.0.0.1`,
+  `::ffff:169.254.169.254`, ...) bypasses every IPv4 `--denied-peer-ip`
+  rule. Denying the mapped range closes that bypass; it stays as defence
+  in depth once the base image ships coturn ≥ 4.9.0.
 - `--no-multicast-peers`.
 - `--total-quota` (300), `--user-quota` (12), `--max-bps` (2 MB/s per
   allocation), `--bps-capacity` (40 MB/s server-wide), each overridable
@@ -315,3 +322,57 @@ cert/key), and stays `--no-tls --no-dtls` otherwise. Actually closing F16
 needs a certificate provisioned for the relay hostname, the matching
 `turns:` URL in `TURN_URLS`, and port 5349 opened in `fly.toml` — an ops
 task; the mechanism is now in place.
+
+## Follow-up remediation (2026-09-02)
+
+A second manual audit pass (`.handoff/security-and-leak-remediation.md`)
+found further defence-in-depth gaps and client/desktop resource leaks.
+Numbering below is that document's (Finding 1–13); the P1/P2 items are
+addressed here, P3 is deferred.
+
+### Finding 2 — bounded argon2 cost + password length cap
+
+`Argon2::default()` asks for 19 MiB per call; joining needs no prior auth,
+so a burst of wrong-password `JoinRoom`s could OOM the 256 MB VM.
+`crates/signaling/src/auth.rs` now builds an explicit Argon2id hasher at
+OWASP's lowest-memory profile — `ARGON2_MEMORY_KIB` 7168 (7 MiB),
+`ARGON2_ITERATIONS` 5, `ARGON2_PARALLELISM` 1 — equivalent brute-force
+resistance to the 19 MiB / t=2 default at ~2.7x less memory. Argon2 embeds
+its parameters in the PHC string, so hashes written with the old cost keep
+verifying (`tests/auth.rs`). `MAX_PASSWORD_LEN` (128) is validated in
+`create_room` / `join_room` before hashing; longer is `InvalidInput`.
+
+### Finding 3 — coturn `::ffff:` bypass
+
+Covered inline in the F01 section above.
+
+### Finding 4 — `failed_password_attempts` map no longer grows unbounded
+
+`password_attempts_exceeded` (registry) swept only the caller's own key,
+so a slow distributed brute force (one attempt per source IP, keys never
+revisited) leaked one entry per IP forever. It now sweeps every key on
+each call and drops the ones whose sliding window has emptied.
+
+### Finding 5 — non-Text WebSocket frames now count against the rate limit
+
+`ws.rs` extracted `Message::Text` before the `over_rate_limit` check, so
+Binary/Ping/Pong frames (each up to `MAX_MESSAGE_BYTES`, and a ping is
+answered with a pong out) were bounded only by `IDLE_TIMEOUT` and the
+connection cap. The rate check now runs on every frame; a binary frame —
+never valid for this JSON-text protocol — closes the connection.
+
+### Finding 10 — `fly-client-ip` only trusted from an internal TCP peer
+
+`HandshakeConfig::client_key` honoured `fly-client-ip` under
+`TRUST_PROXY_HEADERS` without checking the TCP peer. It now requires the
+peer to be loopback or in a private / link-local range (`is_internal_peer`)
+— Fly delivers every edge request from its internal network, so a public
+peer means the header is attacker-controlled and the real peer IP is used
+instead.
+
+### Finding 11 — empty `device_id` no longer evicts another empty one
+
+`join_room`'s duplicate-device removal now skips entirely when
+`device_id` is empty (the web client's `ensure_device_id` returns `""` on
+every failure path), so two locked-down browsers joining a public room no
+longer kick each other.
