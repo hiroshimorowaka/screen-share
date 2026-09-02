@@ -15,6 +15,10 @@ use recent_rooms::{load_recent_rooms_after_mount, prune_recent_rooms};
 use crate::components::color_picker::ColorPicker;
 use crate::components::status_message::StatusMessage;
 
+// 151 lines: three inline forms (create / recent / join) plus their
+// handlers. Splitting HomePage into <CreateRoomForm> / <RecentRooms> /
+// <JoinByCodeForm> sub-components is tracked as refactor follow-up.
+#[allow(clippy::too_many_lines)]
 #[component]
 pub fn HomePage() -> impl IntoView {
     // Signals start at the value SSR would use (empty/default); the real

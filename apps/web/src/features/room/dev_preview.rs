@@ -38,6 +38,11 @@ fn next_palette_color(current: &str) -> &'static str {
     ids[(current_index + 1) % ids.len()]
 }
 
+// Debug-only (`#[cfg(debug_assertions)]`) visual harness that fabricates
+// a full room to eyeball card states without a live session. Long by
+// nature — it hand-builds fixture data — and never ships in a release
+// build, so it is exempt rather than queued for a split.
+#[allow(clippy::too_many_lines)]
 #[component]
 pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
     let (members, set_members) = signal(Vec::<RoomMember>::new());

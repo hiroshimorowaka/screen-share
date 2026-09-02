@@ -96,6 +96,10 @@ pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
     set_status.set("Conectado.".to_string());
 }
 
+// 432 lines: one closure with a ~15-arm `match` over `ServerMessage`,
+// each arm doing multi-step imperative signal mutation. Refactor step 3
+// extracts one handler fn per arm and a shared `Peers::teardown`.
+#[allow(clippy::too_many_lines)]
 #[cfg(feature = "hydrate")]
 pub(crate) fn build_message_handler(
     conn: crate::session::RoomSession,

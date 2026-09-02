@@ -58,6 +58,11 @@ fn stream_has_audio_track(stream: &web_sys::MediaStream) -> bool {
         .any(|track| track.kind() == "audio")
 }
 
+// 445 lines: ~30 inline signals, the quick-share effects, and three gate
+// panels inlined in the `view!`. Refactor step 5 extracts <RoomGate>,
+// groups the signals into small state structs, and moves the effects
+// into `session::`.
+#[allow(clippy::too_many_lines)]
 #[component]
 pub fn RoomPage() -> impl IntoView {
     let params = use_params_map();

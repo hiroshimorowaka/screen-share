@@ -2,6 +2,10 @@
 // `RoomPage`'s is deep enough to need this above the default (see the same
 // attribute on `lib.rs`).
 #![recursion_limit = "512"]
+// Same small-function gate as `lib.rs` (this bin root is a separate crate
+// to the linter).
+#![warn(clippy::too_many_lines)]
+#![warn(clippy::too_many_arguments)]
 
 #[cfg(feature = "ssr")]
 #[tokio::main]

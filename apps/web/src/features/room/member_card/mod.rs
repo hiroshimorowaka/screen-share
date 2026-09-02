@@ -84,6 +84,10 @@ const QUALITY_LEVELS: [QualityLevel; 4] = [
 /// capture `RoomSession` (`Rc<RefCell<...>>`, not Send + Sync, which
 /// Leptos 0.8 requires of `<For>` children). Slot `i` shows whoever is in
 /// position `i` of `members`, not a fixed member.
+// 333 lines building MAX_MEMBERS card views by hand. Refactor step 4
+// decomposes this into a <MemberCard> component with <VideoTile> /
+// <CardActions> / <LatencyBadge> children.
+#[allow(clippy::too_many_lines)]
 pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec<impl IntoView> {
     let MemberCardSignals {
         members,
