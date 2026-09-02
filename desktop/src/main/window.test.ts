@@ -36,6 +36,9 @@ vi.mock('electron', () => ({
 }));
 vi.mock('#main/lifecycle.js', () => ({ isQuitting }));
 
+const stopAudioLoopbackNow = vi.hoisted(() => vi.fn());
+vi.mock('#features/audio-share/ipc.js', () => ({ stopAudioLoopbackNow }));
+
 async function freshWindow() {
   vi.resetModules();
   return import('#main/window.js');
@@ -47,6 +50,7 @@ beforeEach(() => {
   electronApp.isPackaged = true;
   isQuitting.mockReset().mockReturnValue(false);
   openExternal.mockReset();
+  stopAudioLoopbackNow.mockReset();
 });
 
 describe('window', () => {
@@ -126,6 +130,26 @@ describe('window', () => {
 
     onInput({}, { type: 'keyDown', key: 'I', control: true, shift: false });
     expect(win.toggleDevTools).toHaveBeenCalledTimes(2);
+  });
+
+  it('stops the audio loopback when the main frame navigates away, is destroyed, or crashes (finding 7)', async () => {
+    const { createMainWindow } = await freshWindow();
+    createMainWindow();
+
+    const nav = win.wcOn.mock.calls.find(([evt]) => evt === 'did-start-navigation')?.[1] as (d: {
+      isMainFrame: boolean;
+      isSameDocument: boolean;
+    }) => void;
+    nav({ isMainFrame: true, isSameDocument: true }); // SPA route change: ignored
+    expect(stopAudioLoopbackNow).not.toHaveBeenCalled();
+    nav({ isMainFrame: false, isSameDocument: false }); // subframe: ignored
+    expect(stopAudioLoopbackNow).not.toHaveBeenCalled();
+    nav({ isMainFrame: true, isSameDocument: false }); // real reload / quick-share loadURL
+    expect(stopAudioLoopbackNow).toHaveBeenCalledTimes(1);
+
+    win.wcOn.mock.calls.find(([evt]) => evt === 'destroyed')?.[1]();
+    win.wcOn.mock.calls.find(([evt]) => evt === 'render-process-gone')?.[1]();
+    expect(stopAudioLoopbackNow).toHaveBeenCalledTimes(3);
   });
 
   it('the close handler hides the window unless the app is really quitting', async () => {

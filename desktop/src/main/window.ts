@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import { app, BrowserWindow, shell } from 'electron';
 
+import { stopAudioLoopbackNow } from '#features/audio-share/ipc.js';
 import { APP_ORIGIN, APP_URL } from '#main/app-url.js';
 import { isQuitting } from '#main/lifecycle.js';
 
@@ -12,7 +13,7 @@ let mainWindow: BrowserWindow | null = null;
  * routing uses `history.pushState` and `loadURL` from the main process
  * (see `startQuickShare`) — neither fires `will-navigate` — so this only
  * ever blocks a real cross-origin navigation. */
-function lockNavigation(window: BrowserWindow): void {
+export function lockNavigation(window: BrowserWindow): void {
   const staysOnAppOrigin = (target: string): boolean => {
     try {
       return new URL(target).origin === APP_ORIGIN;
@@ -48,6 +49,22 @@ function enableDevToolsShortcuts(window: BrowserWindow): void {
   });
 }
 
+/** The renderer's own teardown (`stop_desktop_audio_loopback` in
+ * `webrtc.rs`) is the normal path, but a quick-share `loadURL`, a manual
+ * reload, or a renderer crash never runs it — leaving `pw-loopback` / the
+ * WASAPI capture, its 1 s poll interval and its `pw-link`s orphaned, and
+ * on Windows `desktop-audio-pcm-chunk` firing ~50x/s at a dead frame
+ * (finding 7). Stop the loopback whenever the main frame goes away.
+ * `stopAudioLoopbackNow` is a safe no-op when nothing is running. */
+function stopLoopbackOnRendererGone(window: BrowserWindow): void {
+  const { webContents } = window;
+  webContents.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) stopAudioLoopbackNow();
+  });
+  webContents.on('destroyed', () => stopAudioLoopbackNow());
+  webContents.on('render-process-gone', () => stopAudioLoopbackNow());
+}
+
 export function createMainWindow(): void {
   const devMode = !app.isPackaged;
 
@@ -73,6 +90,7 @@ export function createMainWindow(): void {
     },
   });
   lockNavigation(mainWindow);
+  stopLoopbackOnRendererGone(mainWindow);
   if (devMode) enableDevToolsShortcuts(mainWindow);
   mainWindow.loadURL(APP_URL);
 
