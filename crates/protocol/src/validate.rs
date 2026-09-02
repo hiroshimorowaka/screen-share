@@ -20,6 +20,14 @@ pub const MAX_NICK_LEN: usize = 32;
 /// Longest accepted room name, in Unicode scalar values.
 pub const MAX_ROOM_NAME_LEN: usize = 64;
 
+/// Most combining marks allowed to stack on one base character. The length
+/// cap counts scalar values, so a 32-code-point "Zalgo" nick — dozens of
+/// combining marks piled on a couple of bases — passes it while still
+/// overflowing its card and bleeding into neighbours (P3 follow-up). Real
+/// text never stacks this many: even fully-decomposed Vietnamese tops out
+/// at two (a vowel modifier plus a tone).
+pub const MAX_MARKS_PER_CLUSTER: usize = 4;
+
 /// The colour ids a member may pick — the fixed avatar/border palette.
 /// Kept here (not just in the web app's render table) so the relay can
 /// reject anything else instead of silently falling back to a default.
@@ -50,6 +58,10 @@ pub enum NameError {
     /// formatting character — used for visual spoofing, never in a real
     /// name.
     DisallowedCharacter,
+    /// More than [`MAX_MARKS_PER_CLUSTER`] combining marks stacked on one
+    /// base character ("Zalgo" text) — passes the length cap but breaks
+    /// the layout.
+    ExcessiveCombiningMarks,
 }
 
 /// `true` for characters that must never appear in a display name: C0/C1
@@ -67,8 +79,42 @@ fn is_disallowed(c: char) -> bool {
         )
 }
 
+/// `true` for the combining marks a "Zalgo" generator stacks: the
+/// Combining Diacritical Marks block and its Extended / Supplement / for
+/// Symbols / Half Marks siblings, plus the Cyrillic combining range. Not a
+/// full Unicode `Mn`/`Mc`/`Me` test (that needs a table / a dependency) —
+/// just the blocks the abuse actually draws from.
+fn is_combining_mark(c: char) -> bool {
+    matches!(c,
+        '\u{0300}'..='\u{036F}'  // Combining Diacritical Marks
+        | '\u{0483}'..='\u{0489}'  // Cyrillic combining
+        | '\u{1AB0}'..='\u{1AFF}'  // Combining Diacritical Marks Extended
+        | '\u{1DC0}'..='\u{1DFF}'  // Combining Diacritical Marks Supplement
+        | '\u{20D0}'..='\u{20FF}'  // Combining Diacritical Marks for Symbols
+        | '\u{FE20}'..='\u{FE2F}'  // Combining Half Marks
+    )
+}
+
+/// Whether any run of consecutive combining marks in `s` is longer than
+/// [`MAX_MARKS_PER_CLUSTER`].
+fn has_excessive_mark_stacking(s: &str) -> bool {
+    let mut run = 0usize;
+    for c in s.chars() {
+        if is_combining_mark(c) {
+            run += 1;
+            if run > MAX_MARKS_PER_CLUSTER {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
+
 /// Trims `input`, then accepts it as a display name of at most `max_len`
-/// characters containing no disallowed character.
+/// characters containing no disallowed character and no runaway stack of
+/// combining marks.
 ///
 /// # Errors
 ///
@@ -83,6 +129,9 @@ pub fn clean_name(input: &str, max_len: usize) -> Result<String, NameError> {
     }
     if trimmed.chars().any(is_disallowed) {
         return Err(NameError::DisallowedCharacter);
+    }
+    if has_excessive_mark_stacking(trimmed) {
+        return Err(NameError::ExcessiveCombiningMarks);
     }
     Ok(trimmed.to_owned())
 }

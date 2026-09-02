@@ -1,6 +1,6 @@
 use screen_share_protocol::validate::{
-    clean_nick, clean_room_name, is_valid_color, NameError, DEFAULT_COLOR, MAX_NICK_LEN,
-    MAX_ROOM_NAME_LEN, PALETTE_IDS,
+    clean_nick, clean_room_name, is_valid_color, NameError, DEFAULT_COLOR, MAX_MARKS_PER_CLUSTER,
+    MAX_NICK_LEN, MAX_ROOM_NAME_LEN, PALETTE_IDS,
 };
 
 #[test]
@@ -50,6 +50,35 @@ fn clean_nick_rejects_control_and_bidi_and_zero_width_characters() {
             "should reject {bad:?}"
         );
     }
+}
+
+#[test]
+fn clean_nick_rejects_zalgo_style_mark_stacking() {
+    // A base char with many combining diacritical marks piled on it: few
+    // enough scalar values to pass the length cap, but it overflows a card.
+    let zalgo = format!("A{}", "\u{0301}".repeat(MAX_MARKS_PER_CLUSTER + 1));
+    assert_eq!(clean_nick(&zalgo), Err(NameError::ExcessiveCombiningMarks));
+
+    // A longer run further into the string, not just at the start.
+    let heavy = format!("test{}", "\u{036F}".repeat(20));
+    assert_eq!(clean_nick(&heavy), Err(NameError::ExcessiveCombiningMarks));
+}
+
+#[test]
+fn clean_nick_allows_a_few_combining_marks_as_real_decomposed_text_would_have() {
+    // Vietnamese "Nguyễn" fully decomposed: base vowel + circumflex + tone
+    // — two marks on one cluster, well under the cap.
+    let decomposed = "Nguye\u{0302}\u{0303}n Tha\u{0301}i";
+    assert_eq!(clean_nick(decomposed).unwrap(), decomposed);
+
+    // Exactly at the cap on one cluster is still fine.
+    let at_cap = format!("o{}", "\u{0308}".repeat(MAX_MARKS_PER_CLUSTER));
+    assert_eq!(clean_nick(&at_cap).unwrap(), at_cap);
+
+    // Many single marks spread over many bases: the run counter must reset
+    // at each base, so the whole-string total is irrelevant.
+    let spread = "a\u{0301}e\u{0301}i\u{0301}o\u{0301}u\u{0301}y\u{0301}";
+    assert_eq!(clean_nick(spread).unwrap(), spread);
 }
 
 #[test]
