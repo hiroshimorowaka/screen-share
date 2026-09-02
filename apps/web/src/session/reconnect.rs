@@ -80,11 +80,17 @@ impl BackoffPolicy {
 #[path = "reconnect_tests.rs"]
 mod tests;
 
+#[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
+#[path = "reconnect_wasm_tests.rs"]
+mod wasm_tests;
+
 #[cfg(not(feature = "hydrate"))]
 pub(crate) fn drop_peers_on_cleanup(_conn: super::RoomSession) {}
 
 #[cfg(feature = "hydrate")]
-pub(crate) use wiring::{drop_peers_on_cleanup, install_close_handler, replay_intent_after_rejoin};
+pub(crate) use wiring::{
+    drop_peers_on_cleanup, install_close_handler, replay_intent_after_rejoin, teardown_session,
+};
 
 #[cfg(feature = "hydrate")]
 mod wiring {
@@ -148,15 +154,41 @@ mod wiring {
         conn.incoming_callbacks.borrow_mut().clear();
     }
 
+    /// Shuts a room session down without navigating: mark the close
+    /// expected, stop any reconnect loop, tear every peer connection down,
+    /// and take the `WsClient` out of its `RefCell` and close it.
+    ///
+    /// Taking the socket *out* is the point: it breaks the `Rc` cycle
+    /// `conn.ws` -> `WsClient`'s message closure -> a `RoomSession` clone
+    /// -> `conn.ws`, so the session (open socket, maps, timers) is actually
+    /// freed. Without this, any non-button exit (browser back, `navigate`,
+    /// an SPA route change) left the socket open with `expected_close`
+    /// false, so the server's idle reap eventually tripped `on_close` and
+    /// the reconnect loop rejoined the room on a page the user had already
+    /// left — forever (finding F01).
+    ///
+    /// Idempotent: safe to call from both the explicit "leave" path and
+    /// the `on_cleanup` that also fires on unmount.
+    pub(crate) fn teardown_session(conn: &RoomSession) {
+        conn.expected_close.set(true);
+        conn.reconnecting.set(false);
+        drop_all_peer_connections(conn);
+        let ws = conn.ws.borrow_mut().take();
+        if let Some(ws) = ws {
+            ws.close();
+        }
+    }
+
     /// Registers an `on_cleanup` on the current owner (`RoomPage`) that
-    /// tears every peer connection down when the room page unmounts.
-    /// Otherwise the `onicecandidate` closure — which holds a
-    /// `RoomSession` clone — is never dropped and keeps the whole session
-    /// (socket, connections, timers) alive after the user has left.
+    /// runs [`teardown_session`] when the room page unmounts — the only
+    /// teardown for every exit that isn't the "leave" button (browser
+    /// back, `navigate`, an SPA route change). Without it the message
+    /// closure — which holds a `RoomSession` clone — is never dropped and
+    /// keeps the whole session (socket, connections, timers) alive.
     pub(crate) fn drop_peers_on_cleanup(conn: RoomSession) {
         // `on_cleanup` is `Send + Sync`-bound; `RoomSession` holds `Rc`s.
         let conn = send_wrapper::SendWrapper::new(conn);
-        on_cleanup(move || drop_all_peer_connections(&conn));
+        on_cleanup(move || teardown_session(&conn));
     }
 
     fn schedule_attempt(conn: RoomSession, signals: RoomSignals, room_code: String) {

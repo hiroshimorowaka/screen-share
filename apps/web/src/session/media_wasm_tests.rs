@@ -236,3 +236,28 @@ fn play_stream_in_is_idempotent_across_repeat_calls() {
     assert_eq!(v.src_object().as_ref(), Some(&stream));
     v.remove();
 }
+
+#[wasm_bindgen_test]
+fn native_stop_listener_is_retained_on_the_session_and_cleared_on_teardown() {
+    let conn = crate::session::RoomSession::new();
+
+    // Previously `Closure::forget`'d once per share and once per source
+    // switch, never freed (finding F08a).
+    let cb = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(|| {});
+    store_local_capture_callback(&conn, cb);
+    assert!(
+        conn.local_capture_callback.borrow().is_some(),
+        "the listener is kept on the session, not forgotten"
+    );
+
+    // A source switch replaces the single slot rather than stacking.
+    let cb2 = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(|| {});
+    store_local_capture_callback(&conn, cb2);
+    assert!(conn.local_capture_callback.borrow().is_some());
+
+    clear_local_capture_callback(&conn);
+    assert!(
+        conn.local_capture_callback.borrow().is_none(),
+        "share teardown clears the stored listener"
+    );
+}

@@ -100,9 +100,10 @@ fn attach_native_stop_listener(
     let Ok(track) = stream.get_tracks().get(0).dyn_into::<MediaStreamTrack>() else {
         return;
     };
+    let callback_conn = conn.clone();
     let onended = wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
         stop_sharing(
-            &conn,
+            &callback_conn,
             set_is_sharing,
             own_preview_hidden,
             expanded,
@@ -110,7 +111,37 @@ fn attach_native_stop_listener(
         );
     });
     track.set_onended(Some(onended.as_ref().unchecked_ref()));
-    onended.forget();
+    store_local_capture_callback(&conn, onended);
+}
+
+/// Stores the native-"Stop sharing" listener on `conn`, replacing any
+/// previous one. The old closure is dropped only after the current call
+/// stack unwinds: on a source switch the listener being replaced is the
+/// one whose `onended` fired and is still on the stack (it runs
+/// `stop_sharing`), and dropping a `Closure` from inside its own body
+/// would free a box that's still executing.
+#[cfg(feature = "hydrate")]
+fn store_local_capture_callback(
+    conn: &RoomSession,
+    callback: wasm_bindgen::prelude::Closure<dyn FnMut()>,
+) {
+    let previous = conn.local_capture_callback.borrow_mut().replace(callback);
+    defer_drop_capture_callback(previous);
+}
+
+/// Clears the stored native-stop listener (share teardown). Same
+/// deferred-drop reasoning as [`store_local_capture_callback`].
+#[cfg(feature = "hydrate")]
+fn clear_local_capture_callback(conn: &RoomSession) {
+    let previous = conn.local_capture_callback.borrow_mut().take();
+    defer_drop_capture_callback(previous);
+}
+
+#[cfg(feature = "hydrate")]
+fn defer_drop_capture_callback(previous: Option<wasm_bindgen::prelude::Closure<dyn FnMut()>>) {
+    if let Some(previous) = previous {
+        wasm_bindgen_futures::spawn_local(async move { drop(previous) });
+    }
 }
 
 /// Points `<video id="{element_id}">` at `stream` and starts playback,
@@ -371,6 +402,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
         pc.close();
     }
     conn.outgoing_callbacks.borrow_mut().clear();
+    clear_local_capture_callback(conn);
     // Every viewer's Auto poll would otherwise keep firing against a
     // connection that's already closed.
     super::quality::stop_all_auto_polling(conn);

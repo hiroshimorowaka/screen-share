@@ -124,13 +124,11 @@ pub(super) fn leave_room(
     }
 
     crate::infra::storage::clear_room_session(room_code);
-    // A deliberate leave: mark the close expected so the reconnect loop
-    // (`session::reconnect`) doesn't treat it as a dropped connection and
-    // start trying to rejoin.
-    conn.expected_close.set(true);
-    if let Some(ws) = conn.ws.borrow().as_ref() {
-        ws.close();
-    }
+    // Same teardown every non-button exit gets (see `session::reconnect`):
+    // mark the close expected so the reconnect loop doesn't treat it as a
+    // drop, stop any in-flight reconnect, drop the peer connections, and
+    // take the socket out of its `RefCell` so the session actually frees.
+    crate::session::reconnect::teardown_session(conn);
     let navigate = use_navigate();
     navigate("/", Default::default());
 }

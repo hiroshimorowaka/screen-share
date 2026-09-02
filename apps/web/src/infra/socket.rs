@@ -75,3 +75,13 @@ impl WsClient {
         let _ = self.socket.close();
     }
 }
+
+impl Drop for WsClient {
+    /// A dropped `WsClient` whose socket was never explicitly closed would
+    /// otherwise leave the underlying browser `WebSocket` open until GC —
+    /// long enough for the server's idle reap to fire. Closing on drop is
+    /// idempotent with an earlier explicit `close()`.
+    fn drop(&mut self) {
+        let _ = self.socket.close();
+    }
+}

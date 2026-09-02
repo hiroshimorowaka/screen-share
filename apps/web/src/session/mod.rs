@@ -20,6 +20,12 @@ pub struct RoomMember {
     pub sharing: bool,
 }
 
+/// The single native-"Stop sharing" (`onended`) listener for the local
+/// capture, held so it can be dropped on teardown instead of leaked.
+#[cfg(feature = "hydrate")]
+pub(crate) type LocalCaptureCallback =
+    std::rc::Rc<std::cell::RefCell<Option<wasm_bindgen::prelude::Closure<dyn FnMut()>>>>;
+
 #[cfg(feature = "hydrate")]
 #[derive(Clone)]
 pub struct RoomSession {
@@ -46,6 +52,13 @@ pub struct RoomSession {
         >,
     >,
     pub(crate) local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
+    // The `onended` listener wired to the local capture's first track (the
+    // browser's own "Stop sharing" control). Only one local capture exists
+    // at a time, so this is a single slot rather than a map. Kept here
+    // instead of `Closure::forget`'d so it — and the `RoomSession` clone it
+    // captures — is freed on share teardown / source switch, not leaked
+    // once per share (finding F08a; also unblocks the F01 `Rc` cycle).
+    pub(crate) local_capture_callback: LocalCaptureCallback,
     // Set before an intentional close; `on_close` (async, runs afterwards)
     // checks this flag so it doesn't overwrite the status already set with
     // the generic "connection lost" error.
@@ -80,6 +93,7 @@ impl RoomSession {
             outgoing_callbacks: Default::default(),
             incoming_callbacks: Default::default(),
             local_stream: Default::default(),
+            local_capture_callback: Default::default(),
             expected_close: Default::default(),
             last_ping_sent_at: Default::default(),
             quality_auto_intervals: Default::default(),
