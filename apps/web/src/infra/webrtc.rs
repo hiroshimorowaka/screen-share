@@ -1,4 +1,4 @@
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use wasm_bindgen::prelude::*;
@@ -224,6 +224,19 @@ const PCM_BRIDGE_CHANNELS: u32 = 2;
 const PCM_BRIDGE_SAMPLE_RATE: f32 = 48_000.0;
 const PCM_BRIDGE_BYTES_PER_SAMPLE: u32 = 4;
 
+/// The `window.desktopAudio.onPcmChunk` listener for the current desktop
+/// (Windows) audio bridge — it owns the `WritableStreamDefaultWriter` and
+/// `MediaStreamTrackGenerator` by move.
+type PcmBridgeCallback = Closure<dyn FnMut(JsValue)>;
+
+thread_local! {
+    /// Held here rather than `Closure::forget`'d so each new bridge and
+    /// each `stop_desktop_audio_loopback` replaces / clears the previous
+    /// one instead of leaking it once per share (finding F08b). Single
+    /// slot: only one local capture exists at a time.
+    static PCM_BRIDGE_CALLBACK: RefCell<Option<PcmBridgeCallback>> = const { RefCell::new(None) };
+}
+
 /// Turns the desktop app's `window.desktopAudio.onPcmChunk` PCM stream
 /// into a real `MediaStreamTrack` via `MediaStreamTrackGenerator` +
 /// `AudioData` — see Task 1 in the Windows audio sharing plan for how
@@ -318,11 +331,10 @@ async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
     });
 
     on_pcm_chunk.call1(&desktop_audio, on_chunk.as_ref().unchecked_ref())?;
-    // Leaked deliberately — this closure, and the writer it holds by
-    // move, need to outlive this function call for the rest of the
-    // share. Standard wasm-bindgen practice for a listener with no
-    // natural single owner to drop it later.
-    on_chunk.forget();
+    // Outlives this call for the rest of the share, but is owned rather
+    // than forgotten: `stop_desktop_audio_loopback` (share teardown /
+    // source switch) clears the slot, and a fresh bridge replaces it.
+    PCM_BRIDGE_CALLBACK.with(|slot| *slot.borrow_mut() = Some(on_chunk));
 
     let tracks = js_sys::Array::new();
     tracks.push(generator.as_ref());
@@ -336,6 +348,10 @@ pub async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
         js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("stop"))?.dyn_into()?;
     let promise: js_sys::Promise = stop_fn.call0(&desktop_audio)?.dyn_into()?;
     JsFuture::from(promise).await?;
+    // The native side has stopped emitting PCM chunks now, so the bridge
+    // listener (and the writer + generator it owns) can be released
+    // instead of leaking until the tab closes (finding F08b).
+    PCM_BRIDGE_CALLBACK.with(|slot| slot.borrow_mut().take());
     Ok(())
 }
 
