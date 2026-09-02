@@ -23,7 +23,15 @@ thread_local! {
 }
 
 pub fn stash(session: PendingSession) {
-    PENDING.with(|cell| *cell.borrow_mut() = Some(session));
+    // Replace, dropping any previous unclaimed session first so its
+    // `WsClient` `Drop` closes that orphaned socket now rather than
+    // leaving it open (P3 follow-up). `take()` before the assignment so
+    // the old value isn't held alongside the new one.
+    PENDING.with(|cell| {
+        let previous = cell.borrow_mut().take();
+        drop(previous);
+        *cell.borrow_mut() = Some(session);
+    });
 }
 
 /// Only takes it if it's for the requested room — avoids leaking into a
