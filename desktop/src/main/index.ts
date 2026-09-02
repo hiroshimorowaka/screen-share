@@ -4,6 +4,7 @@ import { registerAudioIpcHandlers, stopAudioLoopbackNow } from '#features/audio-
 import { registerDisplayMediaHandler } from '#features/screen-share/display-media.js';
 import { registerQuickShareIpcHandlers } from '#features/screen-share/quick-share.js';
 import { markQuitting } from '#main/lifecycle.js';
+import { lockDownPermissions } from '#main/permissions.js';
 import { createTray } from '#main/tray.js';
 import { setupAutoUpdates } from '#main/updates.js';
 import { createMainWindow } from '#main/window.js';
@@ -20,6 +21,7 @@ app.on('before-quit', () => {
 
 app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+  lockDownPermissions();
   createMainWindow();
   createTray();
   setupAutoUpdates();
