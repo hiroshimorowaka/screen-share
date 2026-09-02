@@ -39,6 +39,11 @@ pub enum TurnConfigError {
     SecretTooShort,
     /// `TURN_SECRET` is a known placeholder (see [`TURN_SECRET_DENYLIST`]).
     SecretIsPlaceholder,
+    /// `TURN_SECRET` is set but `TURN_URLS` is empty/unset. Without URLs
+    /// the relay is unreachable, so clients silently fell back to
+    /// STUN-only despite a secret being configured — a misconfiguration
+    /// that should abort the boot, not run half a TURN setup.
+    UrlsMissing,
 }
 
 impl fmt::Display for TurnConfigError {
@@ -52,6 +57,11 @@ impl fmt::Display for TurnConfigError {
             Self::SecretIsPlaceholder => {
                 write!(f, "TURN_SECRET is a well-known placeholder value")
             }
+            Self::UrlsMissing => write!(
+                f,
+                "TURN_SECRET is set but TURN_URLS is empty (set the comma-separated \
+                 turn:/turns: URL list, or unset TURN_SECRET for STUN-only)"
+            ),
         }
     }
 }
@@ -100,24 +110,25 @@ impl TurnConfig {
     /// out so it can be built directly in tests without mutating
     /// process-global env vars.
     ///
-    /// Both values absent/empty ⇒ `Ok(None)` (STUN-only, a valid choice).
-    /// Both present ⇒ the secret is validated ([`MIN_TURN_SECRET_LEN`],
-    /// [`TURN_SECRET_DENYLIST`]) and `urls` is split on commas and
-    /// trimmed.
+    /// No secret (absent/empty) ⇒ `Ok(None)` (STUN-only, a valid choice),
+    /// whatever `TURN_URLS` says. Secret present but no URLs ⇒
+    /// [`TurnConfigError::UrlsMissing`]. Both present ⇒ the secret is
+    /// validated ([`MIN_TURN_SECRET_LEN`], [`TURN_SECRET_DENYLIST`]) and
+    /// `urls` is split on commas and trimmed.
     ///
     /// # Errors
     ///
-    /// [`TurnConfigError`] if a configured secret is too short or a known
-    /// placeholder.
+    /// [`TurnConfigError`] if TURN is half-configured (secret without
+    /// URLs) or the configured secret is too short or a known placeholder.
     pub fn from_vars(
         secret: Option<String>,
         urls_raw: Option<String>,
     ) -> Result<Option<Self>, TurnConfigError> {
-        let (Some(secret), Some(urls_raw)) = (
-            secret.filter(|s| !s.is_empty()),
-            urls_raw.filter(|s| !s.is_empty()),
-        ) else {
+        let Some(secret) = secret.filter(|s| !s.is_empty()) else {
             return Ok(None);
+        };
+        let Some(urls_raw) = urls_raw.filter(|s| !s.is_empty()) else {
+            return Err(TurnConfigError::UrlsMissing);
         };
 
         if TURN_SECRET_DENYLIST

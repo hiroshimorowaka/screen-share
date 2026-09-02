@@ -60,3 +60,40 @@ async fn password_attempts_sweep_keeps_in_window_entries() {
     );
     assert_eq!(attempts.len(), 1, "only the stale client was swept");
 }
+
+/// P3 follow-up: `create_room` used the first `generate_room_code()` blind,
+/// so a collision silently overwrote a live room.
+#[test]
+fn unique_room_code_skips_a_taken_code() {
+    let mut seq = ["DUP00000", "DUP00000", "FREE1234"].into_iter();
+    let code = unique_room_code(|c| c == "DUP00000", move || seq.next().unwrap().to_string());
+    assert_eq!(code, "FREE1234");
+}
+
+#[test]
+fn unique_room_code_returns_the_first_free_code_without_extra_tries() {
+    let mut calls = 0;
+    let code = unique_room_code(
+        |_| false,
+        || {
+            calls += 1;
+            "FIRST000".to_string()
+        },
+    );
+    assert_eq!(code, "FIRST000");
+    assert_eq!(calls, 1, "no retry when the first code is free");
+}
+
+#[test]
+fn unique_room_code_gives_up_after_the_retry_budget() {
+    let mut calls = 0;
+    let code = unique_room_code(
+        |_| true, // every code is "taken"
+        || {
+            calls += 1;
+            format!("CODE{calls:04}")
+        },
+    );
+    assert_eq!(calls, ROOM_CODE_COLLISION_RETRIES);
+    assert_eq!(code, format!("CODE{ROOM_CODE_COLLISION_RETRIES:04}"));
+}

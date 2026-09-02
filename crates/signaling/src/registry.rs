@@ -96,6 +96,14 @@ struct Room {
     /// `client_key` (see `ws.rs`) of whoever created this room — used only
     /// to enforce [`MAX_ROOMS_PER_CLIENT`].
     owner_key: String,
+    /// When the room most recently became empty, or `None` while it has
+    /// members. The cleanup task deletes the room once this is at least
+    /// [`EMPTY_ROOM_GRACE_PERIOD`] in the past.
+    emptied_at: Option<Instant>,
+    /// `true` while a cleanup task is live for this room, so
+    /// leave -> rejoin -> leave churn can't stack a second one (P3
+    /// follow-up: one 30 s task per emptying event otherwise).
+    cleanup_scheduled: bool,
 }
 
 #[derive(Debug)]
@@ -249,7 +257,6 @@ impl Registry {
             return Err(CreateRoomError::InvalidInput);
         }
 
-        let room_code = generate_room_code();
         let peer_id = Uuid::new_v4().to_string();
         let password_hash = hash_optional_password(password);
 
@@ -282,6 +289,7 @@ impl Registry {
         {
             return Err(CreateRoomError::AtCapacity);
         }
+        let room_code = unique_room_code(|code| rooms.contains_key(code), generate_room_code);
         rooms.insert(
             room_code.clone(),
             Room {
@@ -292,6 +300,8 @@ impl Registry {
                 watchers: HashMap::new(),
                 failed_password_attempts: HashMap::new(),
                 owner_key: client_key,
+                emptied_at: None,
+                cleanup_scheduled: false,
             },
         );
 
@@ -572,31 +582,55 @@ impl Registry {
     /// joinable if whoever just left (e.g. reloading the page) reconnects.
     pub fn leave_room(&self, room_code: &str, peer_id: &str) {
         let mut rooms = self.lock_rooms();
-        let became_empty = if let Some(room) = rooms.get_mut(room_code) {
+        let needs_cleanup_task = if let Some(room) = rooms.get_mut(room_code) {
             remove_member(room, peer_id);
-            room.members.is_empty()
+            if room.members.is_empty() {
+                room.emptied_at = Some(Instant::now());
+                // Only spawn a task if one isn't already watching this
+                // room — the live one picks up the refreshed `emptied_at`.
+                let first = !room.cleanup_scheduled;
+                room.cleanup_scheduled = true;
+                first
+            } else {
+                false
+            }
         } else {
             false
         };
         drop(rooms);
 
-        if became_empty {
+        if needs_cleanup_task {
             self.schedule_empty_room_cleanup(room_code.to_string());
         }
     }
 
+    /// One task per room (not per emptying event): it waits out the grace
+    /// period, then deletes the room unless it filled back up or was
+    /// re-emptied more recently — in which case it waits again.
     fn schedule_empty_room_cleanup(&self, room_code: String) {
         let registry = self.clone();
         tokio::spawn(async move {
-            tokio::time::sleep(EMPTY_ROOM_GRACE_PERIOD).await;
-            let mut rooms = registry.lock_rooms();
-            // Someone may have rejoined during the grace period — only
-            // remove the room if it's *still* empty.
-            if rooms
-                .get(&room_code)
-                .is_some_and(|room| room.members.is_empty())
-            {
-                rooms.remove(&room_code);
+            loop {
+                tokio::time::sleep(EMPTY_ROOM_GRACE_PERIOD).await;
+                let mut rooms = registry.lock_rooms();
+                let Some(room) = rooms.get_mut(&room_code) else {
+                    return;
+                };
+                if !room.members.is_empty() {
+                    // Someone rejoined for good; let a future emptying
+                    // schedule a fresh task.
+                    room.cleanup_scheduled = false;
+                    return;
+                }
+                match room.emptied_at {
+                    Some(at) if at.elapsed() >= EMPTY_ROOM_GRACE_PERIOD => {
+                        rooms.remove(&room_code);
+                        return;
+                    }
+                    // Re-emptied during our sleep (rejoin + releave) — wait
+                    // out the rest of the new grace period.
+                    _ => continue,
+                }
             }
         });
     }
@@ -711,6 +745,29 @@ fn generate_room_code() -> String {
     (0..ROOM_CODE_LENGTH)
         .map(|_| ROOM_CODE_ALPHABET[rng.random_range(0..ROOM_CODE_ALPHABET.len())] as char)
         .collect()
+}
+
+/// Tries `generate` until it yields a code `is_taken` rejects, up to
+/// [`ROOM_CODE_COLLISION_RETRIES`] times. A collision in the 31^8 code
+/// space against [`MAX_ROOMS`] rooms is ~6e-9, but without this check the
+/// `rooms.insert` on a collision silently overwrites a live room and
+/// strands its members (P3 follow-up). The last try is accepted as-is:
+/// after this many misses the space is effectively exhausted and there is
+/// nothing better to return.
+const ROOM_CODE_COLLISION_RETRIES: usize = 8;
+
+fn unique_room_code(
+    is_taken: impl Fn(&str) -> bool,
+    mut generate: impl FnMut() -> String,
+) -> String {
+    let mut code = generate();
+    for _ in 1..ROOM_CODE_COLLISION_RETRIES {
+        if !is_taken(&code) {
+            break;
+        }
+        code = generate();
+    }
+    code
 }
 
 #[cfg(test)]

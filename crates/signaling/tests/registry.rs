@@ -544,6 +544,67 @@ async fn leave_room_does_not_remove_the_room_if_someone_rejoins_during_the_grace
     );
 }
 
+#[tokio::test(start_paused = true)]
+async fn a_rejoin_then_releave_reschedules_the_cleanup_instead_of_stacking_a_task() {
+    // P3 follow-up: one cleanup task per room, not per emptying event.
+    // The live task must notice a re-emptying and wait out a fresh grace
+    // period rather than deleting the room early or letting a second task
+    // pile up.
+    let registry = Registry::new();
+    let (host_tx, _host_rx) = member_channel();
+    let (room_code, creator_snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala da Ana".to_string(),
+            password: None,
+            device_id: "device-host".to_string(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create_room should not hit a capacity limit in this test");
+
+    registry.leave_room(&room_code, &creator_snapshot.peer_id);
+    tokio::task::yield_now().await;
+
+    // Halfway through the grace period, someone rejoins and immediately
+    // leaves again.
+    tokio::time::advance(EMPTY_ROOM_GRACE_PERIOD / 2).await;
+    let (tx, _rx) = member_channel();
+    let rejoin = registry
+        .join_room(
+            &room_code,
+            JoinRequest {
+                nick: "Bia".to_string(),
+                color: "sky".to_string(),
+                password: None,
+                device_id: "device-bia".to_string(),
+                client_key: "client-1".to_string(),
+                sender: tx,
+            },
+        )
+        .unwrap();
+    registry.leave_room(&room_code, &rejoin.peer_id);
+    tokio::task::yield_now().await;
+
+    // Just past the *first* leave's grace period — the room must still be
+    // there, because it was re-emptied more recently.
+    tokio::time::advance(EMPTY_ROOM_GRACE_PERIOD / 2 + Duration::from_secs(1)).await;
+    tokio::task::yield_now().await;
+    assert!(
+        registry.room_status(&room_code).is_some(),
+        "the room must not be deleted a full grace period before its last leave"
+    );
+
+    // Past the second leave's grace period — now it goes.
+    tokio::time::advance(EMPTY_ROOM_GRACE_PERIOD).await;
+    tokio::task::yield_now().await;
+    assert!(
+        registry.room_status(&room_code).is_none(),
+        "once quiet for a full grace period the room is removed"
+    );
+}
+
 #[tokio::test]
 async fn leave_room_while_sharing_also_sends_peer_stopped_sharing() {
     let registry = Registry::new();

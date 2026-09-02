@@ -41,12 +41,31 @@ fn mint_credentials_username_is_a_future_unix_timestamp() {
 const STRONG_SECRET: &str = "0123456789abcdef0123456789abcdef";
 
 #[test]
-fn from_vars_is_stun_only_unless_both_secret_and_urls_are_set() {
+fn from_vars_is_stun_only_when_no_secret_is_set() {
     let stun_only = |s, u| matches!(TurnConfig::from_vars(s, u), Ok(None));
+    assert!(stun_only(None, None));
     assert!(stun_only(None, Some("turn:x:3478".into())));
-    assert!(stun_only(Some(STRONG_SECRET.into()), None));
     assert!(stun_only(Some(String::new()), Some("turn:x:3478".into())));
-    assert!(stun_only(Some(STRONG_SECRET.into()), Some(String::new())));
+    assert!(stun_only(Some(String::new()), None));
+}
+
+#[test]
+fn from_vars_errors_when_a_secret_is_set_without_urls() {
+    // A secret is the deliberate "run TURN" signal; missing URLs then
+    // means the relay is unreachable and clients would silently fall back
+    // to STUN-only (P3 follow-up).
+    assert!(matches!(
+        TurnConfig::from_vars(Some(STRONG_SECRET.into()), None),
+        Err(TurnConfigError::UrlsMissing)
+    ));
+    assert!(matches!(
+        TurnConfig::from_vars(Some(STRONG_SECRET.into()), Some(String::new())),
+        Err(TurnConfigError::UrlsMissing)
+    ));
+}
+
+#[test]
+fn from_vars_accepts_both_secret_and_urls() {
     assert!(matches!(
         TurnConfig::from_vars(Some(STRONG_SECRET.into()), Some("turn:x:3478".into())),
         Ok(Some(_))
@@ -90,6 +109,9 @@ fn turn_config_error_messages_are_non_empty_and_specific() {
     assert!(TurnConfigError::SecretIsPlaceholder
         .to_string()
         .contains("placeholder"));
+    assert!(TurnConfigError::UrlsMissing
+        .to_string()
+        .contains("TURN_URLS"));
 }
 
 #[test]
