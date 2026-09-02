@@ -37,7 +37,7 @@ const IDLE_TIMEOUT: Duration = Duration::from_secs(90);
 /// budget is generous; a flood loop still trips it and the connection is
 /// closed.
 const RATE_WINDOW: Duration = Duration::from_secs(10);
-const MAX_MSGS_PER_WINDOW: usize = 300;
+pub const MAX_MSGS_PER_WINDOW: usize = 300;
 
 /// Drops timestamps older than [`RATE_WINDOW`] from `recent`, records
 /// `now`, and reports whether the window is now over [`MAX_MSGS_PER_WINDOW`]
@@ -115,11 +115,24 @@ async fn handle_socket(
             Err(_) | Ok(None) | Ok(Some(Err(_))) => break,
             Ok(Some(Ok(msg))) => msg,
         };
-        let Message::Text(text) = msg else { continue };
 
+        // Count every frame against the budget, not just the ones we go on
+        // to parse: a Binary/Ping/Pong flood (each up to `MAX_MESSAGE_BYTES`,
+        // and a ping is answered with a pong out) would otherwise be bounded
+        // only by `IDLE_TIMEOUT` and the connection cap (finding F05).
         if over_rate_limit(&mut recent_msgs, Instant::now()) {
             break;
         }
+
+        let text = match msg {
+            Message::Text(text) => text,
+            // The signaling protocol is JSON text only; a binary frame is
+            // never legitimate here.
+            Message::Binary(_) => break,
+            // Ping/Pong/Close: the rate-limit tick above already covered
+            // them; nothing else to do.
+            _ => continue,
+        };
 
         let Ok(client_msg) = serde_json::from_str::<ClientMessage>(&text) else {
             continue;

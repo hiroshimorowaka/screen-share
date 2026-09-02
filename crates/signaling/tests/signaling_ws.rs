@@ -908,6 +908,61 @@ async fn a_large_but_under_limit_frame_is_still_processed() {
     ));
 }
 
+/// Reads frames until the socket is observed closed (close frame, stream
+/// end, or transport error), ignoring the pong/ping keepalive traffic that
+/// a flood test generates. Returns `false` if it keeps receiving other
+/// frames without a close within [`RECV_TIMEOUT`].
+async fn drained_until_closed(
+    ws: &mut (impl StreamExt<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin),
+) -> bool {
+    loop {
+        match tokio::time::timeout(RECV_TIMEOUT, ws.next()).await {
+            Ok(None) | Ok(Some(Err(_))) | Ok(Some(Ok(Message::Close(_)))) => return true,
+            Ok(Some(Ok(Message::Ping(_) | Message::Pong(_)))) => continue,
+            Ok(Some(Ok(_))) => continue,
+            Err(_) => return false,
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_binary_frame_closes_the_connection() {
+    // The signaling protocol is JSON text only — a binary frame is never
+    // legitimate and must not slip past the per-frame rate accounting
+    // (finding F05).
+    let url = spawn_test_server().await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    ws.send(Message::Binary(vec![0u8; 16].into()))
+        .await
+        .unwrap();
+
+    assert!(
+        drained_until_closed(&mut ws).await,
+        "a binary frame must close the signaling socket"
+    );
+}
+
+#[tokio::test]
+async fn a_flood_of_ping_frames_trips_the_rate_limit() {
+    use screen_share_signaling::ws::MAX_MSGS_PER_WINDOW;
+
+    // Ping frames used to be extracted out before the rate check, so a
+    // ping flood (each answered with a pong) was bounded only by the idle
+    // timeout and the connection cap (finding F05).
+    let url = spawn_test_server().await;
+    let (mut ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
+
+    for _ in 0..(MAX_MSGS_PER_WINDOW + 2) {
+        ws.send(Message::Ping(Vec::new().into())).await.unwrap();
+    }
+
+    assert!(
+        drained_until_closed(&mut ws).await,
+        "a ping flood over the message budget must close the socket"
+    );
+}
+
 #[tokio::test]
 async fn handshake_is_rejected_from_an_origin_not_on_the_allowlist() {
     use screen_share_signaling::handshake::OriginPolicy;
