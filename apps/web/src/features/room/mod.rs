@@ -1,5 +1,6 @@
 #[cfg(debug_assertions)]
 mod dev_preview;
+mod gate;
 mod grid;
 mod invite;
 pub(crate) mod media_controls;
@@ -20,6 +21,7 @@ use crate::session::media::start_sharing;
 use crate::session::media::{
     share_supported, share_toggle_handler, sharing_can_have_audio, switch_source_handler,
 };
+use gate::RoomGate;
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 #[cfg(feature = "hydrate")]
 use invite::build_invite_link;
@@ -31,13 +33,11 @@ use watch::leave_or_stop_watching_handler;
 #[cfg(feature = "hydrate")]
 use watch::leave_room;
 
-use crate::components::color_picker::ColorPicker;
 use crate::components::icons::{
     icon_check, icon_eye_off, icon_link, icon_log_out, icon_minimize, icon_monitor,
     icon_screen_off, icon_switch, icon_video_off,
 };
 use crate::components::status::status_meta;
-use crate::components::status_message::StatusMessage;
 use crate::components::transmission_menu::TransmissionMenu;
 use crate::session::{
     adopt_pending_session, setup_room_connection, RoomMember, RoomSession, RoomSignals,
@@ -58,10 +58,12 @@ fn stream_has_audio_track(stream: &web_sys::MediaStream) -> bool {
         .any(|track| track.kind() == "audio")
 }
 
-// 445 lines: ~30 inline signals, the quick-share effects, and three gate
-// panels inlined in the `view!`. Refactor step 5 extracts <RoomGate>,
-// groups the signals into small state structs, and moves the effects
-// into `session::`.
+// Over the line lint: the pre-auth panels are now `<RoomGate>` and the
+// per-slot card view is `<MemberCard>`, but RoomPage still owns the room's
+// ~25 signals, the desktop quick-share / audio-self-test effects, and the
+// stage-header + control-bar markup. Splitting the signal ownership into
+// small state structs and lifting the effects into `session::` is the
+// remaining follow-up.
 #[allow(clippy::too_many_lines)]
 #[component]
 pub fn RoomPage() -> impl IntoView {
@@ -227,36 +229,6 @@ pub fn RoomPage() -> impl IntoView {
         set_requires_password,
     );
 
-    let manual_join = {
-        let join_room = join_room.clone();
-        // Only read from `#[cfg(feature = "hydrate")]` code below — an
-        // `ssr`-only compile sees no reads and would otherwise flag it.
-        #[cfg_attr(not(feature = "hydrate"), allow(unused_variables))]
-        let room_code = initial_code.clone();
-        move |ev: leptos::ev::SubmitEvent| {
-            ev.prevent_default();
-            let nick_value = nick.get_untracked().trim().to_string();
-            let password_value = password.get_untracked();
-            if nick_value.is_empty()
-                || (requires_password.get_untracked() && password_value.is_empty())
-            {
-                set_status.set("Preencha nick e senha.".to_string());
-                return;
-            }
-            let password_value = (!password_value.is_empty()).then_some(password_value);
-            #[cfg(feature = "hydrate")]
-            crate::infra::storage::save_room_session(
-                &room_code,
-                &crate::infra::storage::RoomSession {
-                    nick: nick_value.clone(),
-                    color: color.get_untracked(),
-                    password: password_value.clone(),
-                },
-            );
-            join_room(nick_value, color.get_untracked(), password_value);
-        }
-    };
-
     let toggle_share = share_toggle_handler(
         conn.clone(),
         is_sharing,
@@ -364,45 +336,22 @@ pub fn RoomPage() -> impl IntoView {
     };
 
     view! {
-        <div
-            class="panel"
-            class:hidden=move || authenticated.get() || room_exists.get().is_some()
-        >
-            <h1>"Verificando sala..."</h1>
-            <p class="status-row__meta">{code}</p>
-        </div>
-        <div
-            class="panel"
-            class:hidden=move || authenticated.get() || room_exists.get() != Some(false)
-        >
-            <h1>"Sala não encontrada"</h1>
-            <p class="status-text status-text--error">"Sala não encontrada ou já foi encerrada."</p>
-            <a class="btn btn--ghost btn--block" href="/">"Voltar à página principal"</a>
-        </div>
-        // class:hidden instead of `<Show>`: Leptos 0.8 requires Send + Sync
-        // on `<Show>` children, and the form captures an
-        // `Rc<RefCell<WsClient>>`, which is not.
-        <div class="panel" class:hidden=move || authenticated.get() || room_exists.get() != Some(true)>
-            <h1>"Entrar na sala"</h1>
-            // Just the code here: the room name isn't known until the
-            // `Joined` snapshot (finding F06), and this panel is pre-join.
-            <p class="status-row__meta">{code}</p>
-            <form on:submit=manual_join.clone()>
-                <label class="field">
-                    <span class="field__label">"Nick"</span>
-                    <input class="field__input" type="text" required prop:value=nick
-                        on:input:target=move |ev| set_nick.set(ev.target().value())/>
-                </label>
-                <ColorPicker selected=color on_select=set_color/>
-                <label class="field" class:hidden=move || !requires_password.get()>
-                    <span class="field__label">"Senha da sala"</span>
-                    <input class="field__input" type="password" prop:value=password
-                        on:input:target=move |ev| set_password.set(ev.target().value())/>
-                </label>
-                <button class="btn btn--primary" type="submit">"Entrar"</button>
-            </form>
-            <StatusMessage status=status/>
-        </div>
+        <RoomGate
+            code=Signal::derive(code)
+            authenticated=authenticated
+            room_exists=room_exists
+            requires_password=requires_password
+            nick=nick
+            set_nick=set_nick
+            color=color
+            set_color=set_color
+            password=password
+            set_password=set_password
+            status=status
+            set_status=set_status
+            room_code=initial_code.clone()
+            on_join=join_room.clone()
+        />
         <div
             class="room-page"
             class:hidden=move || !authenticated.get()
