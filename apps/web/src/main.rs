@@ -39,10 +39,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "not configured (STUN-only ICE)"
         }
     );
+    let handshake = HandshakeConfig::from_env();
     let signaling_state = SignalingState {
         registry: Registry::new(),
         turn,
-        handshake: HandshakeConfig::from_env(),
+        handshake: handshake.clone(),
         room_status_limiter: RoomStatusLimiter::new(),
     };
     let signaling_router = Router::new()
@@ -71,7 +72,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ))
         .with_state(leptos_options);
 
-    let app = http_limits::apply(leptos_router)
+    let guarded_leptos_router = http_limits::apply_rate_limit(
+        http_limits::apply(leptos_router),
+        http_limits::SsrRateLimit::new(handshake),
+    );
+    let app = guarded_leptos_router
         // Merged after the DoS guards so `/ws` keeps its long-lived
         // connection and `/api/rooms/:code` keeps its own rate limiter.
         .merge(signaling_router)

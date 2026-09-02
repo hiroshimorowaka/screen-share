@@ -97,6 +97,12 @@ web-sys = { version = "0.3.104", optional = true, features = [
 # exact `=` requirement on `wasm-bindgen`, so Cargo enforces the pairing.
 wasm-bindgen-test = "=0.3.77"
 
+# Native-only: the `ssr` integration tests name `HandshakeConfig` to
+# exercise the SSR rate-limit middleware. Kept off the wasm32 target so
+# the `hydrate` `--lib` test build doesn't pull tokio/mio.
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+screen-share-signaling = { path = "../../crates/signaling" }
+
 [features]
 hydrate = [
     "leptos/hydrate",

@@ -4,16 +4,21 @@
 
 #![cfg(feature = "ssr")]
 
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use axum::body::{to_bytes, Body, Bytes};
-use axum::extract::State;
+use axum::extract::{ConnectInfo, State};
 use axum::http::{Request, StatusCode};
-use axum::routing::post;
+use axum::routing::{get, post};
 use axum::Router;
-use screen_share::http_limits::{apply, MAX_CONCURRENT_HTTP_REQUESTS, MAX_HTTP_BODY_BYTES};
+use screen_share::http_limits::{
+    apply, apply_rate_limit, SsrRateLimit, MAX_CONCURRENT_HTTP_REQUESTS, MAX_HTTP_BODY_BYTES,
+    MAX_SSR_REQUESTS_PER_WINDOW,
+};
+use screen_share_signaling::handshake::HandshakeConfig;
 use tokio::sync::watch;
 use tower::ServiceExt;
 
@@ -53,6 +58,50 @@ async fn a_body_over_the_cap_is_rejected_and_one_at_the_cap_is_accepted() {
     assert_eq!(at_cap.status(), StatusCode::OK);
     let seen = to_bytes(at_cap.into_body(), usize::MAX).await.unwrap();
     assert_eq!(seen, MAX_HTTP_BODY_BYTES.to_string().as_bytes());
+}
+
+fn rate_limited_app() -> Router {
+    // `permissive()` => the client key is the TCP peer IP, which the test
+    // sets per request via a `ConnectInfo` extension.
+    apply_rate_limit(
+        Router::new().route("/", get(|| async { "ok" })),
+        SsrRateLimit::new(HandshakeConfig::permissive()),
+    )
+}
+
+async fn get_from(app: &Router, peer: SocketAddr) -> StatusCode {
+    app.clone()
+        .oneshot(
+            Request::builder()
+                .uri("/")
+                .extension(ConnectInfo(peer))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+        .status()
+}
+
+#[tokio::test]
+async fn a_client_over_the_ssr_request_budget_gets_429_and_other_clients_are_unaffected() {
+    let app = rate_limited_app();
+    let flooder: SocketAddr = ([127, 0, 0, 1], 4001).into();
+    let bystander: SocketAddr = ([127, 0, 0, 2], 4002).into();
+
+    for _ in 0..MAX_SSR_REQUESTS_PER_WINDOW {
+        assert_eq!(get_from(&app, flooder).await, StatusCode::OK);
+    }
+    assert_eq!(
+        get_from(&app, flooder).await,
+        StatusCode::TOO_MANY_REQUESTS,
+        "the request past the per-client window budget is rejected"
+    );
+    assert_eq!(
+        get_from(&app, bystander).await,
+        StatusCode::OK,
+        "a different client keeps its own budget"
+    );
 }
 
 #[tokio::test]
