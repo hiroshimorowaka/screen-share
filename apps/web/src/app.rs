@@ -50,7 +50,9 @@ pub fn App() -> impl IntoView {
         <Stylesheet id="base" href="/styles/base.css"/>
         <Stylesheet id="home" href="/styles/home.css"/>
         <Stylesheet id="room" href="/styles/room.css"/>
+        <Stylesheet id="room-transmission-menu" href="/styles/room-transmission-menu.css"/>
         <Stylesheet id="card" href="/styles/card.css"/>
+        <Stylesheet id="card-widgets" href="/styles/card-widgets.css"/>
         <Title text="Compartilhamento de tela"/>
         <Router>
             <main>
