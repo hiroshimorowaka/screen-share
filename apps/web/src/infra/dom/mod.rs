@@ -67,5 +67,5 @@ pub fn interval_until_cleanup(callback: Closure<dyn FnMut()>, interval_ms: i32) 
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "dom_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

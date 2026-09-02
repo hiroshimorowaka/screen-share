@@ -174,9 +174,9 @@ pub(crate) fn set_video_mode_handler(
 }
 
 #[cfg(test)]
-#[path = "video_mode_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "video_mode_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

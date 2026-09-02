@@ -57,5 +57,5 @@ pub(crate) fn setup_ping_loop(conn: crate::session::RoomSession) {
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "latency_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

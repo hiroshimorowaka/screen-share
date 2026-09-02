@@ -35,5 +35,5 @@ pub fn avatar_letter(nick: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "palette_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

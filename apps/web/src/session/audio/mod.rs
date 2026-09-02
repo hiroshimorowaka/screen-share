@@ -185,9 +185,9 @@ pub(crate) fn set_shared_audio_muted(conn: &crate::session::RoomSession, muted: 
 }
 
 #[cfg(test)]
-#[path = "audio_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "audio_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

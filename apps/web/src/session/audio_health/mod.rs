@@ -183,9 +183,9 @@ async fn sleep(ms: i32) {
 }
 
 #[cfg(test)]
-#[path = "audio_health_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "audio_health_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

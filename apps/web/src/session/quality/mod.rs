@@ -583,9 +583,9 @@ pub(crate) fn set_quality_handler(
 }
 
 #[cfg(test)]
-#[path = "quality_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "quality_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

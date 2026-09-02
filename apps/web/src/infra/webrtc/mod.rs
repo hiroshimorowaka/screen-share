@@ -560,5 +560,5 @@ pub fn is_display_media_supported() -> bool {
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "webrtc_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

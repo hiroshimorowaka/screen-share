@@ -61,5 +61,5 @@ pub fn join_room_handler(
 }
 
 #[cfg(test)]
-#[path = "join_room_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

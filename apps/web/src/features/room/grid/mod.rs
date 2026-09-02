@@ -320,5 +320,5 @@ fn recompute_adaptive_grid(expanded: RwSignal<Option<String>>) {
 }
 
 #[cfg(test)]
-#[path = "grid_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

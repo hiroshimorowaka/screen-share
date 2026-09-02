@@ -457,5 +457,5 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
 }
 
 #[cfg(test)]
-#[path = "member_card_tests.rs"]
+#[path = "tests.rs"]
 mod tests;

@@ -242,5 +242,5 @@ fn random_uuid_v4(crypto: &web_sys::Crypto) -> Option<String> {
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "storage_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

@@ -555,5 +555,5 @@ pub(crate) fn switch_source_handler(
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
-#[path = "media_wasm_tests.rs"]
+#[path = "wasm_tests.rs"]
 mod wasm_tests;

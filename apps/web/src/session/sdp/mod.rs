@@ -279,5 +279,5 @@ fn rewrite_fmtp_line(line: &str, pt: u32, forced: &[(&'static str, String)]) -> 
 }
 
 #[cfg(test)]
-#[path = "sdp_tests.rs"]
+#[path = "tests.rs"]
 mod tests;
