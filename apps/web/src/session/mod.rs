@@ -5,7 +5,6 @@ pub mod latency;
 pub mod media;
 pub mod quality;
 pub mod reconnect;
-pub mod sdp;
 pub mod video_mode;
 
 use leptos::prelude::*;

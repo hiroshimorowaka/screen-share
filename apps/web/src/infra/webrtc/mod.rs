@@ -483,13 +483,13 @@ pub async fn create_offer(pc: &RtcPeerConnection) -> Result<String, JsValue> {
     // Negotiate music-grade stereo Opus — the browser otherwise settles on
     // a mono voice profile, which is wrong for shared system audio. The
     // same edited SDP is set locally and sent, so both sides agree.
-    let sdp = crate::session::sdp::tune_opus_for_music(&sdp);
+    let sdp = screen_share_domain::sdp::tune_opus_for_music(&sdp);
     // Carry the `x-google-*` bitrate hints in the offer too. Chrome reads
     // them for the sending direction from the *remote* description
     // (re-applied in `accept_answer`), not this one, so this is belt-and-
     // braces — it matters only if the far end ever sends video back — but
     // keeping both descriptions symmetric avoids a confusing diff.
-    let sdp = crate::session::sdp::tune_video_start_bitrate(&sdp);
+    let sdp = screen_share_domain::sdp::tune_video_start_bitrate(&sdp);
 
     let desc = RtcSessionDescriptionInit::new(RtcSdpType::Offer);
     desc.set_sdp(&sdp);
@@ -509,7 +509,7 @@ pub async fn create_answer(pc: &RtcPeerConnection, offer_sdp: &str) -> Result<St
         .ok_or_else(|| JsValue::from_str("answer has no sdp"))?;
     // Match the offerer's Opus tuning so the negotiated direction is stereo
     // both ways (see `create_offer`).
-    let sdp = crate::session::sdp::tune_opus_for_music(&sdp);
+    let sdp = screen_share_domain::sdp::tune_opus_for_music(&sdp);
 
     let local_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
     local_desc.set_sdp(&sdp);
@@ -528,8 +528,8 @@ pub async fn accept_answer(pc: &RtcPeerConnection, answer_sdp: &str) -> Result<(
     // for 10-30 s while `QualityLevel::Auto` sits pinned at `High` waiting
     // for a link it never actually tried to fill. Both passes are idempotent,
     // so a Chrome build that already echoed the keys back is unaffected.
-    let sdp = crate::session::sdp::tune_opus_for_music(answer_sdp);
-    let sdp = crate::session::sdp::tune_video_start_bitrate(&sdp);
+    let sdp = screen_share_domain::sdp::tune_opus_for_music(answer_sdp);
+    let sdp = screen_share_domain::sdp::tune_video_start_bitrate(&sdp);
 
     let remote_desc = RtcSessionDescriptionInit::new(RtcSdpType::Answer);
     remote_desc.set_sdp(&sdp);

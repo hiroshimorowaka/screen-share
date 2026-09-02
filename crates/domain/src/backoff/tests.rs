@@ -1,5 +1,4 @@
-//! Unit tests for `reconnect::BackoffPolicy`, split out of
-//! src/session/reconnect.rs (refactor Phase 4).
+//! Unit tests for `BackoffPolicy`.
 
 use super::*;
 

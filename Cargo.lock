@@ -2093,6 +2093,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "screen-share-domain"
+version = "0.1.0"
+
+[[package]]
 name = "screen-share-protocol"
 version = "0.1.0"
 dependencies = [
@@ -2130,6 +2134,7 @@ dependencies = [
  "leptos_axum",
  "leptos_meta",
  "leptos_router",
+ "screen-share-domain",
  "screen-share-protocol",
  "screen-share-signaling",
  "send_wrapper",

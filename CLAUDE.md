@@ -334,20 +334,26 @@ architecture-refactor roadmap in `docs/superpowers/plans/`). These rules
 hold now and are enforced by the dependency graph once the crates exist:
 
 ```
+domain      →  (nothing)
 protocol    →  (serde only)
 signaling   →  protocol
-apps/web    →  protocol, signaling
+apps/web    →  domain, protocol, signaling
 ```
 
-(A `crates/core` for shared domain types was considered and deferred —
-see `docs/decisions/0001-workspace-crate-split.md`. Add it only if
-genuinely shared, browser-agnostic domain logic appears.)
+`crates/domain` holds the web app's browser- and framework-free logic
+(SDP fmtp rewriting, the reconnect backoff schedule) so it is unit-tested
+natively instead of through the wasm harness. It must stay dependency-free
+— no `serde`, no `web-sys`, no async. Add to it only logic that genuinely
+has no browser/DOM/`RtcPeerConnection` dependency; anything that needs one
+stays in `apps/web/src/session`. (A `crates/core` for types shared with
+`signaling` was considered and deferred — see
+`docs/decisions/0001-workspace-crate-split.md`.)
 
 - **Dependency direction.** Dependencies point toward lower-level
-  abstractions only. `crates/protocol` depends on nothing but `serde` and
-  must never depend on Axum, Tokio, `web-sys`, `wasm-bindgen`, Leptos,
-  Electron, or any OS API. `crates/signaling` may depend on `protocol`,
-  never the reverse.
+  abstractions only. `crates/domain` depends on nothing; `crates/protocol`
+  depends on nothing but `serde`; neither may depend on Axum, Tokio,
+  `web-sys`, `wasm-bindgen`, Leptos, Electron, or any OS API.
+  `crates/signaling` may depend on `protocol`, never the reverse.
 - **UI components never do I/O.** A Leptos `#[component]` must not open a
   `WebSocket`, construct an `RtcPeerConnection`, call `getDisplayMedia`,
   touch `localStorage`, or reach into `crates/signaling`. It calls a

@@ -42,8 +42,8 @@ pub const VIDEO_START_BITRATE_KBPS: u32 = 2_500;
 /// genuinely starved link is never wedged above what it can carry.
 pub const VIDEO_MIN_BITRATE_KBPS: u32 = 300;
 /// `x-google-max-bitrate`, in kbit/s. Matches the `High` tier ceiling in
-/// [`crate::session::quality`] (`HIGH_MAX_BITRATE_BPS`, 4 Mbit/s); the live
-/// per-tier `maxBitrate` from `apply_tier` still applies on top via
+/// `apps/web`'s `session::quality` (`HIGH_MAX_BITRATE_BPS`, 4 Mbit/s); the
+/// live per-tier `maxBitrate` from `apply_tier` still applies on top via
 /// `setParameters`, so `Auto`/manual tier stepping keeps working — this
 /// only stops a codec's low *default* max from capping the top tier.
 pub const VIDEO_MAX_BITRATE_KBPS: u32 = 4_000;

@@ -199,7 +199,7 @@ async fn accept_answer_lands_the_start_bitrate_hint_on_the_sharers_remote_descri
     assert!(
         remote.contains(&format!(
             "x-google-start-bitrate={}",
-            crate::session::sdp::VIDEO_START_BITRATE_KBPS
+            screen_share_domain::sdp::VIDEO_START_BITRATE_KBPS
         )),
         "start-bitrate hint missing from the sharer's remote SDP: {remote}"
     );

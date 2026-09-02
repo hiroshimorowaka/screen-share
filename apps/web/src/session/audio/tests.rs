@@ -22,7 +22,7 @@ fn bitrate_strictly_increases_from_voice_to_music() {
 fn no_preset_exceeds_the_negotiated_opus_ceiling() {
     for preset in ALL {
         assert!(
-            preset.bitrate_bps() <= crate::session::sdp::OPUS_MAX_AVERAGE_BITRATE_BPS,
+            preset.bitrate_bps() <= screen_share_domain::sdp::OPUS_MAX_AVERAGE_BITRATE_BPS,
             "{preset:?} asks for more than the SDP ceiling"
         );
     }
@@ -32,7 +32,7 @@ fn no_preset_exceeds_the_negotiated_opus_ceiling() {
 fn music_preset_uses_the_full_negotiated_ceiling() {
     assert_eq!(
         AudioPreset::Music.bitrate_bps(),
-        crate::session::sdp::OPUS_MAX_AVERAGE_BITRATE_BPS
+        screen_share_domain::sdp::OPUS_MAX_AVERAGE_BITRATE_BPS
     );
 }
 

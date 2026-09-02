@@ -5,10 +5,10 @@
 //! moves `RTCRtpSender.setParameters().maxBitrate`, which needs no
 //! renegotiation, so viewers hear the change without a gap.
 //!
-//! The SDP negotiation (`session::sdp`) sets the ceiling once at connect
+//! The SDP negotiation (`screen_share_domain::sdp`) sets the ceiling once at connect
 //! time; this only picks where under that ceiling to sit.
 
-use crate::session::sdp::OPUS_MAX_AVERAGE_BITRATE_BPS;
+use screen_share_domain::sdp::OPUS_MAX_AVERAGE_BITRATE_BPS;
 
 /// Voice: enough for speech, DTX stays off but the rate is low. Screen
 /// shares are usually paired with a separate voice call, so this is the

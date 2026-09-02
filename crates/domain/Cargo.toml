@@ -1,0 +1,9 @@
+[package]
+name = "screen-share-domain"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "screen_share_domain"
+
+[dependencies]
