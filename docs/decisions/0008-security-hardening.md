@@ -543,3 +543,71 @@ were previously unbounded. New deps: `tower` (`limit`) and `tower-http`
   SHA-pinned (only the flyctl action is, via F17). Worth doing with a
   tool that resolves tag→SHA (`pinact` / `ratchet`) and a review of the
   result; not done blind here.
+
+## Re-audit follow-up (2026-09-02)
+
+A fresh pass over the branch (report generated locally under
+`docs/security-audit/`, which is git-ignored) surfaced one partial
+regression of F07 and one weakness in F12's own mitigation. Both fixed
+here.
+
+### A-01 — `add_watcher` must gate on the target *sharing*, not just being a member
+
+F07 closed peer-to-peer signaling behind `watch_related`, but
+`Registry::add_watcher` only checked room membership, not
+`room.sharers`. A member could therefore `WatchShare { sharer_id: <any
+co-member> }`: the relay stored the watcher, sent `WatchRequested` to the
+target (whose web client then opened an `RTCPeerConnection`, gathered
+host/srflx ICE — leaking its LAN + public address — and offered), and,
+because `watch_related` now held, opened `relay_peer_signal` between the
+two for unsolicited offers / renegotiation / `SetQuality`. Exactly the
+surface F07 was meant to remove, reachable by any room member (in a
+public room, anyone with the link).
+
+- `add_watcher` now returns early unless `room.sharers.contains(sharer_id)`
+  as well as `room.members.contains_key(sharer_id)`.
+- Defence in depth on the client (mirrors the existing `Offer` guard):
+  `session::handler` ignores `WatchRequested` when `conn.local_stream`
+  is `None` — never open a peer connection because a co-member asked to
+  watch a screen we aren't sharing.
+
+Covered by `add_watcher_ignores_a_member_that_is_not_sharing`
+(`crates/signaling/tests/registry.rs`), which also asserts
+`relay_peer_signal` stays shut afterwards. Existing watcher tests that
+called `add_watcher` without a prior `start_share` were updated to start
+the share first.
+
+Known narrow edge: if a `(sharer, viewer)` pair both drop and reconnect
+simultaneously, the viewer's replayed `WatchShare` can now race ahead of
+the sharer's replayed `StartShare` and be dropped, leaving the viewer to
+click "assistir" again. Pre-existing reconnect ordering already made this
+fragile; the e2e "watcher reload / watcher reconnect + rewatch" suites
+(single-side reconnect) are unaffected and pass.
+
+### A-02 — CSP `script-src` drops `'unsafe-inline'` for a per-request nonce
+
+F12 shipped `script-src … 'unsafe-inline'` because
+`leptos_meta::HydrationScripts` emits a nonce-less inline bootstrap, and
+F14 named that CSP as the reason it was safe to keep the room password in
+`sessionStorage` — a mitigation `'unsafe-inline'` undermines.
+
+- `apps/web/Cargo.toml`: `leptos/nonce` added to the `ssr` feature.
+- `http_security::apply` now mints a 128-bit CSPRNG nonce per response,
+  hands it to the render via the `x-csp-nonce` request header, and emits
+  `script-src 'self' 'wasm-unsafe-eval' 'nonce-<n>'` (no
+  `'unsafe-inline'`). `style-src` keeps `'unsafe-inline'` — Leptos binds
+  dynamic values through `style="…"` *attributes*, which a nonce cannot
+  cover and which cannot execute script.
+- `http_security::provide_request_nonce` is passed to
+  `leptos_routes_with_context` and `file_and_error_handler_with_context`
+  in `main.rs`; it republishes the request-header nonce as a
+  `leptos::nonce::Nonce`, so `HydrationScripts` / `AutoReload` stamp the
+  matching `nonce="…"`.
+
+`tests/http_security.rs` gained an end-to-end check
+(`the_hydration_bootstrap_script_carries_the_csp_nonce`) that renders a
+real Leptos route through the middleware and asserts the inline
+`<script>` nonce equals the CSP header's, plus a per-response freshness
+check. A real-browser smoke test (create / join / watch, no CSP
+violations logged) is still the final gate before trusting this in
+production, same caveat as the original F12.
