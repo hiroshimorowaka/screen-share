@@ -49,3 +49,22 @@ async fn a_present_but_silent_track_is_reported_silent() {
         AudioHealth::Silent
     );
 }
+
+#[wasm_bindgen_test]
+async fn error_path_probes_release_their_audiocontext() {
+    // A stream with no audio track makes `create_media_stream_source`
+    // throw *after* the context is created — the path that used to leak
+    // the context (finding F09). A browser caps a page at a handful of
+    // `AudioContext`s, so if they weren't being closed a valid probe
+    // afterwards would fail to allocate one.
+    for _ in 0..8 {
+        let _ = listen_for_sound(&empty_stream()).await;
+    }
+    assert!(
+        matches!(
+            listen_for_sound(&stream_with_silent_audio_track()).await,
+            Ok(false)
+        ),
+        "a valid probe must still allocate a context after repeated error-path probes"
+    );
+}
