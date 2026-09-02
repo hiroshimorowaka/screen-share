@@ -465,3 +465,81 @@ picker's exact file URL (`PICKER_FILE_URL`, shared via the new
 gains `devTools: !app.isPackaged` and the main window's `lockNavigation`
 (`will-navigate` / `will-redirect` / `window.open` guards), which
 `window.ts` now exports.
+
+## P3 follow-up (2026-09-02)
+
+The "P3 — LOW" items from `.handoff/security-and-leak-remediation.md`.
+
+### Room-code collision check
+
+`create_room` used the first `generate_room_code()` blind, so a
+collision (~6e-9 against `MAX_ROOMS`) silently overwrote a live room and
+stranded its members. `unique_room_code` now retries up to
+`ROOM_CODE_COLLISION_RETRIES` (8) times against the room table, under the
+lock.
+
+### One cleanup task per emptied room, not per emptying event
+
+`schedule_empty_room_cleanup` spawned a 30 s tokio task on every
+emptying, so connection churn (open → `CreateRoom` → close) and
+leave→rejoin→leave both stacked tasks. `Room` gained `emptied_at` and
+`cleanup_scheduled`: `leave_room` only spawns a task when one isn't
+already live, and the task loops — re-checking `emptied_at` and waiting
+out a fresh grace period if the room was re-emptied — instead of a
+one-shot sleep.
+
+### `TURN_SECRET` without `TURN_URLS` is now an error
+
+`TurnConfig::from_vars` returned `Ok(None)` (silent STUN-only) when a
+secret was set but URLs weren't — a half-configured relay. New
+`TurnConfigError::UrlsMissing` aborts the boot, matching F13's
+fail-loud stance. No secret at all is still `Ok(None)` (STUN-only is a
+valid choice).
+
+### "Zalgo" nick rejection
+
+`validate::clean_name` counted scalar values, so a 32-code-point nick
+with dozens of combining marks stacked on a couple of bases passed the
+length cap and overflowed its card. It now rejects a run of more than
+`MAX_MARKS_PER_CLUSTER` (4) consecutive combining marks
+(`NameError::ExcessiveCombiningMarks`) — a heuristic over the combining
+blocks a Zalgo generator draws from, not a full Unicode `Mn`/`Mc`/`Me`
+table (that needs a dependency; `crates/protocol` stays serde-only).
+
+### HTTP-route DoS guards
+
+New `http_limits::apply` (SSR) wraps the Leptos routes — **not** the
+merged `/ws` / `/api/rooms/:code` — with `DefaultBodyLimit`
+(`MAX_HTTP_BODY_BYTES`, 64 KiB), `GlobalConcurrencyLimitLayer`
+(`MAX_CONCURRENT_HTTP_REQUESTS`, 64) and `tower_http`'s `TimeoutLayer`
+(`HTTP_REQUEST_TIMEOUT`, 20 s, 408). Slow-HTTP and render amplification
+were previously unbounded. New deps: `tower` (`limit`) and `tower-http`
+(`timeout`), both already in the tree.
+
+### Client-side resource leaks
+
+- `infra::session::stash` explicitly drops any previous unclaimed
+  `PendingSession` first, so its `WsClient` `Drop` closes that orphaned
+  socket immediately rather than on the next stash.
+- `infra::socket`: `on_open` keeps its closure in the `WsClient`
+  (dropped with it) instead of `Closure::once_into_js`, which leaked the
+  closure when the socket never opened (a failed `connect`). `on_close`
+  deliberately stays a `once_into_js` leak — a socket always eventually
+  closes, and its handler must outlive the `WsClient` to run the
+  reconnect check. (`Drop for WsClient` itself landed with F01.)
+- `desktop/quick-share.ts`: `desktop-share:link-ready` now requires the
+  supplied `link` to be a `/r/…` URL on `APP_ORIGIN` before
+  `clipboard.writeText`, so even a trusted-but-compromised frame can't
+  push arbitrary text onto the clipboard.
+
+### Deferred (ops, not code)
+
+- **coturn version** — taken unpinned from bookworm (pinning an exact
+  apt version breaks on the next Debian point release). Needs a
+  scheduled image rebuild + redeploy so coturn security fixes land; the
+  `--denied-peer-ip` hardening bounds the blast radius until then. Noted
+  in `Dockerfile`.
+- **CI action SHA-pinning** — `actions/*@v4` etc. are tag-pinned, not
+  SHA-pinned (only the flyctl action is, via F17). Worth doing with a
+  tool that resolves tag→SHA (`pinact` / `ratchet`) and a review of the
+  result; not done blind here.

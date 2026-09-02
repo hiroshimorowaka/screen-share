@@ -34,6 +34,13 @@ FROM debian:bookworm-slim AS runtime
 # app inside the same Fly Machine — see docker-entrypoint.sh. Only actually
 # starts if TURN_SECRET/TURN_EXTERNAL_IP are set; a deployment without them
 # just runs the app on its own, STUN-only.
+#
+# coturn is taken unpinned from bookworm (pinning an exact apt version
+# breaks on the next Debian point release). The image only picks up coturn
+# security fixes on a rebuild, so this needs a scheduled rebuild+redeploy
+# (ops task, tracked in docs/decisions/0008-security-hardening.md) — the
+# `--denied-peer-ip` hardening in docker-entrypoint.sh is what bounds the
+# blast radius until then.
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates coturn \
     && rm -rf /var/lib/apt/lists/*
 
