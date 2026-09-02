@@ -1,8 +1,10 @@
 import * as path from 'node:path';
-import { BrowserWindow, desktopCapturer, ipcMain } from 'electron';
+import type { IpcMainEvent } from 'electron';
+import { app, BrowserWindow, desktopCapturer, ipcMain } from 'electron';
+import { PICKER_HTML_PATH } from '#features/screen-share/picker-page.js';
 import type { PickerChoice, PickerSource, ShareChoice } from '#ipc/types.js';
 import { isTrustedFrame } from '#main/ipc-guard.js';
-import { getMainWindow } from '#main/window.js';
+import { getMainWindow, lockNavigation } from '#main/window.js';
 
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {
@@ -48,14 +50,24 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
+          // Match the main window: no DevTools in a packaged build
+          // (follow-up audit finding 13).
+          devTools: !app.isPackaged,
         },
       });
-      pickerWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+      // Same navigation lock the main window gets — `will-navigate` /
+      // `will-redirect` / `window.open` off the picker page all blocked
+      // (finding 13). `loadFile` below does not fire `will-navigate`.
+      lockNavigation(pickerWindow);
 
       let settled = false;
       const settle = (choice: PickerChoice | null) => {
         if (settled) return;
         settled = true;
+        // If the picker was dismissed (blur -> close) the `once` listener
+        // was never consumed — one leaked `ipcMain` listener per
+        // cancelled picker otherwise (finding 8d). Safe if already spent.
+        ipcMain.removeListener('picker:selected', onSelected);
         if (!choice) {
           resolve(null);
         } else {
@@ -73,10 +85,12 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         if (!pickerWindow.isDestroyed()) pickerWindow.close();
       };
 
-      ipcMain.once('picker:selected', (event, choice: PickerChoice) => {
+      const onSelected = (event: IpcMainEvent, choice: PickerChoice) => {
         if (!isTrustedFrame(event)) return;
         settle(choice);
-      });
+      };
+
+      ipcMain.once('picker:selected', onSelected);
       pickerWindow.on('closed', () => settle(null));
 
       // Delay arming "click outside closes it" slightly so the window
@@ -86,9 +100,7 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
       }, 300);
 
       try {
-        await pickerWindow.loadFile(
-          path.join(__dirname, '..', '..', '..', 'static', 'picker.html'),
-        );
+        await pickerWindow.loadFile(PICKER_HTML_PATH);
       } catch (err) {
         // Dismissing the picker (a click outside → `blur` → `settle` →
         // `pickerWindow.close()`) aborts an in-flight load, rejecting

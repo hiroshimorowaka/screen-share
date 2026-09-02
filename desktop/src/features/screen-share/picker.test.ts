@@ -13,8 +13,9 @@ const closeMock = vi.fn();
 let destroyed = false;
 
 vi.mock('electron', () => ({
+  app: { isPackaged: false },
   desktopCapturer: { getSources: state.getSources },
-  ipcMain: { once: vi.fn() },
+  ipcMain: { once: vi.fn(), removeListener: vi.fn() },
   BrowserWindow: class {
     webContents = { setWindowOpenHandler: vi.fn(), send: sendMock };
     on(event: string, handler: Handler) {
@@ -32,8 +33,13 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('#main/window.js', () => ({ getMainWindow: () => undefined }));
+vi.mock('#main/window.js', () => ({
+  getMainWindow: () => undefined,
+  lockNavigation: vi.fn(),
+}));
 vi.mock('#main/ipc-guard.js', () => ({ isTrustedFrame: () => true }));
+
+import { ipcMain } from 'electron';
 
 import { showSourcePicker } from '#features/screen-share/picker.js';
 
@@ -88,5 +94,20 @@ describe('showSourcePicker', () => {
 
     await expect(pending).resolves.toBeNull();
     expect(sendMock).toHaveBeenCalledWith('picker:sources', []);
+  });
+
+  it('removes the picker:selected listener when the picker is dismissed (finding 8d)', async () => {
+    const pending = showSourcePicker();
+    await vi.advanceTimersByTimeAsync(300);
+
+    const registered = (ipcMain.once as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+    expect(registered?.[0]).toBe('picker:selected');
+    const handler = registered?.[1];
+
+    windowHandlers.get('blur')?.(); // dismiss without ever sending picker:selected
+    state.loadFileDeferred?.reject(new Error('ERR_ABORTED'));
+    await expect(pending).resolves.toBeNull();
+
+    expect(ipcMain.removeListener).toHaveBeenCalledWith('picker:selected', handler);
   });
 });
