@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     use leptos::prelude::*;
     use leptos_axum::{generate_route_list, LeptosRoutes};
     use screen_share::app::{shell, App};
-    use screen_share::http_security;
+    use screen_share::{http_limits, http_security};
     use screen_share_signaling::handshake::HandshakeConfig;
     use screen_share_signaling::registry::Registry;
     use screen_share_signaling::rooms_status::{room_status_handler, RoomStatusLimiter};
@@ -50,13 +50,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .route("/api/rooms/{code}", get(room_status_handler))
         .with_state(signaling_state);
 
-    let app = Router::new()
+    let leptos_router = Router::new()
         .leptos_routes(&leptos_options, routes, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())
         })
         .fallback(leptos_axum::file_and_error_handler(shell))
-        .with_state(leptos_options)
+        .with_state(leptos_options);
+
+    let app = http_limits::apply(leptos_router)
+        // Merged after the DoS guards so `/ws` keeps its long-lived
+        // connection and `/api/rooms/:code` keeps its own rate limiter.
         .merge(signaling_router)
         .layer(axum::middleware::from_fn_with_state(
             dev_csp,
