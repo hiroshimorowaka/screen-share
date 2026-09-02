@@ -346,6 +346,55 @@ verifying (`tests/auth.rs`). `MAX_PASSWORD_LEN` (128) is validated in
 
 Covered inline in the F01 section above.
 
+### Finding 1 — room session teardown on every exit, not just the button
+
+`RoomPage`'s `on_cleanup` (`drop_peers_on_cleanup`) closed the peer
+connections but left `conn.ws` open, `expected_close` false, and the
+reconnect loop armed. On any non-button exit (browser back, `navigate`,
+an SPA route change) the server's 90 s idle reap then tripped `on_close`,
+which read the still-present `sessionStorage` credentials and rejoined
+the room on a page the user had left — every ~90 s, forever, spamming
+`PeerJoined`/`PeerLeft` at the real members. The `conn.ws` ->
+message-closure -> `RoomSession` clone -> `conn.ws` `Rc` cycle also kept
+the whole session alive for the tab's life.
+
+`session::reconnect::teardown_session(conn)` now centralises the
+non-navigation teardown: `expected_close = true`, `reconnecting = false`,
+drop the peer connections, and **take** the `WsClient` out of its
+`RefCell` and close it (taking it out is what breaks the cycle).
+`drop_peers_on_cleanup` and the "leave" button (`watch::leave_room`) both
+call it, so every exit runs one teardown path. `WsClient` also got a
+`Drop` impl that closes its socket as a backstop.
+
+### Finding 8a — native "Stop sharing" listener no longer leaked per share
+
+`attach_native_stop_listener` did `onended.forget()`, leaking the closure
+(and the `RoomSession` clone it captures — which also anchored the
+Finding 1 cycle) once per `start_sharing` **and** once per source switch.
+The closure is now held in a single `RoomSession.local_capture_callback`
+slot that `teardown_local_share` clears and a new capture replaces; the
+outgoing closure is dropped on the microtask queue, not synchronously,
+because on a source switch the listener being replaced is the one
+currently running.
+
+### Finding 8b — desktop PCM-bridge listener no longer leaked per share
+
+`build_track_from_pcm_bridge` (`infra::webrtc`, Windows desktop only)
+`forget()`'d the `onPcmChunk` closure that owns the
+`WritableStreamDefaultWriter` + `MediaStreamTrackGenerator`. It is now
+held in a module `thread_local` single slot that a fresh bridge replaces
+and `stop_desktop_audio_loopback` clears once the native side has stopped
+emitting chunks.
+
+### Finding 9 — `AudioContext` released on the probe's error paths
+
+`audio_health::listen_for_sound` only called `ctx.close()` on the success
+path; every `?` after `AudioContext::new()` returned `Err` with the
+context still open, and a browser caps a page at ~6 — after a handful of
+failed probes (one per share-start / source-switch) the probe was dead
+for the session. The graph is now built in an inner `run_probe(&ctx, …)`
+and `close()` runs unconditionally afterwards.
+
 ### Finding 4 — `failed_password_attempts` map no longer grows unbounded
 
 `password_attempts_exceeded` (registry) swept only the caller's own key,
