@@ -436,6 +436,17 @@ notifications, etc. New `main/permissions.ts` (`lockDownPermissions`,
 called from `whenReady`) denies every request and every check. Screen
 capture is unaffected — it goes through `setDisplayMediaRequestHandler`.
 
+**Correction (desktop 0.3.2).** "Screen capture is unaffected" was wrong:
+Chromium runs a permission **check** and a permission **request**, both
+typed `media`, *before* routing a `getDisplayMedia` call to
+`setDisplayMediaRequestHandler`. The blanket deny meant the source picker
+never opened and the renderer got `NotAllowedError`. `lockDownPermissions`
+now lets a `media` check through, and grants a `media` *request* only when
+it carries no explicit `mediaTypes` — the marker of a display-capture
+request; a camera/mic `getUserMedia` always names `video`/`audio` and
+stays denied. The picker window itself (`file://`) is still the real gate
+on which source is shared.
+
 ### Finding 7 — audio loopback torn down when the renderer goes away
 
 `audioSession` / `activeSession` were only cleared by an explicit

@@ -9,22 +9,52 @@ vi.mock('electron', () => ({
 
 import { lockDownPermissions } from '#main/permissions.js';
 
+type RequestHandler = (
+  wc: unknown,
+  permission: string,
+  cb: (granted: boolean) => void,
+  details: { mediaTypes?: Array<'video' | 'audio'> },
+) => void;
+type CheckHandler = (wc: unknown, permission: string) => boolean;
+
+function handlers() {
+  lockDownPermissions();
+  return {
+    request: setPermissionRequestHandler.mock.calls[0]?.[0] as RequestHandler,
+    check: setPermissionCheckHandler.mock.calls[0]?.[0] as CheckHandler,
+  };
+}
+
+function grants(request: RequestHandler, permission: string, details = {}): boolean {
+  const cb = vi.fn();
+  request({}, permission, cb, details);
+  return cb.mock.calls[0]?.[0] as boolean;
+}
+
 describe('lockDownPermissions', () => {
-  it('denies every permission request and every permission check (finding 6)', () => {
-    lockDownPermissions();
+  it('denies camera/mic, geolocation, notifications and other requests (finding 6)', () => {
+    const { request } = handlers();
 
-    expect(setPermissionRequestHandler).toHaveBeenCalledOnce();
-    const requestHandler = setPermissionRequestHandler.mock.calls[0]?.[0] as (
-      wc: unknown,
-      permission: string,
-      cb: (granted: boolean) => void,
-    ) => void;
-    const callback = vi.fn();
-    requestHandler({}, 'media', callback);
-    expect(callback).toHaveBeenCalledWith(false);
+    expect(grants(request, 'media', { mediaTypes: ['video'] })).toBe(false);
+    expect(grants(request, 'media', { mediaTypes: ['audio'] })).toBe(false);
+    expect(grants(request, 'geolocation')).toBe(false);
+    expect(grants(request, 'notifications')).toBe(false);
+    expect(grants(request, 'midi')).toBe(false);
+  });
 
-    expect(setPermissionCheckHandler).toHaveBeenCalledOnce();
-    const checkHandler = setPermissionCheckHandler.mock.calls[0]?.[0] as () => boolean;
-    expect(checkHandler()).toBe(false);
+  it('allows a display-capture request so getDisplayMedia reaches setDisplayMediaRequestHandler', () => {
+    const { request } = handlers();
+
+    // getDisplayMedia carries no explicit mediaTypes.
+    expect(grants(request, 'media', {})).toBe(true);
+    expect(grants(request, 'media', { mediaTypes: [] })).toBe(true);
+  });
+
+  it('lets a media check through (both check and request are typed "media" for getDisplayMedia)', () => {
+    const { check } = handlers();
+
+    expect(check({}, 'media')).toBe(true);
+    expect(check({}, 'geolocation')).toBe(false);
+    expect(check({}, 'notifications')).toBe(false);
   });
 });

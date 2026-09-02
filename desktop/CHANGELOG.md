@@ -11,6 +11,13 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.2
+
+- Corrige o seletor de tela, que parou de abrir na 0.3.1: o reforço de
+  segurança daquela versão recusava permissões do navegador cedo demais e
+  acabava barrando também a captura de tela. Agora só a captura de tela
+  passa; câmera, microfone, localização e afins continuam recusados.
+
 ## 0.3.1
 
 - Reforço de segurança do app. Nada muda no uso do dia a dia:
