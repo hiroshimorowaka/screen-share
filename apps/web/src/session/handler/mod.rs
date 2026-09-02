@@ -5,6 +5,22 @@ use crate::session::RoomSignals;
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use leptos::task::spawn_local;
+#[cfg(feature = "hydrate")]
+use wasm_bindgen::JsCast;
+#[cfg(feature = "hydrate")]
+use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
+
+#[cfg(feature = "hydrate")]
+use crate::infra::webrtc::{
+    accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection,
+};
+#[cfg(feature = "hydrate")]
+use crate::session::RoomSession;
+#[cfg(feature = "hydrate")]
+use screen_share_protocol::{ClientMessage, ServerMessage};
+
 /// The JS event callbacks bound to one peer's `RTCPeerConnection`
 /// (`ontrack` — only for a connection we receive on — plus
 /// `onicecandidate` and `oniceconnectionstatechange`). Held in
@@ -96,38 +112,471 @@ pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
     set_status.set("Conectado.".to_string());
 }
 
-// 432 lines: one closure with a ~15-arm `match` over `ServerMessage`,
-// each arm doing multi-step imperative signal mutation. Refactor step 3
-// extracts one handler fn per arm and a shared `Peers::teardown`.
-#[allow(clippy::too_many_lines)]
+// --- teardown helpers ---------------------------------------------------
+//
+// A (sharer, viewer) peer connection is torn down from several messages
+// (`PeerLeft`, `PeerStoppedSharing`, `WatchStopped`) and from
+// `media`/`watch`. These two helpers are the one place the
+// close-and-forget sequence for each direction lives, so the order —
+// stop the Auto poll, `close()` the `RTCPeerConnection`, then drop its
+// retained callbacks — stays identical everywhere.
+
+/// Tear down the outgoing (we-are-the-sharer → `peer_id`-is-the-viewer)
+/// connection, if any, and stop that viewer's Auto-quality poll.
 #[cfg(feature = "hydrate")]
-pub(crate) fn build_message_handler(
-    conn: crate::session::RoomSession,
-    signals: RoomSignals,
-) -> impl Fn(screen_share_protocol::ServerMessage) + 'static {
-    use leptos::task::spawn_local;
-    use wasm_bindgen::JsCast;
-    use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
+pub(crate) fn teardown_outgoing(conn: &RoomSession, peer_id: &str) {
+    super::quality::stop_auto_polling(conn, peer_id);
+    if let Some(pc) = conn.outgoing.borrow_mut().remove(peer_id) {
+        pc.close();
+    }
+    conn.outgoing_callbacks.borrow_mut().remove(peer_id);
+}
 
-    use crate::infra::webrtc::{
-        accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection,
+/// Tear down the incoming (`peer_id`-is-the-sharer → we-are-the-viewer)
+/// connection, if any.
+#[cfg(feature = "hydrate")]
+pub(crate) fn teardown_incoming(conn: &RoomSession, peer_id: &str) {
+    if let Some(pc) = conn.incoming.borrow_mut().remove(peer_id) {
+        pc.close();
+    }
+    conn.incoming_callbacks.borrow_mut().remove(peer_id);
+}
+
+/// Drop grid focus when the focused tile belongs to `peer_id` (or the
+/// browser was showing that tile fullscreen), so focus mode never points
+/// at a card that just disappeared.
+#[cfg(feature = "hydrate")]
+fn drop_focus_if_showing(expanded: RwSignal<Option<String>>, peer_id: &str) {
+    let was_fullscreen = crate::features::room::media_controls::exit_fullscreen_if_showing(peer_id);
+    expanded.update(|current| {
+        if current.as_deref() == Some(peer_id) || was_fullscreen {
+            *current = None;
+        }
+    });
+}
+
+// --- per-message handlers ---------------------------------------------------
+
+/// Fan the `Joined` snapshot out into the room signals, then, if this is a
+/// reconnect's rejoin, replay what this member was doing before the drop.
+#[cfg(feature = "hydrate")]
+fn on_joined(conn: &RoomSession, signals: RoomSignals, snapshot: JoinedSnapshot) {
+    let present_peer_ids: Vec<String> =
+        snapshot.members.iter().map(|m| m.peer_id.clone()).collect();
+    apply_joined_snapshot(snapshot, signals);
+    // If this `Joined` is a reconnect's rejoin, re-assert what we were
+    // doing before the drop (sharing, watching); a no-op on a first join.
+    super::reconnect::replay_intent_after_rejoin(conn, signals, &present_peer_ids);
+}
+
+/// Same device joined this room in another tab — this connection was
+/// replaced. `room_exists` must be forced: whoever created the room never
+/// went through `start_room_check`, so that signal was never populated and
+/// the gate would stay stuck on "Verificando sala..." forever.
+#[cfg(feature = "hydrate")]
+fn on_kicked(conn: &RoomSession, signals: RoomSignals) {
+    conn.expected_close.set(true);
+    if let Some(ws) = conn.ws.borrow().as_ref() {
+        ws.close();
+    }
+    signals.set_authenticated.set(false);
+    signals.set_room_exists.set(Some(true));
+    signals.set_status.set(
+        "Você entrou nessa sala em outra aba ou janela — esta conexão foi encerrada.".to_string(),
+    );
+}
+
+/// A co-member we are watching sent an SDP offer: open the incoming
+/// connection, wire its callbacks, and answer. Ignores an unsolicited
+/// offer (defence in depth for F07) so it never opens a connection — and
+/// leaks host/srflx ICE candidates — for a screen the user did not choose
+/// to watch.
+#[cfg(feature = "hydrate")]
+fn answer_offer(conn: RoomSession, signals: RoomSignals, from: String, sdp: String) {
+    if !signals.watching.get_untracked().contains(&from) {
+        return;
+    }
+    let connection_errors = signals.connection_errors;
+    let turn_credentials = signals.turn_credentials;
+    spawn_local(async move {
+        let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
+            Ok(pc) => pc,
+            Err(err) => {
+                web_sys::console::error_2(
+                    &wasm_bindgen::JsValue::from_str(
+                        "new_peer_connection (answering an offer) failed:",
+                    ),
+                    &err,
+                );
+                return;
+            }
+        };
+        conn.incoming.borrow_mut().insert(from.clone(), pc.clone());
+        connection_errors.update(|errors| {
+            errors.remove(&from);
+        });
+
+        let sharer_id = from.clone();
+        let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
+            move |event: RtcTrackEvent| {
+                if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
+                    // Fires once per track (video + tab audio = twice);
+                    // `play_stream_in` is idempotent and swallows the
+                    // resulting play/AbortError.
+                    crate::session::media::play_stream_in(
+                        &format!("video-{sharer_id}"),
+                        &stream,
+                        false,
+                    );
+                }
+            },
+        );
+        pc.set_ontrack(Some(ontrack.as_ref().unchecked_ref()));
+
+        let target_id = from.clone();
+        let conn_for_ice = conn.clone();
+        let onicecandidate =
+            wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(
+                move |event: RtcPeerConnectionIceEvent| {
+                    if let Some(candidate) = event.candidate() {
+                        if let Some(ws) = conn_for_ice.ws.borrow().as_ref() {
+                            ws.send(&ClientMessage::IceCandidate {
+                                to: target_id.clone(),
+                                stream_owner: target_id.clone(),
+                                candidate: candidate.candidate(),
+                                sdp_mid: candidate.sdp_mid(),
+                                sdp_m_line_index: candidate.sdp_m_line_index(),
+                            });
+                        }
+                    }
+                },
+            );
+        pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
+
+        let failed_peer_id = from.clone();
+        let oniceconnectionstatechange = {
+            let pc_for_state = pc.clone();
+            wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
+                    connection_errors.update(|errors| {
+                        errors.insert(failed_peer_id.clone());
+                    });
+                }
+            })
+        };
+        pc.set_oniceconnectionstatechange(Some(
+            oniceconnectionstatechange.as_ref().unchecked_ref(),
+        ));
+
+        conn.incoming_callbacks.borrow_mut().insert(
+            from.clone(),
+            PeerCallbacks(vec![
+                Box::new(ontrack),
+                Box::new(onicecandidate),
+                Box::new(oniceconnectionstatechange),
+            ]),
+        );
+
+        match create_answer(&pc, &sdp).await {
+            Ok(answer_sdp) => {
+                if let Some(ws) = conn.ws.borrow().as_ref() {
+                    ws.send(&ClientMessage::Answer {
+                        to: from.clone(),
+                        sdp: answer_sdp,
+                    });
+                }
+            }
+            Err(err) => web_sys::console::error_2(
+                &wasm_bindgen::JsValue::from_str("create_answer failed:"),
+                &err,
+            ),
+        }
+    });
+}
+
+/// The viewer's side of the negotiation: apply the sharer's answer, and,
+/// for a viewer still on `Auto`, re-assert the encoding that
+/// `setRemoteDescription` can drop.
+#[cfg(feature = "hydrate")]
+fn accept_answer_from(conn: RoomSession, signals: RoomSignals, from: String, sdp: String) {
+    let Some(pc) = conn.outgoing.borrow().get(&from).cloned() else {
+        return;
     };
-    use screen_share_protocol::{ClientMessage, ServerMessage};
+    let video_mode = signals.video_mode;
+    spawn_local(async move {
+        if let Err(err) = accept_answer(&pc, &sdp).await {
+            web_sys::console::error_2(
+                &wasm_bindgen::JsValue::from_str("accept_answer failed:"),
+                &err,
+            );
+            return;
+        }
+        // `setRemoteDescription` re-derives the encoder config from the
+        // negotiated SDP — where the answer's `x-google-start-bitrate`
+        // finally reaches the encoder — and can drop the per-encoding
+        // bitrate/scale/framerate set before the offer. Re-assert them for
+        // a viewer still on `Auto`; one who picked a fixed tier already had
+        // it applied by `QualityRequested` (which also stopped the poll),
+        // so leave that alone.
+        if super::quality::is_auto_polling(&conn, &from) {
+            let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
+            let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
+        }
+    });
+}
 
+/// Route a relayed ICE candidate to the connection it belongs to —
+/// `incoming` when the candidate's `stream_owner` is the sender itself,
+/// `outgoing` otherwise.
+#[cfg(feature = "hydrate")]
+fn route_ice_candidate(
+    conn: &RoomSession,
+    from: String,
+    stream_owner: String,
+    candidate: String,
+    sdp_mid: Option<String>,
+    sdp_m_line_index: Option<u16>,
+) {
+    let pc = if stream_owner == from {
+        conn.incoming.borrow().get(&from).cloned()
+    } else {
+        conn.outgoing.borrow().get(&from).cloned()
+    };
+    if let Some(pc) = pc {
+        add_ice_candidate(&pc, &candidate, sdp_mid, sdp_m_line_index);
+    }
+}
+
+/// Attach every track of the local capture to `pc`. When the share
+/// currently carries no audio, reserve an audio m-line up front so a later
+/// "trocar fonte" can swap one in without the renegotiation this path
+/// never does (see `reserve_audio_mline`).
+#[cfg(feature = "hydrate")]
+fn attach_local_tracks(pc: &web_sys::RtcPeerConnection, stream: &MediaStream) {
+    let mut shares_audio = false;
+    for track in stream.get_tracks().iter() {
+        let track: web_sys::MediaStreamTrack = track.unchecked_into();
+        if track.kind() == "audio" {
+            shares_audio = true;
+        }
+        pc.add_track_0(&track, stream);
+    }
+    if !shares_audio {
+        crate::infra::webrtc::reserve_audio_mline(pc, stream);
+    }
+}
+
+/// The status sentence for a payload-less `ServerMessage` that only needs
+/// to surface a message. Only the seven unit error variants collapsed into
+/// one arm of `build_message_handler` reach here.
+#[cfg(feature = "hydrate")]
+fn fixed_status_text(msg: &ServerMessage) -> &'static str {
+    match msg {
+        ServerMessage::AuthFailed => "Senha incorreta.",
+        ServerMessage::RoomNotFound => "Sala não encontrada ou já foi encerrada.",
+        ServerMessage::RoomFull => "Essa sala já está cheia (máximo de 10 pessoas).",
+        ServerMessage::AlreadyInRoom => {
+            "Esta conexão já está em uma sala. Recarregue a página para entrar em outra."
+        }
+        ServerMessage::ServerAtCapacity => {
+            "O servidor está sem capacidade no momento. Tente novamente em alguns minutos."
+        }
+        ServerMessage::InvalidInput => {
+            "Nick, nome da sala ou cor inválidos. Verifique e tente de novo."
+        }
+        ServerMessage::TooManyAttempts => {
+            "Muitas tentativas de senha erradas. Aguarde um pouco antes de tentar de novo."
+        }
+        _ => unreachable!("fixed_status_text called with a non-error variant"),
+    }
+}
+
+/// A co-member asked to watch our screen: open the outgoing connection,
+/// attach the local tracks, establish the screen-tuned encoding, wire the
+/// callbacks, and send the offer. Ignores the request unless we actually
+/// have a local stream to offer (defence in depth for F07).
+#[cfg(feature = "hydrate")]
+fn offer_to_watcher(conn: RoomSession, signals: RoomSignals, from: String) {
+    if conn.local_stream.borrow().is_none() {
+        return;
+    }
     let RoomSignals {
-        set_status,
-        set_authenticated,
-        set_members,
         my_peer_id,
-        set_room_exists,
-        watching,
-        expanded,
-        watchers_by_sharer,
         connection_errors,
-        latency_by_peer,
         turn_credentials,
         audio_preset,
         video_mode,
+        ..
+    } = signals;
+    spawn_local(async move {
+        let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
+            Ok(pc) => pc,
+            Err(err) => {
+                web_sys::console::error_2(
+                    &wasm_bindgen::JsValue::from_str(
+                        "new_peer_connection (offering to a watcher) failed:",
+                    ),
+                    &err,
+                );
+                return;
+            }
+        };
+        conn.outgoing.borrow_mut().insert(from.clone(), pc.clone());
+        connection_errors.update(|errors| {
+            errors.remove(&from);
+        });
+
+        if let Some(stream) = conn.local_stream.borrow().as_ref() {
+            attach_local_tracks(&pc, stream);
+        }
+
+        // Establish the screen-tuned encoding (bitrate/scale/fps ceiling,
+        // then the sharer's video mode and audio preset) before the offer
+        // is built, so every viewer connection starts from it even if that
+        // viewer never touches the quality menu. A later explicit tier or
+        // Auto poll re-runs `apply_tier`; `apply_video_mode` owns
+        // degradation preference and is re-asserted after each of those.
+        let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
+        let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
+        let _ = super::audio::apply_audio_preset(&pc, audio_preset.get_untracked()).await;
+
+        // `Auto` is the default and every card shows it selected, but
+        // nothing sends a `SetQuality` for it — without this a plain
+        // "assistir" would pin `High` forever and never actually adapt.
+        // Start the poll here, where the connection exists (unlike a racing
+        // `QualityRequested`); `AlreadyApplied` because the `apply_tier` +
+        // `apply_video_mode` above just set the encoding — a redundant
+        // re-apply here would race the offer built just below.
+        super::quality::start_auto_polling(
+            conn.clone(),
+            from.clone(),
+            super::quality::InitialTier::AlreadyApplied,
+        );
+
+        let target_id = from.clone();
+        // Unlike the `Offer` branch: here the remote peer is the viewer,
+        // not the stream owner. `stream_owner` must be my own peer_id, not
+        // `target_id`, or the other side stores the candidate in the wrong
+        // map (`outgoing` instead of `incoming`) and the connection never
+        // closes its ICE.
+        let stream_owner_id = my_peer_id
+            .get_untracked()
+            .unwrap_or_else(|| target_id.clone());
+        let conn_for_ice = conn.clone();
+        let onicecandidate =
+            wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(
+                move |event: RtcPeerConnectionIceEvent| {
+                    if let Some(candidate) = event.candidate() {
+                        if let Some(ws) = conn_for_ice.ws.borrow().as_ref() {
+                            ws.send(&ClientMessage::IceCandidate {
+                                to: target_id.clone(),
+                                stream_owner: stream_owner_id.clone(),
+                                candidate: candidate.candidate(),
+                                sdp_mid: candidate.sdp_mid(),
+                                sdp_m_line_index: candidate.sdp_m_line_index(),
+                            });
+                        }
+                    }
+                },
+            );
+        pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
+
+        let failed_viewer_id = from.clone();
+        let oniceconnectionstatechange = {
+            let pc_for_state = pc.clone();
+            wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
+                if pc_for_state.ice_connection_state() == web_sys::RtcIceConnectionState::Failed {
+                    connection_errors.update(|errors| {
+                        errors.insert(failed_viewer_id.clone());
+                    });
+                }
+            })
+        };
+        pc.set_oniceconnectionstatechange(Some(
+            oniceconnectionstatechange.as_ref().unchecked_ref(),
+        ));
+
+        conn.outgoing_callbacks.borrow_mut().insert(
+            from.clone(),
+            PeerCallbacks(vec![
+                Box::new(onicecandidate),
+                Box::new(oniceconnectionstatechange),
+            ]),
+        );
+
+        match create_offer(&pc).await {
+            Ok(sdp) => {
+                if let Some(ws) = conn.ws.borrow().as_ref() {
+                    ws.send(&ClientMessage::Offer { to: from, sdp });
+                }
+            }
+            Err(err) => web_sys::console::error_2(
+                &wasm_bindgen::JsValue::from_str("create_offer failed:"),
+                &err,
+            ),
+        }
+    });
+}
+
+/// A viewer chose a fixed quality tier (or switched back to `Auto`).
+/// Always stop that viewer's running Auto poll first, then either pin the
+/// requested tier or restart the poll from `High`.
+#[cfg(feature = "hydrate")]
+fn apply_quality_request(
+    conn: RoomSession,
+    signals: RoomSignals,
+    from: String,
+    quality: screen_share_protocol::QualityLevel,
+) {
+    super::quality::stop_auto_polling(&conn, &from);
+    match super::quality::tier_for(quality) {
+        Some(tier) => {
+            if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
+                let video_mode = signals.video_mode;
+                spawn_local(async move {
+                    let _ = super::quality::apply_tier(&pc, tier).await;
+                    // `apply_tier` round-trips the encoding params;
+                    // re-assert the video mode's degradation preference on
+                    // top so a quality change never silently reverts Motion
+                    // mode.
+                    let _ =
+                        super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
+                });
+            }
+        }
+        // A deliberate switch back to `Auto`: the sender may be pinned to a
+        // lower tier right now, so re-apply `High`.
+        None => super::quality::start_auto_polling(
+            conn.clone(),
+            from,
+            super::quality::InitialTier::ResetToHigh,
+        ),
+    }
+}
+
+/// Build the `ServerMessage` dispatcher for one WebSocket session. Each
+/// arm either updates a room signal directly (roster, status, latency) or
+/// hands off to a `fn` above; the negotiation-heavy arms (`Offer`,
+/// `Answer`, `WatchRequested`, `QualityRequested`) live entirely in those.
+//
+// Over the 100-line lint by ~30: a flat `match` with one arm per
+// `ServerMessage` variant. Cognitive complexity is low (no nesting, no
+// shared mutable flow between arms) and splitting the dispatch itself
+// would only scatter it; the length is the variant count, not tangled
+// logic.
+#[allow(clippy::too_many_lines)]
+#[cfg(feature = "hydrate")]
+pub(crate) fn build_message_handler(
+    conn: RoomSession,
+    signals: RoomSignals,
+) -> impl Fn(ServerMessage) + 'static {
+    let RoomSignals {
+        set_status,
+        set_members,
+        watching,
+        expanded,
+        watchers_by_sharer,
+        latency_by_peer,
         ..
     } = signals;
 
@@ -141,65 +590,28 @@ pub(crate) fn build_message_handler(
             watcher_info,
             latencies,
             turn,
-        } => {
-            let present_peer_ids: Vec<String> =
-                joined_members.iter().map(|m| m.peer_id.clone()).collect();
-            apply_joined_snapshot(
-                JoinedSnapshot {
-                    room_code: room,
-                    room_name,
-                    peer_id,
-                    members: joined_members,
-                    active_sharers,
-                    watcher_info,
-                    latencies,
-                    turn,
-                },
-                signals,
-            );
-            // If this `Joined` is a reconnect's rejoin, re-assert what we
-            // were doing before the drop (sharing, watching); a no-op on a
-            // first join.
-            super::reconnect::replay_intent_after_rejoin(&conn, signals, &present_peer_ids);
-        }
-        ServerMessage::AuthFailed => set_status.set("Senha incorreta.".to_string()),
-        ServerMessage::RoomNotFound => {
-            set_status.set("Sala não encontrada ou já foi encerrada.".to_string())
-        }
-        ServerMessage::RoomFull => {
-            set_status.set("Essa sala já está cheia (máximo de 10 pessoas).".to_string())
-        }
-        ServerMessage::AlreadyInRoom => set_status.set(
-            "Esta conexão já está em uma sala. Recarregue a página para entrar em outra."
-                .to_string(),
+        } => on_joined(
+            &conn,
+            signals,
+            JoinedSnapshot {
+                room_code: room,
+                room_name,
+                peer_id,
+                members: joined_members,
+                active_sharers,
+                watcher_info,
+                latencies,
+                turn,
+            },
         ),
-        ServerMessage::ServerAtCapacity => set_status.set(
-            "O servidor está sem capacidade no momento. Tente novamente em alguns minutos."
-                .to_string(),
-        ),
-        ServerMessage::InvalidInput => set_status
-            .set("Nick, nome da sala ou cor inválidos. Verifique e tente de novo.".to_string()),
-        ServerMessage::TooManyAttempts => set_status.set(
-            "Muitas tentativas de senha erradas. Aguarde um pouco antes de tentar de novo."
-                .to_string(),
-        ),
-        ServerMessage::Kicked => {
-            // Same device joined this room in another tab — this connection
-            // was replaced. `room_exists` must be forced: whoever created
-            // the room never went through `start_room_check`, so that
-            // signal was never populated and the gate would stay stuck on
-            // "Verificando sala..." forever.
-            conn.expected_close.set(true);
-            if let Some(ws) = conn.ws.borrow().as_ref() {
-                ws.close();
-            }
-            set_authenticated.set(false);
-            set_room_exists.set(Some(true));
-            set_status.set(
-                "Você entrou nessa sala em outra aba ou janela — esta conexão foi encerrada."
-                    .to_string(),
-            );
-        }
+        other @ (ServerMessage::AuthFailed
+        | ServerMessage::RoomNotFound
+        | ServerMessage::RoomFull
+        | ServerMessage::AlreadyInRoom
+        | ServerMessage::ServerAtCapacity
+        | ServerMessage::InvalidInput
+        | ServerMessage::TooManyAttempts) => set_status.set(fixed_status_text(&other).to_string()),
+        ServerMessage::Kicked => on_kicked(&conn, signals),
         ServerMessage::PeerJoined {
             peer_id,
             nick,
@@ -217,22 +629,9 @@ pub(crate) fn build_message_handler(
         }
         ServerMessage::PeerLeft { peer_id } => {
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
-            super::quality::stop_auto_polling(&conn, &peer_id);
-            if let Some(pc) = conn.outgoing.borrow_mut().remove(&peer_id) {
-                pc.close();
-            }
-            conn.outgoing_callbacks.borrow_mut().remove(&peer_id);
-            if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
-                pc.close();
-            }
-            conn.incoming_callbacks.borrow_mut().remove(&peer_id);
-            let was_fullscreen =
-                crate::features::room::media_controls::exit_fullscreen_if_showing(&peer_id);
-            expanded.update(|current| {
-                if current.as_deref() == Some(peer_id.as_str()) || was_fullscreen {
-                    *current = None;
-                }
-            });
+            teardown_outgoing(&conn, &peer_id);
+            teardown_incoming(&conn, &peer_id);
+            drop_focus_if_showing(expanded, &peer_id);
         }
         ServerMessage::PeerStartedSharing { peer_id } => {
             set_members.update(|members| {
@@ -250,20 +649,11 @@ pub(crate) fn build_message_handler(
             watching.update(|w| {
                 w.remove(&peer_id);
             });
-            let was_fullscreen =
-                crate::features::room::media_controls::exit_fullscreen_if_showing(&peer_id);
-            expanded.update(|current| {
-                if current.as_deref() == Some(peer_id.as_str()) || was_fullscreen {
-                    *current = None;
-                }
-            });
+            drop_focus_if_showing(expanded, &peer_id);
             watchers_by_sharer.update(|w| {
                 w.remove(&peer_id);
             });
-            if let Some(pc) = conn.incoming.borrow_mut().remove(&peer_id) {
-                pc.close();
-            }
-            conn.incoming_callbacks.borrow_mut().remove(&peer_id);
+            teardown_incoming(&conn, &peer_id);
         }
         ServerMessage::WatchersChanged {
             sharer_id,
@@ -290,329 +680,26 @@ pub(crate) fn build_message_handler(
                 l.insert(peer_id, ms);
             });
         }
-        ServerMessage::Offer { from, sdp } => {
-            // Defence in depth for F07: the relay only forwards an Offer
-            // between peers already in a watch relationship, but ignore
-            // one here too unless the user actually chose to watch `from`.
-            // Never open a peer connection — and leak host/srflx ICE
-            // candidates — for an unsolicited offer.
-            if !watching.get_untracked().contains(&from) {
-                return;
-            }
-            let conn = conn.clone();
-            spawn_local(async move {
-                let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
-                    Ok(pc) => pc,
-                    Err(err) => {
-                        web_sys::console::error_2(
-                            &wasm_bindgen::JsValue::from_str(
-                                "new_peer_connection (answering an offer) failed:",
-                            ),
-                            &err,
-                        );
-                        return;
-                    }
-                };
-                conn.incoming.borrow_mut().insert(from.clone(), pc.clone());
-                connection_errors.update(|errors| {
-                    errors.remove(&from);
-                });
-
-                let sharer_id = from.clone();
-                let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
-                    move |event: RtcTrackEvent| {
-                        if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
-                            // Fires once per track (video + tab audio =
-                            // twice); `play_stream_in` is idempotent and
-                            // swallows the resulting play/AbortError.
-                            crate::session::media::play_stream_in(
-                                &format!("video-{sharer_id}"),
-                                &stream,
-                                false,
-                            );
-                        }
-                    },
-                );
-                pc.set_ontrack(Some(ontrack.as_ref().unchecked_ref()));
-
-                let target_id = from.clone();
-                let conn_for_ice = conn.clone();
-                let onicecandidate =
-                    wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(
-                        move |event: RtcPeerConnectionIceEvent| {
-                            if let Some(candidate) = event.candidate() {
-                                if let Some(ws) = conn_for_ice.ws.borrow().as_ref() {
-                                    ws.send(&ClientMessage::IceCandidate {
-                                        to: target_id.clone(),
-                                        stream_owner: target_id.clone(),
-                                        candidate: candidate.candidate(),
-                                        sdp_mid: candidate.sdp_mid(),
-                                        sdp_m_line_index: candidate.sdp_m_line_index(),
-                                    });
-                                }
-                            }
-                        },
-                    );
-                pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-
-                let failed_peer_id = from.clone();
-                let oniceconnectionstatechange = {
-                    let pc_for_state = pc.clone();
-                    wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                        if pc_for_state.ice_connection_state()
-                            == web_sys::RtcIceConnectionState::Failed
-                        {
-                            connection_errors.update(|errors| {
-                                errors.insert(failed_peer_id.clone());
-                            });
-                        }
-                    })
-                };
-                pc.set_oniceconnectionstatechange(Some(
-                    oniceconnectionstatechange.as_ref().unchecked_ref(),
-                ));
-
-                conn.incoming_callbacks.borrow_mut().insert(
-                    from.clone(),
-                    PeerCallbacks(vec![
-                        Box::new(ontrack),
-                        Box::new(onicecandidate),
-                        Box::new(oniceconnectionstatechange),
-                    ]),
-                );
-
-                match create_answer(&pc, &sdp).await {
-                    Ok(answer_sdp) => {
-                        if let Some(ws) = conn.ws.borrow().as_ref() {
-                            ws.send(&ClientMessage::Answer {
-                                to: from.clone(),
-                                sdp: answer_sdp,
-                            });
-                        }
-                    }
-                    Err(err) => web_sys::console::error_2(
-                        &wasm_bindgen::JsValue::from_str("create_answer failed:"),
-                        &err,
-                    ),
-                }
-            });
-        }
-        ServerMessage::Answer { from, sdp } => {
-            if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
-                let conn = conn.clone();
-                spawn_local(async move {
-                    if let Err(err) = accept_answer(&pc, &sdp).await {
-                        web_sys::console::error_2(
-                            &wasm_bindgen::JsValue::from_str("accept_answer failed:"),
-                            &err,
-                        );
-                        return;
-                    }
-                    // `setRemoteDescription` re-derives the encoder config
-                    // from the negotiated SDP — where the answer's
-                    // `x-google-start-bitrate` finally reaches the encoder —
-                    // and can drop the per-encoding bitrate/scale/framerate
-                    // set before the offer. Re-assert them for a viewer still
-                    // on `Auto`; one who picked a fixed tier already had it
-                    // applied by `QualityRequested` (which also stopped the
-                    // poll), so leave that alone.
-                    if super::quality::is_auto_polling(&conn, &from) {
-                        let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
-                        let _ =
-                            super::video_mode::apply_video_mode(&pc, video_mode.get_untracked())
-                                .await;
-                    }
-                });
-            }
-        }
+        ServerMessage::Offer { from, sdp } => answer_offer(conn.clone(), signals, from, sdp),
+        ServerMessage::Answer { from, sdp } => accept_answer_from(conn.clone(), signals, from, sdp),
         ServerMessage::IceCandidate {
             from,
             stream_owner,
             candidate,
             sdp_mid,
             sdp_m_line_index,
-        } => {
-            let pc = if stream_owner == from {
-                conn.incoming.borrow().get(&from).cloned()
-            } else {
-                conn.outgoing.borrow().get(&from).cloned()
-            };
-            if let Some(pc) = pc {
-                add_ice_candidate(&pc, &candidate, sdp_mid, sdp_m_line_index);
-            }
-        }
-        ServerMessage::WatchRequested { from } => {
-            // Defence in depth for F07 (mirrors the `Offer` branch): the
-            // relay now only sends `WatchRequested` for a peer that is
-            // actually sharing, but ignore one here too unless we have a
-            // local stream to offer. Never open a peer connection — and
-            // leak host/srflx ICE candidates — because a co-member asked
-            // to watch a screen we aren't sharing.
-            if conn.local_stream.borrow().is_none() {
-                return;
-            }
-            let conn = conn.clone();
-            spawn_local(async move {
-                let pc = match new_peer_connection(turn_credentials.get_untracked().as_ref()) {
-                    Ok(pc) => pc,
-                    Err(err) => {
-                        web_sys::console::error_2(
-                            &wasm_bindgen::JsValue::from_str(
-                                "new_peer_connection (offering to a watcher) failed:",
-                            ),
-                            &err,
-                        );
-                        return;
-                    }
-                };
-                conn.outgoing.borrow_mut().insert(from.clone(), pc.clone());
-                connection_errors.update(|errors| {
-                    errors.remove(&from);
-                });
-
-                if let Some(stream) = conn.local_stream.borrow().as_ref() {
-                    let mut shares_audio = false;
-                    for track in stream.get_tracks().iter() {
-                        let track: web_sys::MediaStreamTrack = track.unchecked_into();
-                        if track.kind() == "audio" {
-                            shares_audio = true;
-                        }
-                        pc.add_track_0(&track, stream);
-                    }
-                    // A silent share can gain audio later via "trocar fonte";
-                    // reserve the audio m-line now so `replace_outgoing_tracks`
-                    // can swap that track in without a renegotiation this path
-                    // never does (see `reserve_audio_mline`).
-                    if !shares_audio {
-                        crate::infra::webrtc::reserve_audio_mline(&pc, stream);
-                    }
-                }
-
-                // Establish the screen-tuned encoding (bitrate/scale/fps
-                // ceiling, then the sharer's video mode and audio preset)
-                // before the offer is built, so every viewer connection
-                // starts from it even if that viewer never touches the
-                // quality menu. A later explicit tier or Auto poll re-runs
-                // `apply_tier`; `apply_video_mode` owns degradation
-                // preference and is re-asserted after each of those.
-                let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
-                let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
-                let _ = super::audio::apply_audio_preset(&pc, audio_preset.get_untracked()).await;
-
-                // `Auto` is the default and every card shows it selected, but
-                // nothing sends a `SetQuality` for it — without this a plain
-                // "assistir" would pin `High` forever and never actually
-                // adapt. Start the poll here, where the connection exists
-                // (unlike a racing `QualityRequested`); `AlreadyApplied`
-                // because the `apply_tier` + `apply_video_mode` above just
-                // set the encoding — a redundant re-apply here would race
-                // the offer built just below.
-                super::quality::start_auto_polling(
-                    conn.clone(),
-                    from.clone(),
-                    super::quality::InitialTier::AlreadyApplied,
-                );
-
-                let target_id = from.clone();
-                // Unlike the `Offer` branch: here the remote peer is the
-                // viewer, not the stream owner. `stream_owner` must be my
-                // own peer_id, not `target_id`, or the other side stores the
-                // candidate in the wrong map (`outgoing` instead of
-                // `incoming`) and the connection never closes its ICE.
-                let stream_owner_id = my_peer_id
-                    .get_untracked()
-                    .unwrap_or_else(|| target_id.clone());
-                let conn_for_ice = conn.clone();
-                let onicecandidate =
-                    wasm_bindgen::prelude::Closure::<dyn FnMut(RtcPeerConnectionIceEvent)>::new(
-                        move |event: RtcPeerConnectionIceEvent| {
-                            if let Some(candidate) = event.candidate() {
-                                if let Some(ws) = conn_for_ice.ws.borrow().as_ref() {
-                                    ws.send(&ClientMessage::IceCandidate {
-                                        to: target_id.clone(),
-                                        stream_owner: stream_owner_id.clone(),
-                                        candidate: candidate.candidate(),
-                                        sdp_mid: candidate.sdp_mid(),
-                                        sdp_m_line_index: candidate.sdp_m_line_index(),
-                                    });
-                                }
-                            }
-                        },
-                    );
-                pc.set_onicecandidate(Some(onicecandidate.as_ref().unchecked_ref()));
-
-                let failed_viewer_id = from.clone();
-                let oniceconnectionstatechange = {
-                    let pc_for_state = pc.clone();
-                    wasm_bindgen::prelude::Closure::<dyn FnMut()>::new(move || {
-                        if pc_for_state.ice_connection_state()
-                            == web_sys::RtcIceConnectionState::Failed
-                        {
-                            connection_errors.update(|errors| {
-                                errors.insert(failed_viewer_id.clone());
-                            });
-                        }
-                    })
-                };
-                pc.set_oniceconnectionstatechange(Some(
-                    oniceconnectionstatechange.as_ref().unchecked_ref(),
-                ));
-
-                conn.outgoing_callbacks.borrow_mut().insert(
-                    from.clone(),
-                    PeerCallbacks(vec![
-                        Box::new(onicecandidate),
-                        Box::new(oniceconnectionstatechange),
-                    ]),
-                );
-
-                match create_offer(&pc).await {
-                    Ok(sdp) => {
-                        if let Some(ws) = conn.ws.borrow().as_ref() {
-                            ws.send(&ClientMessage::Offer { to: from, sdp });
-                        }
-                    }
-                    Err(err) => web_sys::console::error_2(
-                        &wasm_bindgen::JsValue::from_str("create_offer failed:"),
-                        &err,
-                    ),
-                }
-            });
-        }
-        ServerMessage::WatchStopped { from } => {
-            super::quality::stop_auto_polling(&conn, &from);
-            if let Some(pc) = conn.outgoing.borrow_mut().remove(&from) {
-                pc.close();
-            }
-            conn.outgoing_callbacks.borrow_mut().remove(&from);
-        }
+        } => route_ice_candidate(
+            &conn,
+            from,
+            stream_owner,
+            candidate,
+            sdp_mid,
+            sdp_m_line_index,
+        ),
+        ServerMessage::WatchRequested { from } => offer_to_watcher(conn.clone(), signals, from),
+        ServerMessage::WatchStopped { from } => teardown_outgoing(&conn, &from),
         ServerMessage::QualityRequested { from, quality } => {
-            super::quality::stop_auto_polling(&conn, &from);
-            match super::quality::tier_for(quality) {
-                Some(tier) => {
-                    if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
-                        spawn_local(async move {
-                            let _ = super::quality::apply_tier(&pc, tier).await;
-                            // `apply_tier` round-trips the encoding params;
-                            // re-assert the video mode's degradation
-                            // preference on top so a quality change never
-                            // silently reverts Motion mode.
-                            let _ = super::video_mode::apply_video_mode(
-                                &pc,
-                                video_mode.get_untracked(),
-                            )
-                            .await;
-                        });
-                    }
-                }
-                // A deliberate switch back to `Auto`: the sender may be
-                // pinned to a lower tier right now, so re-apply `High`.
-                None => super::quality::start_auto_polling(
-                    conn.clone(),
-                    from,
-                    super::quality::InitialTier::ResetToHigh,
-                ),
-            }
+            apply_quality_request(conn.clone(), signals, from, quality)
         }
     }
 }
