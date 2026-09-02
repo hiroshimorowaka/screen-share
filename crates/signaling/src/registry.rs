@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use uuid::Uuid;
 
-use super::auth::{hash_password, verify_password};
+use super::auth::{hash_password, verify_password, MAX_PASSWORD_LEN};
 use screen_share_protocol::validate::{clean_nick, clean_room_name, is_valid_color};
 use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
 
@@ -245,6 +245,9 @@ impl Registry {
         if !is_valid_color(&color) {
             return Err(CreateRoomError::InvalidInput);
         }
+        if password_too_long(password.as_deref()) {
+            return Err(CreateRoomError::InvalidInput);
+        }
 
         let room_code = generate_room_code();
         let peer_id = Uuid::new_v4().to_string();
@@ -325,6 +328,9 @@ impl Registry {
         if !is_valid_color(&color) {
             return Err(JoinError::InvalidInput);
         }
+        if password_too_long(password.as_deref()) {
+            return Err(JoinError::InvalidInput);
+        }
 
         let mut rooms = self.lock_rooms();
         let room = rooms.get_mut(room_code).ok_or(JoinError::NotFound)?;
@@ -344,14 +350,21 @@ impl Registry {
         // Same device_id already has an open entry in this room (another tab) —
         // disconnect it before checking capacity, otherwise re-joining from the
         // same device would count as one extra member instead of taking its place.
-        if let Some(previous_peer_id) = room
-            .members
-            .iter()
-            .find(|(_, m)| m.device_id == device_id)
-            .map(|(id, _)| id.clone())
-        {
-            if let Some(removed) = remove_member(room, &previous_peer_id) {
-                let _ = removed.sender.try_send(ServerMessage::Kicked);
+        //
+        // Skip this entirely for an empty device_id: `ensure_device_id` in the
+        // web client returns `""` on every failure path (no localStorage, no
+        // crypto), so two locked-down browsers would otherwise evict each other
+        // on join to a public room (finding F11).
+        if !device_id.is_empty() {
+            if let Some(previous_peer_id) = room
+                .members
+                .iter()
+                .find(|(_, m)| m.device_id == device_id)
+                .map(|(id, _)| id.clone())
+            {
+                if let Some(removed) = remove_member(room, &previous_peer_id) {
+                    let _ = removed.sender.try_send(ServerMessage::Kicked);
+                }
             }
         }
 
@@ -589,6 +602,12 @@ impl Registry {
     }
 }
 
+/// Rejects a password longer than [`MAX_PASSWORD_LEN`] before it ever
+/// reaches argon2 (finding F02). Absent or empty is always fine.
+fn password_too_long(password: Option<&str>) -> bool {
+    password.is_some_and(|password| password.chars().count() > MAX_PASSWORD_LEN)
+}
+
 /// `None` or an empty string both mean "no password".
 fn hash_optional_password(password: Option<String>) -> Option<String> {
     let password = password?;
@@ -617,11 +636,20 @@ fn password_attempts_exceeded(
     client_key: &str,
 ) -> bool {
     let now = Instant::now();
-    let attempts = attempts_by_client
-        .entry(client_key.to_string())
-        .or_default();
-    attempts.retain(|&attempt| now.duration_since(attempt) < PASSWORD_ATTEMPT_WINDOW);
-    attempts.len() >= MAX_PASSWORD_ATTEMPTS
+
+    // Sweep every client's window, not just this one's, and drop entries
+    // that have gone empty. Pruning only the caller's key leaks one
+    // `String` + `Vec` per distinct attacker IP forever (finding F04): a
+    // slow distributed brute force never revisits a key, so it would never
+    // be cleaned up.
+    attempts_by_client.retain(|_, attempts| {
+        attempts.retain(|&attempt| now.duration_since(attempt) < PASSWORD_ATTEMPT_WINDOW);
+        !attempts.is_empty()
+    });
+
+    attempts_by_client
+        .get(client_key)
+        .is_some_and(|attempts| attempts.len() >= MAX_PASSWORD_ATTEMPTS)
 }
 
 fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
@@ -684,3 +712,7 @@ fn generate_room_code() -> String {
         .map(|_| ROOM_CODE_ALPHABET[rng.random_range(0..ROOM_CODE_ALPHABET.len())] as char)
         .collect()
 }
+
+#[cfg(test)]
+#[path = "registry_tests.rs"]
+mod tests;

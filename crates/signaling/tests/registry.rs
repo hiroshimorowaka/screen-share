@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+use screen_share_signaling::auth::MAX_PASSWORD_LEN;
 use screen_share_signaling::registry::*;
 
 /// Bound on how long a registry broadcast may take to reach a member's
@@ -1515,6 +1516,166 @@ async fn create_room_rejects_a_bad_nick_room_name_or_colour() {
     );
 
     assert_eq!(registry.room_count(), 0, "no bad request created a room");
+}
+
+#[tokio::test]
+async fn create_room_rejects_a_password_longer_than_the_limit() {
+    let registry = Registry::new();
+    let (tx, _rx) = member_channel();
+    let result = registry.create_room(CreateRoomRequest {
+        nick: "Ana".to_string(),
+        color: "coral".to_string(),
+        room_name: "Sala".to_string(),
+        password: Some("a".repeat(MAX_PASSWORD_LEN + 1)),
+        device_id: "device".to_string(),
+        client_key: "client-1".to_string(),
+        sender: tx,
+    });
+    assert_eq!(result.unwrap_err(), CreateRoomError::InvalidInput);
+    assert_eq!(
+        registry.room_count(),
+        0,
+        "the over-long password created no room"
+    );
+
+    let (tx, _rx) = member_channel();
+    let ok = registry.create_room(CreateRoomRequest {
+        nick: "Ana".to_string(),
+        color: "coral".to_string(),
+        room_name: "Sala".to_string(),
+        password: Some("a".repeat(MAX_PASSWORD_LEN)),
+        device_id: "device".to_string(),
+        client_key: "client-1".to_string(),
+        sender: tx,
+    });
+    assert!(ok.is_ok(), "a password exactly at the limit is accepted");
+}
+
+#[tokio::test]
+async fn join_room_rejects_a_password_longer_than_the_limit() {
+    let registry = Registry::new();
+    let (host_tx, _host_rx) = member_channel();
+    let (room_code, _snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala da Ana".to_string(),
+            password: Some("senha123".to_string()),
+            device_id: "device-host".to_string(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create_room should not hit a capacity limit in this test");
+
+    let (tx, _rx) = member_channel();
+    let result = registry.join_room(
+        &room_code,
+        JoinRequest {
+            nick: "Bia".to_string(),
+            color: "sky".to_string(),
+            password: Some("a".repeat(MAX_PASSWORD_LEN + 1)),
+            device_id: "device-viewer".to_string(),
+            client_key: "client-1".to_string(),
+            sender: tx,
+        },
+    );
+    assert_eq!(result.unwrap_err(), JoinError::InvalidInput);
+}
+
+#[tokio::test]
+async fn join_room_with_an_empty_device_id_does_not_kick_another_empty_device_id() {
+    let registry = Registry::new();
+    let (host_tx, mut host_rx) = member_channel();
+    let (room_code, _snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala".to_string(),
+            password: None,
+            device_id: String::new(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create should succeed");
+
+    let (bia_tx, _bia_rx) = member_channel();
+    let bia = registry
+        .join_room(
+            &room_code,
+            JoinRequest {
+                nick: "Bia".to_string(),
+                color: "sky".to_string(),
+                password: None,
+                device_id: String::new(),
+                client_key: "client-1".to_string(),
+                sender: bia_tx,
+            },
+        )
+        .expect("Bia joins");
+
+    // Ana must see Bia join, not receive a Kicked for herself.
+    assert_eq!(
+        recv(&mut host_rx).await,
+        ServerMessage::PeerJoined {
+            peer_id: bia.peer_id.clone(),
+            nick: "Bia".to_string(),
+            color: "sky".to_string(),
+        }
+    );
+    assert!(
+        host_rx.try_recv().is_err(),
+        "no Kicked for an empty device_id collision"
+    );
+    assert_eq!(registry.room_status(&room_code).unwrap().member_count, 2);
+}
+
+#[tokio::test]
+async fn join_room_with_a_real_device_id_still_kicks_the_previous_connection() {
+    let registry = Registry::new();
+    let (host_tx, _host_rx) = member_channel();
+    let (room_code, _snapshot) = registry
+        .create_room(CreateRoomRequest {
+            nick: "Ana".to_string(),
+            color: "coral".to_string(),
+            room_name: "Sala".to_string(),
+            password: None,
+            device_id: "device-shared".to_string(),
+            client_key: "client-1".to_string(),
+            sender: host_tx,
+        })
+        .expect("create should succeed");
+
+    let (first_tx, mut first_rx) = member_channel();
+    registry
+        .join_room(
+            &room_code,
+            JoinRequest {
+                nick: "Bia".to_string(),
+                color: "sky".to_string(),
+                password: None,
+                device_id: "device-bia".to_string(),
+                client_key: "client-1".to_string(),
+                sender: first_tx,
+            },
+        )
+        .expect("Bia joins");
+
+    let (second_tx, _second_rx) = member_channel();
+    registry
+        .join_room(
+            &room_code,
+            JoinRequest {
+                nick: "BiaCelular".to_string(),
+                color: "sky".to_string(),
+                password: None,
+                device_id: "device-bia".to_string(),
+                client_key: "client-1".to_string(),
+                sender: second_tx,
+            },
+        )
+        .expect("Bia rejoins from the same device");
+
+    assert_eq!(recv(&mut first_rx).await, ServerMessage::Kicked);
 }
 
 #[tokio::test]
