@@ -36,6 +36,12 @@ if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
   # media peers are public browsers, so denying private space costs
   # nothing.
   #
+  # The ::ffff:0:0/96 range (finding F03): the shipped coturn is 4.6.2,
+  # and on coturn < 4.9.0 an IPv4-mapped IPv6 peer address
+  # (::ffff:127.0.0.1, ::ffff:169.254.169.254, ...) sidesteps every IPv4
+  # rule above, re-opening the whole SSRF surface. Denying the mapped
+  # range closes that; kept as defence in depth on newer coturn too.
+  #
   # Quotas/bandwidth caps stop the same credential from turning the relay
   # into a traffic amplifier billed to this account: --total-quota /
   # --user-quota bound concurrent allocations, --max-bps bounds one
@@ -73,6 +79,7 @@ if [ -n "$TURN_SECRET" ] && [ -n "$TURN_EXTERNAL_IP" ]; then
     --denied-peer-ip=169.254.0.0-169.254.255.255 \
     --denied-peer-ip=172.16.0.0-172.31.255.255 \
     --denied-peer-ip=192.168.0.0-192.168.255.255 \
+    --denied-peer-ip=::ffff:0.0.0.0-::ffff:255.255.255.255 \
     --denied-peer-ip=::1 \
     --denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
     --denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff \
