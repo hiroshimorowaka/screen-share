@@ -7,7 +7,11 @@ pub mod quality;
 pub mod reconnect;
 pub(crate) mod share_effects;
 pub(crate) mod share_ui;
+pub(crate) mod sharing_state;
 pub mod video_mode;
+
+#[cfg(feature = "hydrate")]
+pub(crate) use sharing_state::SharingState;
 
 use leptos::prelude::*;
 
@@ -52,7 +56,9 @@ pub struct RoomSession {
             std::collections::HashMap<String, crate::session::handler::PeerCallbacks>,
         >,
     >,
-    pub(crate) local_stream: std::rc::Rc<std::cell::RefCell<Option<web_sys::MediaStream>>>,
+    /// Whether we're sharing and, if so, the captured stream — see
+    /// `SharingState` for why this isn't a bare `Option<MediaStream>`.
+    pub(crate) sharing: std::rc::Rc<std::cell::RefCell<SharingState>>,
     // The `onended` listener wired to the local capture's first track (the
     // browser's own "Stop sharing" control). Only one local capture exists
     // at a time, so this is a single slot rather than a map. Kept here
@@ -93,7 +99,7 @@ impl RoomSession {
             incoming: Default::default(),
             outgoing_callbacks: Default::default(),
             incoming_callbacks: Default::default(),
-            local_stream: Default::default(),
+            sharing: Default::default(),
             local_capture_callback: Default::default(),
             expected_close: Default::default(),
             last_ping_sent_at: Default::default(),

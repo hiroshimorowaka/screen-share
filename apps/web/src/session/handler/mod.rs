@@ -397,7 +397,7 @@ fn fixed_status_text(msg: &ServerMessage) -> &'static str {
 /// have a local stream to offer (defence in depth for F07).
 #[cfg(feature = "hydrate")]
 fn offer_to_watcher(conn: RoomSession, signals: RoomSignals, from: String) {
-    if conn.local_stream.borrow().is_none() {
+    if !conn.sharing.borrow().is_sharing() {
         return;
     }
     let RoomSignals {
@@ -426,7 +426,7 @@ fn offer_to_watcher(conn: RoomSession, signals: RoomSignals, from: String) {
             errors.remove(&from);
         });
 
-        if let Some(stream) = conn.local_stream.borrow().as_ref() {
+        if let Some(stream) = conn.sharing.borrow().stream() {
             attach_local_tracks(&pc, stream);
         }
 

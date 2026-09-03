@@ -1,6 +1,8 @@
 use leptos::prelude::*;
 
 use crate::session::RoomSession;
+#[cfg(feature = "hydrate")]
+use crate::session::SharingState;
 
 #[cfg(not(feature = "hydrate"))]
 pub(crate) fn share_supported() -> bool {
@@ -223,10 +225,10 @@ pub(crate) fn start_sharing(
         if let Some(peer_id) = my_peer_id_value.as_deref() {
             play_stream_in_self_preview(peer_id, &stream);
         }
-        // Keep `set_is_sharing` and the `local_stream` assignment below in
+        // Keep `set_is_sharing` and the `conn.sharing` assignment below in
         // the same synchronous run, with no `.await` between them: the
         // audio self-test effect in `RoomPage` reacts to `is_sharing` and
-        // then reads `local_stream`, and would see it empty otherwise.
+        // then reads `conn.sharing`, and would see it still `Idle` otherwise.
         set_is_sharing.set(true);
 
         attach_native_stop_listener(
@@ -246,7 +248,7 @@ pub(crate) fn start_sharing(
         // is stored and this original drops here, Chrome's native "sharing"
         // indicator stays lit until the tab closes — even though playback
         // and `stop()` keep working fine on the clone.
-        *conn.local_stream.borrow_mut() = Some(stream);
+        *conn.sharing.borrow_mut() = SharingState::Sharing { stream };
 
         crate::infra::webrtc::notify_desktop_sharing_changed(true);
     });
@@ -373,7 +375,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
         }
     }
 
-    if let Some(stream) = conn.local_stream.borrow_mut().take() {
+    if let Some(stream) = conn.sharing.borrow_mut().take() {
         // `stop()` alone marks the track "ended" but leaves it attached to
         // the `MediaStream` object; several Chromium builds only drop the
         // native "sharing" indicator once the track is also detached from
@@ -480,7 +482,7 @@ pub(crate) fn switch_source_handler(
 
     move |_| {
         // Nothing to switch if we aren't the one sharing.
-        if conn.local_stream.borrow().is_none() {
+        if !conn.sharing.borrow().is_sharing() {
             return;
         }
         let conn = conn.clone();
@@ -494,7 +496,7 @@ pub(crate) fn switch_source_handler(
             // to the default microphone, and viewers then hear the mic
             // (it stuck until the share was fully restarted). A stopped
             // track can't be rerouted.
-            if let Some(stream) = conn.local_stream.borrow().as_ref() {
+            if let Some(stream) = conn.sharing.borrow().stream() {
                 for entry in stream.get_tracks().iter() {
                     let track: web_sys::MediaStreamTrack = entry.unchecked_into();
                     if track.kind() == "audio" {
@@ -536,7 +538,7 @@ pub(crate) fn switch_source_handler(
             // wrapper drop here leaves Chrome's native "sharing" indicator
             // lit for that capture forever, so every switch stacked
             // another bar (see the matching note in `start_sharing`).
-            let old_stream = conn.local_stream.borrow_mut().take();
+            let old_stream = conn.sharing.borrow_mut().take();
             if let Some(old_stream) = old_stream {
                 for entry in old_stream.get_tracks().iter() {
                     let track: web_sys::MediaStreamTrack = entry.unchecked_into();
@@ -544,7 +546,7 @@ pub(crate) fn switch_source_handler(
                     old_stream.remove_track(&track);
                 }
             }
-            *conn.local_stream.borrow_mut() = Some(new_stream);
+            *conn.sharing.borrow_mut() = SharingState::Sharing { stream: new_stream };
 
             super::audio::set_shared_audio_muted(&conn, audio_muted.get_untracked());
             super::video_mode::apply_video_mode_to_all(&conn, video_mode.get_untracked()).await;

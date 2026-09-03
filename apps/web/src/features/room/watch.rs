@@ -117,7 +117,7 @@ pub(crate) fn leave_room(
     // teardown a deliberate "stop sharing" does before disconnecting. Bind
     // the `borrow()` to a local first so it is released before
     // `teardown_local_share` takes its own `borrow_mut()`.
-    let was_sharing = conn.local_stream.borrow().is_some();
+    let was_sharing = conn.sharing.borrow().is_sharing();
     if was_sharing {
         let me = my_peer_id.get_untracked();
         crate::session::media::teardown_local_share(conn, me.as_deref());

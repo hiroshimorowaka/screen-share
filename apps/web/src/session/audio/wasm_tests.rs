@@ -6,7 +6,7 @@ use wasm_bindgen::JsCast;
 use wasm_bindgen_test::*;
 
 use super::*;
-use crate::session::RoomSession;
+use crate::session::{RoomSession, SharingState};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -24,7 +24,7 @@ fn set_shared_audio_muted_toggles_enabled_on_the_audio_track_only() {
     let stream = web_sys::MediaStream::new().unwrap();
     stream.add_track(&video);
     stream.add_track(&audio);
-    *conn.local_stream.borrow_mut() = Some(stream);
+    *conn.sharing.borrow_mut() = SharingState::Sharing { stream };
 
     set_shared_audio_muted(&conn, true);
     assert!(!audio.enabled(), "audio muted");

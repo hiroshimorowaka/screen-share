@@ -130,7 +130,7 @@ pub(crate) fn setup_share_side_effects(
             share.share_has_audio.set(false);
             return;
         }
-        let Some(stream) = conn_for_probe.local_stream.borrow().clone() else {
+        let Some(stream) = conn_for_probe.sharing.borrow().stream().cloned() else {
             return;
         };
         // A desktop share that opted out of audio and one whose loopback

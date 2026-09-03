@@ -105,7 +105,9 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
             crate::session::handler::PeerCallbacks::empty_for_test(),
         );
     }
-    *conn.local_stream.borrow_mut() = Some(shared.clone());
+    *conn.sharing.borrow_mut() = SharingState::Sharing {
+        stream: shared.clone(),
+    };
 
     teardown_local_share(&conn, None);
 
@@ -117,7 +119,7 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
     // here, so that step is covered by the `e2e-web` leave-while-sharing
     // flow instead.)
     assert!(
-        conn.local_stream.borrow().is_none(),
+        !conn.sharing.borrow().is_sharing(),
         "the capture stream handle is released"
     );
     assert!(

@@ -124,7 +124,7 @@ pub(crate) async fn apply_video_mode(
 pub(crate) async fn apply_video_mode_to_all(conn: &crate::session::RoomSession, mode: VideoMode) {
     use wasm_bindgen::{JsCast, JsValue};
 
-    if let Some(stream) = conn.local_stream.borrow().as_ref() {
+    if let Some(stream) = conn.sharing.borrow().stream() {
         for track in stream.get_tracks().iter() {
             let track: web_sys::MediaStreamTrack = track.unchecked_into();
             if track.kind() == "video" {

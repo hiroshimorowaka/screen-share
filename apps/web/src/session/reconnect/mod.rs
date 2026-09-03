@@ -220,7 +220,7 @@ mod wiring {
             return;
         };
 
-        if conn.local_stream.borrow().is_some() {
+        if conn.sharing.borrow().is_sharing() {
             ws.send(&ClientMessage::StartShare);
         }
         for sharer_id in signals.watching.get_untracked() {

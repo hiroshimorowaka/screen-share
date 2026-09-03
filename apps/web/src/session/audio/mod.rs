@@ -173,7 +173,7 @@ pub(crate) fn set_shared_audio_muted(_conn: &crate::session::RoomSession, _muted
 pub(crate) fn set_shared_audio_muted(conn: &crate::session::RoomSession, muted: bool) {
     use wasm_bindgen::JsCast;
 
-    let Some(stream) = conn.local_stream.borrow().as_ref().cloned() else {
+    let Some(stream) = conn.sharing.borrow().stream().cloned() else {
         return;
     };
     for track in stream.get_tracks().iter() {
