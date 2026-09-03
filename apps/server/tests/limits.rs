@@ -1,5 +1,5 @@
 //! P3 follow-up: the HTTP (render / server-fn) routes had no body cap,
-//! no per-request timeout, and no concurrency ceiling. `http_limits::apply`
+//! no per-request timeout, and no concurrency ceiling. `limits::apply`
 //! adds all three; this checks the two that are deterministic to assert.
 
 #![cfg(feature = "ssr")]
@@ -14,7 +14,7 @@ use axum::extract::{ConnectInfo, State};
 use axum::http::{Request, StatusCode};
 use axum::routing::{get, post};
 use axum::Router;
-use screen_share::http_limits::{
+use screen_share_server::middleware::limits::{
     apply, apply_rate_limit, SsrRateLimit, MAX_CONCURRENT_HTTP_REQUESTS, MAX_HTTP_BODY_BYTES,
     MAX_SSR_REQUESTS_PER_WINDOW,
 };

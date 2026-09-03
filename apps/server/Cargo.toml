@@ -1,0 +1,46 @@
+[package]
+name = "screen-share-server"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "screen_share_server"
+path = "src/lib.rs"
+
+[[bin]]
+name = "screen-share-server"
+path = "src/main.rs"
+
+[dependencies]
+screen_share = { path = "../web", default-features = false }
+screen-share-protocol = { path = "../../crates/protocol" }
+screen-share-signaling = { path = "../../crates/signaling" }
+leptos = { version = "0.8.0" }
+leptos_axum = { version = "0.8.0" }
+leptos_meta = { version = "0.8.0" }
+leptos_router = { version = "0.8.0" }
+axum = { version = "0.8.0" }
+# SSR-only DoS layers on the HTTP routes (request timeout + global
+# concurrency cap); already in the tree via axum/leptos_axum.
+tower = { version = "0.5", features = ["util", "limit"] }
+tower-http = { version = "0.6", features = ["timeout"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }
+
+[dev-dependencies]
+# The moved middleware integration tests (`tests/limits.rs`) drive the
+# tower layers with `#[tokio::test]`, a `watch` channel, and a timed
+# sleep — features the binary itself does not need.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "sync", "time"] }
+
+[features]
+# The binary is SSR-only. `ssr` turns on the server halves of the Leptos
+# stack and of the `screen_share` UI library it renders. A build without
+# it produces an empty `main` (see `src/main.rs`), matching the pattern
+# `apps/web` used before this crate existed.
+ssr = [
+    "screen_share/ssr",
+    "leptos/ssr",
+    "leptos/nonce",
+    "leptos_meta/ssr",
+    "leptos_router/ssr",
+]

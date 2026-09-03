@@ -7,16 +7,13 @@ use axum::body::Body;
 use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
-use screen_share::http_security;
+use screen_share_server::middleware::security;
 use tower::ServiceExt;
 
 fn app(dev: bool) -> Router {
     Router::new()
         .route("/", get(|| async { "ok" }))
-        .layer(axum::middleware::from_fn_with_state(
-            dev,
-            http_security::apply,
-        ))
+        .layer(axum::middleware::from_fn_with_state(dev, security::apply))
 }
 
 async fn header_value(dev: bool, name: &str) -> String {
@@ -41,7 +38,7 @@ async fn every_declared_security_header_is_on_the_response() {
         .await
         .unwrap();
 
-    for (name, expected) in http_security::static_headers() {
+    for (name, expected) in security::static_headers() {
         let got = response
             .headers()
             .get(name)
@@ -140,15 +137,12 @@ async fn the_hydration_bootstrap_script_carries_the_csp_nonce() {
     let options = LeptosOptions::builder().output_name("test").build();
     let routes = leptos_axum::generate_route_list(TestApp);
     let router = Router::<LeptosOptions>::new()
-        .leptos_routes_with_context(&options, routes, http_security::provide_request_nonce, {
+        .leptos_routes_with_context(&options, routes, security::provide_request_nonce, {
             let options = options.clone();
             move || test_shell(options.clone())
         })
         .with_state(options)
-        .layer(axum::middleware::from_fn_with_state(
-            false,
-            http_security::apply,
-        ));
+        .layer(axum::middleware::from_fn_with_state(false, security::apply));
 
     let response = router
         .oneshot(Request::builder().uri("/").body(Body::empty()).unwrap())

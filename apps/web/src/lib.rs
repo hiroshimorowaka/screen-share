@@ -18,11 +18,6 @@ pub mod infra;
 #[cfg(feature = "hydrate")]
 pub mod quick_share;
 
-#[cfg(feature = "ssr")]
-pub mod http_limits;
-#[cfg(feature = "ssr")]
-pub mod http_security;
-
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]
 pub fn hydrate() {

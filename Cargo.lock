@@ -2105,6 +2105,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "screen-share-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "leptos",
+ "leptos_axum",
+ "leptos_meta",
+ "leptos_router",
+ "screen-share-protocol",
+ "screen-share-signaling",
+ "screen_share",
+ "tokio",
+ "tower",
+ "tower-http",
+]
+
+[[package]]
 name = "screen-share-signaling"
 version = "0.1.0"
 dependencies = [
@@ -2128,22 +2145,16 @@ name = "screen_share"
 version = "0.1.0"
 dependencies = [
  "any_spawner",
- "axum",
  "console_error_panic_hook",
  "js-sys",
  "leptos",
- "leptos_axum",
  "leptos_meta",
  "leptos_router",
  "screen-share-domain",
  "screen-share-protocol",
- "screen-share-signaling",
  "send_wrapper",
  "serde",
  "serde_json",
- "tokio",
- "tower",
- "tower-http",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

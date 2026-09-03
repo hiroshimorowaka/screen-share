@@ -164,13 +164,16 @@ fly deploy
 ### One crate, two compiled targets
 
 This is the single most important thing to understand before touching any
-UI code. The web crate lives at `apps/web/` as the sole member of a Cargo
-workspace (`cargo-leptos` is driven from the repo root via
-`[[workspace.metadata.leptos]]`). It is compiled twice, under two
-mutually exclusive Cargo features:
+UI code. The web crate lives at `apps/web/` (`cargo-leptos` is driven
+from the repo root via `[[workspace.metadata.leptos]]`). It is a pure
+Leptos UI **library** compiled twice, under two mutually exclusive Cargo
+features:
 
-- **`ssr`** — a native binary (`apps/web/src/main.rs`) that renders pages
-  server-side and serves them over HTTP/WebSocket via Axum.
+- **`ssr`** — compiled into the `apps/server` binary
+  (`screen-share-server`), which renders these components server-side and
+  serves them over HTTP/WebSocket via Axum. `apps/server` owns the Axum
+  host, its router, env config, and the SSR-only CSP/DoS middleware;
+  `apps/web` owns none of that any more.
 - **`hydrate`** — a `wasm32-unknown-unknown` library that runs in the
   browser, takes over the server-rendered HTML, and makes it interactive.
 
@@ -337,7 +340,8 @@ hold now and are enforced by the dependency graph once the crates exist:
 domain      →  (nothing)
 protocol    →  (serde only)
 signaling   →  protocol
-apps/web    →  domain, protocol, signaling
+apps/web    →  domain, protocol            (pure Leptos UI library — no Axum/Tokio)
+apps/server →  signaling, protocol, screen_share (= apps/web), leptos_axum, axum, tokio
 ```
 
 `crates/domain` holds the web app's browser- and framework-free logic

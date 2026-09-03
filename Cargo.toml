@@ -1,5 +1,5 @@
 [workspace]
-members = ["apps/web", "crates/domain", "crates/protocol", "crates/signaling"]
+members = ["apps/server", "apps/web", "crates/domain", "crates/protocol", "crates/signaling"]
 resolver = "2"
 
 # Line-tables-only debug info for dev builds. With full `debug = 2`, the
@@ -21,7 +21,7 @@ panic = "abort"
 
 [[workspace.metadata.leptos]]
 name = "screen_share"
-bin-package = "screen_share"
+bin-package = "screen-share-server"
 lib-package = "screen_share"
 
 # The name used by wasm-bindgen/cargo-leptos for the JS/WASM bundle.
