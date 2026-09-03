@@ -1,5 +1,6 @@
 pub(crate) mod display_capture;
 pub mod dom;
+pub(crate) mod peer_link;
 pub mod rooms_api;
 pub mod session;
 pub(crate) mod signaling_transport;

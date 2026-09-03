@@ -15,7 +15,7 @@ each left `cargo test --workspace --features ssr` (209), the wasm suite
 | 7 | `2a5923a` | New dependency-free `crates/domain`: `sdp` (whole module) + `backoff::BackoffPolicy`, now native-tested. Dependency ladder + CLAUDE.md updated | done |
 | 4 | `83c9415` | `member_cards` (333-ln free fn) → 6-line loop over `<MemberCard>`; `QualityMenu` + `VolumeControl` become components in `member_card/parts.rs` | done |
 | 5 | `ac80131`, `a85ce85`, — | The three pre-auth panels + `manual_join` → `<RoomGate>`; own-share/audio signals bundled into `ShareUi`/`PeerMedia` (`session::share_ui`); the quick-share and audio-effects blocks lifted into `session::share_effects`; `RoomSession`'s `local_stream: Option<MediaStream>` replaced by a `SharingState` enum (`session::sharing_state`) | **done** |
-| 8 | — | Seam traits (`SignalingTransport` / `PeerLink` / `DisplayCapture`) | **in progress** (8a `SignalingTransport` done; `PeerLink` / `DisplayCapture` remain) |
+| 8 | `7060a9d`, `bfbe16a`, — | Seam traits (`SignalingTransport` / `DisplayCapture` / `PeerLink`) | **done** |
 
 ## Remaining work
 
@@ -62,16 +62,18 @@ all still pass, but the browser's-own-control path itself remains the
 pre-existing hand-verification gap noted below — do that check before
 relying on this in production.
 
-### Step 8 — in progress
+### Step 8 — done
 
-Introduce a capability trait per browser boundary — `SignalingTransport`
-(typed send over the socket), `PeerLink` (one `RtcPeerConnection`'s
-lifecycle: offer/answer/ICE/close), `DisplayCapture` (`getDisplayMedia`)
-— with the `web-sys` impls in `infra/` and fakes for tests, so parts of
-`session/`'s dispatch logic can be tested against a fake instead of a
-live signaling server / real WebRTC negotiation.
+Introduced a capability trait per browser boundary — `SignalingTransport`
+(typed send over the socket), `DisplayCapture` (`getDisplayMedia`),
+`PeerLink` (one `RtcPeerConnection`'s offer/answer/ICE) — with the
+`web-sys` impls in `infra/`. Two of the three ship with fakes and new
+tests exercising a real coverage gap each; the third (`PeerLink`) is a
+named domain contract without a fake, for reasons specific to it — see
+below. All three commits (`7060a9d`, `bfbe16a`, and `PeerLink`'s) each
+shipped behind a full `--no-mutants` + `e2e-web` gate.
 
-#### 8a — `SignalingTransport` (done)
+#### 8a — `SignalingTransport` (`7060a9d`)
 
 `infra::signaling_transport::SignalingTransport` (`send` / `close`) —
 `RoomSession.ws` is now `Rc<RefCell<Option<Box<dyn SignalingTransport>>>>`
@@ -82,54 +84,89 @@ called on a freshly connected, still-concrete `WsClient` *before* it's
 boxed into `conn.ws` — abstracting them would add trait surface no
 caller through the trait object actually uses.
 
-New: a `FakeTransport` (records sent messages, in
-`session/reconnect/wasm_tests.rs`) backs two new tests for
+A `FakeTransport` (records sent messages, in
+`session/reconnect/wasm_tests.rs`) backs two tests for
 `replay_intent_after_rejoin` — resends the share and only the still-
 present watch after a reconnect; a no-op when no reconnect was in
-flight — with no live socket and no signaling server. This is the shape
-of the capability step 8 exists for: `session::handler`'s three
-`ws.send(...)` sites (`Answer`, `Offer`, `IceCandidate`) and
-`session::{media,quality,latency,watch}`'s could get the same treatment
-directly with today's trait — no further plumbing needed, just tests.
+flight — with no live socket and no signaling server.
 
-**What this does *not* touch:** `PeerLink` / `DisplayCapture` (below) —
-those abstract `web_sys::RtcPeerConnection` and `getDisplayMedia`
-directly, a far bigger surface across `infra/webrtc.rs` (564 ln) and
-`session/{handler,media,quality,watch,reconnect}`, and unlike
-`SignalingTransport`'s `send`/`close`, a fake standing in for a real
-`RtcPeerConnection` only has any value if it can still negotiate a real
-SDP offer/answer — meaning even a "fake" `PeerLink` used in a
-meaningful test still needs a real `web_sys::RtcPeerConnection`
-underneath (see `infra::webrtc::wasm_tests::offer_answer_roundtrip_
-completes_between_two_local_peers`, which already does this without any
-trait). The actual gap `PeerLink` would close is narrower than it looks:
-mostly letting `session::handler`'s branch logic (which connection maps
-get touched, which messages get sent, in what order) be asserted without
-also standing up two full local `RtcPeerConnection`s per test — real,
-but modest next to the risk of touching every call site that holds
-`outgoing`/`incoming: Rc<RefCell<HashMap<String, RtcPeerConnection>>>`
-directly.
+#### 8b — `DisplayCapture` (`bfbe16a`)
 
-**Why `PeerLink` / `DisplayCapture` stay a separate sub-step:** the
-blast radius is `infra/webrtc/mod.rs`, `session/{handler,media,quality,
-watch,reconnect}`, and the `RoomSession` struct's connection maps
-themselves. This is the exact code path with no automation for its
-hardest failure modes — teardown races and ICE ordering can only be
-checked with two real browsers sharing screens — so per
-`docs/superpowers/plans/2026-08-28-refactor-phase-5-roomsession.md`'s
-own precedent, each sub-step needs a maintainer gate (share → watch →
-stop via the in-app button *and* the browser's own control → reload →
-reconnect) before the next one starts. 8a shipped inside one such
-gate (full `--no-mutants` + `e2e-web`, both green — see Verification);
-`PeerLink` / `DisplayCapture` are large enough to warrant their own.
+`infra::display_capture::DisplayCapture` (`async fn capture`) —
+`session::media::{start_sharing, switch_source_handler}` take a generic
+`C: DisplayCapture` instead of calling `infra::webrtc::capture_display`
+directly. Static dispatch (a generic parameter, not `dyn`): `capture` is
+`async` in the trait and the two call sites are all that exist, so no
+dyn-safety cost to pay. `BrowserDisplayCapture` (the real impl) is a
+zero-sized marker defined in `session::media` — not `infra`, which is
+entirely `hydrate`-gated — so the `ssr` build's inert
+`switch_source_handler` stub can still name the type at the call site it
+shares with the `hydrate` one.
+
+This closed a real gap, not a style one: headless Chrome has no display
+to capture, so `capture_display()` always rejects there —
+`start_sharing`'s happy path (the stream gets stored, the native-stop
+listener attaches, `StartShare` gets sent) had no unit-level coverage
+before this, only the cancelled-picker branch. Two new wasm tests in
+`session/media/wasm_tests.rs` cover both paths with a
+`FakeDisplayCapture` / `RejectingDisplayCapture`; needed `any_spawner` as
+a dev-dependency to init `leptos`'s executor in tests (the real app gets
+this for free from `leptos::mount::hydrate_body`, which the test harness
+never calls). Also caught, in review, a bug in the *test* itself (not
+production code): `web_sys::MediaStream` has an inherent `clone()` bound
+to the DOM's `MediaStream.clone()` — an actual new stream, new id —
+which shadows `Clone::clone` on direct method-call syntax; fixed with
+`Clone::clone(&self.stream)` (UFCS) to force the trait's cheap reference
+clone.
+
+#### 8c — `PeerLink` (no fake — see below)
+
+`infra::peer_link::PeerLink` (`offer` / `answer` / `accept_answer` /
+`add_ice_candidate`), implemented for `RtcPeerConnection`.
+`session::handler`'s four negotiation call sites (`answer_offer`,
+`accept_answer_from`, `route_ice_candidate`, `offer_to_watcher`) now call
+`pc.offer()` / `pc.answer(&sdp)` / `pc.accept_answer(&sdp)` /
+`pc.add_ice_candidate(...)` instead of importing
+`infra::webrtc::{create_offer, create_answer, accept_answer,
+add_ice_candidate}` directly — the negotiation contract reads as one
+named interface at its call sites (CLAUDE.md's "design around domain
+concepts rather than leaking implementation details"), even though it
+isn't wired up for a fake.
+
+**Why no fake, unlike 8a/8b:** `session::handler`'s negotiation functions
+don't just call offer/answer/close — they also wire `RtcPeerConnection`
+event listeners (`ontrack`, `onicecandidate`,
+`oniceconnectionstatechange`) and store the connection itself in
+`RoomSession::{outgoing,incoming}` (`HashMap<String, RtcPeerConnection>`,
+a concrete type `session::{media,quality}` also read for operations
+`PeerLink` doesn't cover — senders, transceivers). Genericizing these
+functions over `PeerLink` alone wouldn't compile without *also*
+abstracting that other surface, and abstracting all of it is the
+`RoomSession` method-API rewrite already scoped and deferred in
+`docs/superpowers/plans/2026-08-28-refactor-phase-5-roomsession.md` —
+not something to fold into this pass. Concretely: even a "fake"
+`PeerLink` is only useful in a test if the surrounding function can run
+against it too, and that function needs an event-emitting object a fake
+can't provide without becoming a large chunk of `RtcPeerConnection`
+itself — see `infra::webrtc::wasm_tests::offer_answer_roundtrip_
+completes_between_two_local_peers`, which already tests real
+offer/answer/ICE end-to-end with two local (no-network) connections,
+without needing any trait.
+
+Verified with the full gate anyway, since it touches
+`session::handler`'s negotiation path directly: full `--no-mutants`, plus
+`e2e-web`'s `room-p2p.spec.ts` (real two-tab share/watch, real media
+flowing) — the strongest signal available for this exact change without
+a live two-tab manual session.
 
 ## Verification
 
 `scripts/test-all.sh --no-mutants` on the branch tip: fmt, clippy
 (ssr + hydrate, incl. `--tests`), `cargo leptos build`, workspace tests
-(209), wasm suite (60 — the original 54, plus 4 `SharingState` tests,
-plus 2 new `FakeTransport`-backed `replay_intent_after_rejoin` tests),
-and every desktop check — all green.
+(209), wasm suite (62 — the original 54, plus 4 `SharingState` tests, 2
+`FakeTransport`-backed `replay_intent_after_rejoin` tests, and 2
+`FakeDisplayCapture`/`RejectingDisplayCapture`-backed `start_sharing`
+tests), and every desktop check (incl. `e2e-desktop`) — all green.
 
 `scripts/test-all.sh e2e-web` (Playwright, 36 tests, headed under xvfb) —
 all green. This covers the two-tab path the refactor most affects:

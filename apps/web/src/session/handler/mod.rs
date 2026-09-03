@@ -13,9 +13,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
 #[cfg(feature = "hydrate")]
-use crate::infra::webrtc::{
-    accept_answer, add_ice_candidate, create_answer, create_offer, new_peer_connection,
-};
+use crate::infra::peer_link::PeerLink;
+#[cfg(feature = "hydrate")]
+use crate::infra::webrtc::new_peer_connection;
 #[cfg(feature = "hydrate")]
 use crate::session::RoomSession;
 #[cfg(feature = "hydrate")]
@@ -277,7 +277,7 @@ fn answer_offer(conn: RoomSession, signals: RoomSignals, from: String, sdp: Stri
             ]),
         );
 
-        match create_answer(&pc, &sdp).await {
+        match pc.answer(&sdp).await {
             Ok(answer_sdp) => {
                 if let Some(ws) = conn.ws.borrow().as_ref() {
                     ws.send(&ClientMessage::Answer {
@@ -304,7 +304,7 @@ fn accept_answer_from(conn: RoomSession, signals: RoomSignals, from: String, sdp
     };
     let video_mode = signals.video_mode;
     spawn_local(async move {
-        if let Err(err) = accept_answer(&pc, &sdp).await {
+        if let Err(err) = pc.accept_answer(&sdp).await {
             web_sys::console::error_2(
                 &wasm_bindgen::JsValue::from_str("accept_answer failed:"),
                 &err,
@@ -343,7 +343,7 @@ fn route_ice_candidate(
         conn.outgoing.borrow().get(&from).cloned()
     };
     if let Some(pc) = pc {
-        add_ice_candidate(&pc, &candidate, sdp_mid, sdp_m_line_index);
+        pc.add_ice_candidate(&candidate, sdp_mid, sdp_m_line_index);
     }
 }
 
@@ -504,7 +504,7 @@ fn offer_to_watcher(conn: RoomSession, signals: RoomSignals, from: String) {
             ]),
         );
 
-        match create_offer(&pc).await {
+        match pc.offer().await {
             Ok(sdp) => {
                 if let Some(ws) = conn.ws.borrow().as_ref() {
                     ws.send(&ClientMessage::Offer { to: from, sdp });
