@@ -1,21 +1,23 @@
 use serde::{Deserialize, Serialize};
 
+use crate::ids::{Color, Nick, PeerId};
+
 /// Maximum members allowed in a single room.
 pub const MAX_MEMBERS: usize = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemberInfo {
-    pub peer_id: String,
-    pub nick: String,
-    pub color: String,
+    pub peer_id: PeerId,
+    pub nick: Nick,
+    pub color: Color,
 }
 
 /// Who's already watching each active sharer, sent in the join snapshot —
 /// avoids waiting for the first `WatchersChanged` to show the right count.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WatcherInfo {
-    pub sharer_id: String,
-    pub watchers: Vec<String>,
+    pub sharer_id: PeerId,
+    pub watchers: Vec<PeerId>,
 }
 
 /// A member's last-measured round-trip latency to the server, sent in the
@@ -23,7 +25,7 @@ pub struct WatcherInfo {
 /// `Ping`/`Pong` round trip happens to complete.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LatencyInfo {
-    pub peer_id: String,
+    pub peer_id: PeerId,
     pub ms: u32,
 }
 

@@ -122,7 +122,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: Some("senha-errada".to_string()),
             color: "sky".to_string(),
@@ -135,7 +135,7 @@ async fn create_room_then_join_with_wrong_and_right_password() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: Some("senha123".to_string()),
             color: "sky".to_string(),
@@ -157,8 +157,8 @@ async fn create_room_then_join_with_wrong_and_right_password() {
         recv_json(&mut creator_ws).await,
         ServerMessage::PeerJoined {
             peer_id: viewer_id,
-            nick: "Bia".to_string(),
-            color: "sky".to_string()
+            nick: screen_share_protocol::Nick::from_relay("Bia"),
+            color: screen_share_protocol::Color::from_relay("sky")
         }
     );
 }
@@ -188,7 +188,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: Some("senha123".to_string()),
             color: "sky".to_string(),
@@ -214,7 +214,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::WatchShare {
-            sharer_id: sharer_id.clone(),
+            sharer_id: sharer_id.to_string(),
         },
     )
     .await;
@@ -236,7 +236,7 @@ async fn start_share_broadcasts_and_offer_is_relayed() {
     send_json(
         &mut sharer_ws,
         &ClientMessage::Offer {
-            to: viewer_id,
+            to: viewer_id.to_string(),
             sdp: "test-sdp".to_string(),
         },
     )
@@ -275,7 +275,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: Some("senha123".to_string()),
             color: "sky".to_string(),
@@ -304,7 +304,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::WatchShare {
-            sharer_id: sharer_id.clone(),
+            sharer_id: sharer_id.to_string(),
         },
     )
     .await;
@@ -332,7 +332,7 @@ async fn watch_share_notifies_the_sharer_and_broadcasts_watcher_count() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::StopWatching {
-            sharer_id: sharer_id.clone(),
+            sharer_id: sharer_id.to_string(),
         },
     )
     .await;
@@ -383,7 +383,7 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: Some("senha123".to_string()),
             color: "sky".to_string(),
@@ -398,7 +398,7 @@ async fn joining_from_the_same_device_kicks_the_previous_connection() {
     send_json(
         &mut second_ana_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "AnaCelular".to_string(),
             password: Some("senha123".to_string()),
             color: "coral".to_string(),
@@ -520,7 +520,7 @@ async fn relays_the_remaining_peer_to_peer_message_types() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: None,
             color: "sky".to_string(),
@@ -546,7 +546,7 @@ async fn relays_the_remaining_peer_to_peer_message_types() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::WatchShare {
-            sharer_id: sharer_id.clone(),
+            sharer_id: sharer_id.to_string(),
         },
     )
     .await;
@@ -569,7 +569,7 @@ async fn relays_the_remaining_peer_to_peer_message_types() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::Answer {
-            to: sharer_id.clone(),
+            to: sharer_id.to_string(),
             sdp: "answer-sdp".to_string(),
         },
     )
@@ -586,8 +586,8 @@ async fn relays_the_remaining_peer_to_peer_message_types() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::IceCandidate {
-            to: sharer_id.clone(),
-            stream_owner: sharer_id.clone(),
+            to: sharer_id.to_string(),
+            stream_owner: sharer_id.to_string(),
             candidate: "candidate:1 1 udp".to_string(),
             sdp_mid: Some("0".to_string()),
             sdp_m_line_index: Some(0),
@@ -609,7 +609,7 @@ async fn relays_the_remaining_peer_to_peer_message_types() {
     send_json(
         &mut viewer_ws,
         &ClientMessage::SetQuality {
-            to: sharer_id.clone(),
+            to: sharer_id.to_string(),
             quality: QualityLevel::Low,
         },
     )
@@ -669,7 +669,7 @@ async fn join_room_reports_too_many_attempts_after_the_lockout() {
 
     let (mut attacker_ws, _) = tokio_tungstenite::connect_async(&url).await.unwrap();
     let wrong_join = ClientMessage::JoinRoom {
-        room: room.clone(),
+        room: room.to_string(),
         nick: "Bia".to_string(),
         password: Some("errada".to_string()),
         color: "sky".to_string(),
@@ -719,7 +719,7 @@ async fn join_room_reports_room_full_at_capacity() {
         send_json(
             &mut ws,
             &ClientMessage::JoinRoom {
-                room: room.clone(),
+                room: room.to_string(),
                 nick: format!("member-{i}"),
                 password: None,
                 color: "sky".to_string(),
@@ -738,7 +738,7 @@ async fn join_room_reports_room_full_at_capacity() {
     send_json(
         &mut overflow_ws,
         &ClientMessage::JoinRoom {
-            room,
+            room: room.to_string(),
             nick: "one-too-many".to_string(),
             password: None,
             color: "sky".to_string(),
@@ -850,7 +850,7 @@ async fn repeated_join_on_one_socket_does_not_orphan_members() {
         send_json(
             &mut joiner,
             &ClientMessage::JoinRoom {
-                room: room.clone(),
+                room: room.to_string(),
                 nick: "Bia".to_string(),
                 password: None,
                 color: "sky".to_string(),
@@ -1026,7 +1026,7 @@ async fn an_offer_without_a_watch_relationship_is_not_relayed() {
     send_json(
         &mut victim_ws,
         &ClientMessage::JoinRoom {
-            room: room.clone(),
+            room: room.to_string(),
             nick: "Bia".to_string(),
             password: None,
             color: "sky".to_string(),
@@ -1044,7 +1044,7 @@ async fn an_offer_without_a_watch_relationship_is_not_relayed() {
     send_json(
         &mut sharer_ws,
         &ClientMessage::Offer {
-            to: victim_id,
+            to: victim_id.to_string(),
             sdp: "unsolicited".to_string(),
         },
     )

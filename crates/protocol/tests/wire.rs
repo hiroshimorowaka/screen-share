@@ -3,6 +3,10 @@
 
 use screen_share_protocol::*;
 
+fn pid(s: &str) -> PeerId {
+    PeerId::parse(s).unwrap()
+}
+
 #[test]
 fn create_room_message_round_trips_through_json() {
     let msg = ClientMessage::CreateRoom {
@@ -58,21 +62,21 @@ fn join_room_message_round_trips_through_json() {
 #[test]
 fn joined_server_message_round_trips_through_json() {
     let msg = ServerMessage::Joined {
-        peer_id: "peer-1".to_string(),
-        room: "ABCD1234".to_string(),
+        peer_id: pid("peer-1"),
+        room: RoomCode::parse("ABCD1234").unwrap(),
         room_name: "Sala dos lindos".to_string(),
         members: vec![MemberInfo {
-            peer_id: "peer-1".to_string(),
-            nick: "Ana".to_string(),
-            color: "coral".to_string(),
+            peer_id: pid("peer-1"),
+            nick: Nick::parse("Ana").unwrap(),
+            color: Color::parse("coral").unwrap(),
         }],
         active_sharers: vec![],
         watcher_info: vec![WatcherInfo {
-            sharer_id: "peer-1".to_string(),
-            watchers: vec!["peer-2".to_string()],
+            sharer_id: pid("peer-1"),
+            watchers: vec![pid("peer-2")],
         }],
         latencies: vec![LatencyInfo {
-            peer_id: "peer-1".to_string(),
+            peer_id: pid("peer-1"),
             ms: 42,
         }],
         turn: Some(TurnCredentials {
@@ -109,7 +113,7 @@ fn report_latency_message_round_trips_through_json() {
 #[test]
 fn peer_latency_message_round_trips_through_json() {
     let msg = ServerMessage::PeerLatency {
-        peer_id: "peer-1".to_string(),
+        peer_id: pid("peer-1"),
         ms: 87,
     };
     let json = serde_json::to_string(&msg).unwrap();
@@ -125,8 +129,8 @@ fn peer_latency_message_round_trips_through_json() {
 #[test]
 fn watchers_changed_message_round_trips_through_json() {
     let msg = ServerMessage::WatchersChanged {
-        sharer_id: "peer-1".to_string(),
-        watchers: vec!["peer-2".to_string(), "peer-3".to_string()],
+        sharer_id: pid("peer-1"),
+        watchers: vec![pid("peer-2"), pid("peer-3")],
     };
     let json = serde_json::to_string(&msg).unwrap();
     assert_eq!(
@@ -240,7 +244,7 @@ fn set_quality_message_round_trips_through_json() {
 #[test]
 fn quality_requested_message_round_trips_through_json() {
     let msg = ServerMessage::QualityRequested {
-        from: "peer-2".to_string(),
+        from: pid("peer-2"),
         quality: QualityLevel::Auto,
     };
     let json = serde_json::to_string(&msg).unwrap();

@@ -87,19 +87,29 @@ pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
     let members: Vec<RoomMember> = joined_members
         .into_iter()
         .map(|m| RoomMember {
-            sharing: sharer_set.contains(&m.peer_id),
-            peer_id: m.peer_id,
-            nick: m.nick,
-            color: m.color,
+            sharing: sharer_set.contains(m.peer_id.as_str()),
+            peer_id: m.peer_id.into(),
+            nick: m.nick.into(),
+            color: m.color.into(),
         })
         .collect();
     watchers_by_sharer.set(
         watcher_info
             .into_iter()
-            .map(|w| (w.sharer_id, w.watchers))
+            .map(|w| {
+                (
+                    w.sharer_id.into(),
+                    w.watchers.into_iter().map(String::from).collect(),
+                )
+            })
             .collect(),
     );
-    latency_by_peer.set(latencies.into_iter().map(|l| (l.peer_id, l.ms)).collect());
+    latency_by_peer.set(
+        latencies
+            .into_iter()
+            .map(|l| (l.peer_id.into(), l.ms))
+            .collect(),
+    );
     turn_credentials.set(turn);
     save_recent_room(RecentRoom {
         code: room_code,
@@ -161,8 +171,11 @@ fn drop_focus_if_showing(expanded: RwSignal<Option<String>>, peer_id: &str) {
 /// reconnect's rejoin, replay what this member was doing before the drop.
 #[cfg(feature = "hydrate")]
 fn on_joined(conn: &RoomSession, signals: RoomSignals, snapshot: JoinedSnapshot) {
-    let present_peer_ids: Vec<String> =
-        snapshot.members.iter().map(|m| m.peer_id.clone()).collect();
+    let present_peer_ids: Vec<String> = snapshot
+        .members
+        .iter()
+        .map(|m| m.peer_id.to_string())
+        .collect();
     apply_joined_snapshot(snapshot, signals);
     // If this `Joined` is a reconnect's rejoin, re-assert what we were
     // doing before the drop (sharing, watching); a no-op on a first join.
@@ -594,11 +607,11 @@ pub(crate) fn build_message_handler(
             &conn,
             signals,
             JoinedSnapshot {
-                room_code: room,
+                room_code: room.to_string(),
                 room_name,
-                peer_id,
+                peer_id: peer_id.to_string(),
                 members: joined_members,
-                active_sharers,
+                active_sharers: active_sharers.into_iter().map(String::from).collect(),
                 watcher_info,
                 latencies,
                 turn,
@@ -617,6 +630,7 @@ pub(crate) fn build_message_handler(
             nick,
             color,
         } => {
+            let (peer_id, nick, color) = (peer_id.to_string(), nick.to_string(), color.to_string());
             crate::infra::webrtc::notify_desktop_member_joined(&nick);
             set_members.update(|members| {
                 members.push(RoomMember {
@@ -628,12 +642,14 @@ pub(crate) fn build_message_handler(
             });
         }
         ServerMessage::PeerLeft { peer_id } => {
+            let peer_id = peer_id.to_string();
             set_members.update(|members| members.retain(|m| m.peer_id != peer_id));
             teardown_outgoing(&conn, &peer_id);
             teardown_incoming(&conn, &peer_id);
             drop_focus_if_showing(expanded, &peer_id);
         }
         ServerMessage::PeerStartedSharing { peer_id } => {
+            let peer_id = peer_id.to_string();
             set_members.update(|members| {
                 if let Some(m) = members.iter_mut().find(|m| m.peer_id == peer_id) {
                     m.sharing = true;
@@ -641,6 +657,7 @@ pub(crate) fn build_message_handler(
             });
         }
         ServerMessage::PeerStoppedSharing { peer_id } => {
+            let peer_id = peer_id.to_string();
             set_members.update(|members| {
                 if let Some(m) = members.iter_mut().find(|m| m.peer_id == peer_id) {
                     m.sharing = false;
@@ -659,6 +676,8 @@ pub(crate) fn build_message_handler(
             sharer_id,
             watchers,
         } => {
+            let sharer_id = sharer_id.to_string();
+            let watchers: Vec<String> = watchers.into_iter().map(String::from).collect();
             watchers_by_sharer.update(|w| {
                 w.insert(sharer_id, watchers);
             });
@@ -676,12 +695,17 @@ pub(crate) fn build_message_handler(
             }
         }
         ServerMessage::PeerLatency { peer_id, ms } => {
+            let peer_id = peer_id.to_string();
             latency_by_peer.update(|l| {
                 l.insert(peer_id, ms);
             });
         }
-        ServerMessage::Offer { from, sdp } => answer_offer(conn.clone(), signals, from, sdp),
-        ServerMessage::Answer { from, sdp } => accept_answer_from(conn.clone(), signals, from, sdp),
+        ServerMessage::Offer { from, sdp } => {
+            answer_offer(conn.clone(), signals, from.to_string(), sdp)
+        }
+        ServerMessage::Answer { from, sdp } => {
+            accept_answer_from(conn.clone(), signals, from.to_string(), sdp)
+        }
         ServerMessage::IceCandidate {
             from,
             stream_owner,
@@ -690,16 +714,18 @@ pub(crate) fn build_message_handler(
             sdp_m_line_index,
         } => route_ice_candidate(
             &conn,
-            from,
-            stream_owner,
+            from.to_string(),
+            stream_owner.to_string(),
             candidate,
             sdp_mid,
             sdp_m_line_index,
         ),
-        ServerMessage::WatchRequested { from } => offer_to_watcher(conn.clone(), signals, from),
+        ServerMessage::WatchRequested { from } => {
+            offer_to_watcher(conn.clone(), signals, from.to_string())
+        }
         ServerMessage::WatchStopped { from } => teardown_outgoing(&conn, &from),
         ServerMessage::QualityRequested { from, quality } => {
-            apply_quality_request(conn.clone(), signals, from, quality)
+            apply_quality_request(conn.clone(), signals, from.to_string(), quality)
         }
     }
 }

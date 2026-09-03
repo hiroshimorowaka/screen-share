@@ -138,6 +138,7 @@ pub fn submit_create_room(
                 ..
             } = msg
             {
+                let room = room.to_string();
                 save_profile(&Profile {
                     nick: nick_value.clone(),
                     color: color_value.clone(),
@@ -160,9 +161,9 @@ pub fn submit_create_room(
                         room: room.clone(),
                         room_name,
                         ws,
-                        peer_id,
+                        peer_id: peer_id.to_string(),
                         members,
-                        active_sharers,
+                        active_sharers: active_sharers.into_iter().map(String::from).collect(),
                         requires_password,
                         turn,
                     });

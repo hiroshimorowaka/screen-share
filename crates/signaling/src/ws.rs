@@ -16,7 +16,7 @@ use super::registry::{
     Registry,
 };
 use super::turn::TurnConfig;
-use screen_share_protocol::{ClientMessage, ServerMessage};
+use screen_share_protocol::{ClientMessage, PeerId, RoomCode, ServerMessage};
 
 /// Largest text frame the signaling socket accepts. Signaling payloads are
 /// small — an SDP is a few KB, ICE candidates are trickled one per
@@ -162,7 +162,7 @@ async fn handle_socket(
                     Ok((code, snapshot)) => {
                         let _ = tx.try_send(ServerMessage::Joined {
                             peer_id: snapshot.peer_id.clone(),
-                            room: code.clone(),
+                            room: RoomCode::from_relay(code.clone()),
                             room_name: snapshot.room_name,
                             members: snapshot.members,
                             active_sharers: snapshot.active_sharers,
@@ -171,7 +171,7 @@ async fn handle_socket(
                             turn: mint_turn_credentials(),
                         });
                         room_code = Some(code);
-                        peer_id = Some(snapshot.peer_id);
+                        peer_id = Some(snapshot.peer_id.to_string());
                     }
                     Err(CreateRoomError::AtCapacity) => {
                         let _ = tx.try_send(ServerMessage::ServerAtCapacity);
@@ -204,7 +204,7 @@ async fn handle_socket(
                     Ok(snapshot) => {
                         let _ = tx.try_send(ServerMessage::Joined {
                             peer_id: snapshot.peer_id.clone(),
-                            room: room.clone(),
+                            room: RoomCode::from_relay(room.clone()),
                             room_name: snapshot.room_name,
                             members: snapshot.members,
                             active_sharers: snapshot.active_sharers,
@@ -212,7 +212,7 @@ async fn handle_socket(
                             latencies: snapshot.latencies,
                             turn: mint_turn_credentials(),
                         });
-                        peer_id = Some(snapshot.peer_id);
+                        peer_id = Some(snapshot.peer_id.to_string());
                         room_code = Some(room);
                     }
                     Err(JoinError::NotFound) => {
@@ -267,7 +267,7 @@ async fn handle_socket(
                         from,
                         &to,
                         ServerMessage::Offer {
-                            from: from.clone(),
+                            from: PeerId::from_relay(from.clone()),
                             sdp,
                         },
                     );
@@ -280,7 +280,7 @@ async fn handle_socket(
                         from,
                         &to,
                         ServerMessage::Answer {
-                            from: from.clone(),
+                            from: PeerId::from_relay(from.clone()),
                             sdp,
                         },
                     );
@@ -299,8 +299,8 @@ async fn handle_socket(
                         from,
                         &to,
                         ServerMessage::IceCandidate {
-                            from: from.clone(),
-                            stream_owner,
+                            from: PeerId::from_relay(from.clone()),
+                            stream_owner: PeerId::from_relay(stream_owner),
                             candidate,
                             sdp_mid,
                             sdp_m_line_index,
@@ -315,7 +315,7 @@ async fn handle_socket(
                         from,
                         &to,
                         ServerMessage::QualityRequested {
-                            from: from.clone(),
+                            from: PeerId::from_relay(from.clone()),
                             quality,
                         },
                     );

@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::ids::{Color, Nick, PeerId, RoomCode};
 use crate::info::{LatencyInfo, MemberInfo, WatcherInfo};
 use crate::media::{QualityLevel, TurnCredentials};
 
@@ -7,11 +8,11 @@ use crate::media::{QualityLevel, TurnCredentials};
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ServerMessage {
     Joined {
-        peer_id: String,
-        room: String,
+        peer_id: PeerId,
+        room: RoomCode,
         room_name: String,
         members: Vec<MemberInfo>,
-        active_sharers: Vec<String>,
+        active_sharers: Vec<PeerId>,
         watcher_info: Vec<WatcherInfo>,
         latencies: Vec<LatencyInfo>,
         /// `None` when no TURN server is configured for this deployment —
@@ -40,58 +41,58 @@ pub enum ServerMessage {
     /// successful guess after brute-forcing gains nothing.
     TooManyAttempts,
     PeerJoined {
-        peer_id: String,
-        nick: String,
-        color: String,
+        peer_id: PeerId,
+        nick: Nick,
+        color: Color,
     },
     PeerLeft {
-        peer_id: String,
+        peer_id: PeerId,
     },
     /// Sent only to whoever was disconnected by a same-device re-join — never
     /// broadcast; the rest of the room already gets a normal `PeerLeft`.
     Kicked,
     PeerStartedSharing {
-        peer_id: String,
+        peer_id: PeerId,
     },
     PeerStoppedSharing {
-        peer_id: String,
+        peer_id: PeerId,
     },
     WatchRequested {
-        from: String,
+        from: PeerId,
     },
     WatchStopped {
-        from: String,
+        from: PeerId,
     },
     /// Broadcast to the whole room, not just the sharer — any card shows
     /// "N watching" from any member's point of view.
     WatchersChanged {
-        sharer_id: String,
-        watchers: Vec<String>,
+        sharer_id: PeerId,
+        watchers: Vec<PeerId>,
     },
     Pong,
     /// Broadcast to the whole room — any card can show that peer's ping,
     /// not just the peer who measured it.
     PeerLatency {
-        peer_id: String,
+        peer_id: PeerId,
         ms: u32,
     },
     Offer {
-        from: String,
+        from: PeerId,
         sdp: String,
     },
     Answer {
-        from: String,
+        from: PeerId,
         sdp: String,
     },
     IceCandidate {
-        from: String,
-        stream_owner: String,
+        from: PeerId,
+        stream_owner: PeerId,
         candidate: String,
         sdp_mid: Option<String>,
         sdp_m_line_index: Option<u16>,
     },
     QualityRequested {
-        from: String,
+        from: PeerId,
         quality: QualityLevel,
     },
 }

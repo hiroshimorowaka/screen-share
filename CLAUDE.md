@@ -338,7 +338,7 @@ hold now and are enforced by the dependency graph once the crates exist:
 
 ```
 domain      →  (nothing)
-protocol    →  (serde only)
+protocol    →  serde, thiserror        (thiserror: IdError in protocol::ids)
 signaling   →  protocol
 apps/web    →  domain, protocol            (pure Leptos UI library — no Axum/Tokio)
 apps/server →  signaling, protocol, screen_share (= apps/web), leptos_axum, axum, tokio
@@ -355,8 +355,8 @@ stays in `apps/web/src/session`. (A `crates/core` for types shared with
 
 - **Dependency direction.** Dependencies point toward lower-level
   abstractions only. `crates/domain` depends on nothing; `crates/protocol`
-  depends on nothing but `serde`; neither may depend on Axum, Tokio,
-  `web-sys`, `wasm-bindgen`, Leptos, Electron, or any OS API.
+  depends only on `serde` and `thiserror`; neither may depend on Axum,
+  Tokio, `web-sys`, `wasm-bindgen`, Leptos, Electron, or any OS API.
   `crates/signaling` may depend on `protocol`, never the reverse.
 - **UI components never do I/O.** A Leptos `#[component]` must not open a
   `WebSocket`, construct an `RtcPeerConnection`, call `getDisplayMedia`,

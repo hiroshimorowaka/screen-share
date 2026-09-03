@@ -5,7 +5,9 @@
 
 use std::collections::{HashMap, HashSet};
 
-use screen_share_protocol::{LatencyInfo, MemberInfo, TurnCredentials, WatcherInfo};
+use screen_share_protocol::{
+    Color, LatencyInfo, MemberInfo, Nick, PeerId, TurnCredentials, WatcherInfo,
+};
 use wasm_bindgen_test::*;
 
 use super::*;
@@ -77,9 +79,9 @@ fn fresh_signals() -> (RoomSignals, Reads) {
 
 fn member(peer_id: &str, nick: &str) -> MemberInfo {
     MemberInfo {
-        peer_id: peer_id.to_string(),
-        nick: nick.to_string(),
-        color: "coral".to_string(),
+        peer_id: PeerId::from_relay(peer_id),
+        nick: Nick::from_relay(nick),
+        color: Color::from_relay("coral"),
     }
 }
 
@@ -138,11 +140,11 @@ fn maps_watchers_latencies_and_turn_into_their_signals() {
                 members: vec![member("me", "Ana"), member("p2", "Bia")],
                 active_sharers: vec!["p2".to_string()],
                 watcher_info: vec![WatcherInfo {
-                    sharer_id: "p2".to_string(),
-                    watchers: vec!["me".to_string()],
+                    sharer_id: PeerId::from_relay("p2"),
+                    watchers: vec![PeerId::from_relay("me")],
                 }],
                 latencies: vec![LatencyInfo {
-                    peer_id: "p2".to_string(),
+                    peer_id: PeerId::from_relay("p2"),
                     ms: 42,
                 }],
                 turn: Some(turn.clone()),

@@ -10,7 +10,9 @@ use uuid::Uuid;
 
 use super::auth::{hash_password, verify_password, MAX_PASSWORD_LEN};
 use screen_share_protocol::validate::{clean_nick, clean_room_name, is_valid_color};
-use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+use screen_share_protocol::{
+    Color, LatencyInfo, MemberInfo, Nick, PeerId, ServerMessage, WatcherInfo, MAX_MEMBERS,
+};
 
 /// Upper bound on a self-reported `Ping`/`Pong` round trip the server will
 /// rebroadcast as a peer's latency. Anything above this is a spoof
@@ -108,10 +110,10 @@ struct Room {
 
 #[derive(Debug)]
 pub struct JoinedSnapshot {
-    pub peer_id: String,
+    pub peer_id: PeerId,
     pub room_name: String,
     pub members: Vec<MemberInfo>,
-    pub active_sharers: Vec<String>,
+    pub active_sharers: Vec<PeerId>,
     pub watcher_info: Vec<WatcherInfo>,
     pub latencies: Vec<LatencyInfo>,
 }
@@ -306,12 +308,12 @@ impl Registry {
         );
 
         let snapshot = JoinedSnapshot {
-            peer_id: peer_id.clone(),
+            peer_id: PeerId::from_relay(peer_id.clone()),
             room_name,
             members: vec![MemberInfo {
-                peer_id,
-                nick,
-                color,
+                peer_id: PeerId::from_relay(peer_id),
+                nick: Nick::from_relay(nick),
+                color: Color::from_relay(color),
             }],
             active_sharers: vec![],
             watcher_info: vec![],
@@ -386,9 +388,9 @@ impl Registry {
 
         for member in room.members.values() {
             let _ = member.sender.try_send(ServerMessage::PeerJoined {
-                peer_id: peer_id.clone(),
-                nick: nick.clone(),
-                color: color.clone(),
+                peer_id: PeerId::from_relay(peer_id.clone()),
+                nick: Nick::from_relay(nick.clone()),
+                color: Color::from_relay(color.clone()),
             });
         }
 
@@ -407,21 +409,25 @@ impl Registry {
             .members
             .iter()
             .map(|(id, m)| MemberInfo {
-                peer_id: id.clone(),
-                nick: m.nick.clone(),
-                color: m.color.clone(),
+                peer_id: PeerId::from_relay(id.clone()),
+                nick: Nick::from_relay(m.nick.clone()),
+                color: Color::from_relay(m.color.clone()),
             })
             .collect();
-        let active_sharers: Vec<String> = room.sharers.iter().cloned().collect();
+        let active_sharers: Vec<PeerId> = room
+            .sharers
+            .iter()
+            .map(|id| PeerId::from_relay(id.clone()))
+            .collect();
         let watcher_info: Vec<WatcherInfo> = room
             .sharers
             .iter()
             .map(|sharer_id| WatcherInfo {
-                sharer_id: sharer_id.clone(),
+                sharer_id: PeerId::from_relay(sharer_id.clone()),
                 watchers: room
                     .watchers
                     .get(sharer_id)
-                    .map(|w| w.iter().cloned().collect())
+                    .map(|w| w.iter().map(|id| PeerId::from_relay(id.clone())).collect())
                     .unwrap_or_default(),
             })
             .collect();
@@ -430,14 +436,14 @@ impl Registry {
             .iter()
             .filter_map(|(id, m)| {
                 m.latency_ms.map(|ms| LatencyInfo {
-                    peer_id: id.clone(),
+                    peer_id: PeerId::from_relay(id.clone()),
                     ms,
                 })
             })
             .collect();
 
         Ok(JoinedSnapshot {
-            peer_id,
+            peer_id: PeerId::from_relay(peer_id),
             room_name: room.name.clone(),
             members,
             active_sharers,
@@ -462,7 +468,7 @@ impl Registry {
             for (id, member) in room.members.iter() {
                 if id != peer_id {
                     let _ = member.sender.try_send(ServerMessage::PeerStartedSharing {
-                        peer_id: peer_id.to_string(),
+                        peer_id: PeerId::from_relay(peer_id),
                     });
                 }
             }
@@ -477,7 +483,7 @@ impl Registry {
             for (id, member) in room.members.iter() {
                 if id != peer_id {
                     let _ = member.sender.try_send(ServerMessage::PeerStoppedSharing {
-                        peer_id: peer_id.to_string(),
+                        peer_id: PeerId::from_relay(peer_id),
                     });
                 }
             }
@@ -510,7 +516,7 @@ impl Registry {
             .insert(viewer_id.to_string());
         if let Some(sharer) = room.members.get(sharer_id) {
             let _ = sharer.sender.try_send(ServerMessage::WatchRequested {
-                from: viewer_id.to_string(),
+                from: PeerId::from_relay(viewer_id),
             });
         }
         broadcast_watchers_changed(room, sharer_id);
@@ -527,7 +533,7 @@ impl Registry {
         }
         if let Some(sharer) = room.members.get(sharer_id) {
             let _ = sharer.sender.try_send(ServerMessage::WatchStopped {
-                from: viewer_id.to_string(),
+                from: PeerId::from_relay(viewer_id),
             });
         }
         broadcast_watchers_changed(room, sharer_id);
@@ -555,7 +561,7 @@ impl Registry {
 
         for member in room.members.values() {
             let _ = member.sender.try_send(ServerMessage::PeerLatency {
-                peer_id: peer_id.to_string(),
+                peer_id: PeerId::from_relay(peer_id),
                 ms,
             });
         }
@@ -704,11 +710,11 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
 
     for member in room.members.values() {
         let _ = member.sender.try_send(ServerMessage::PeerLeft {
-            peer_id: peer_id.to_string(),
+            peer_id: PeerId::from_relay(peer_id),
         });
         if was_sharing {
             let _ = member.sender.try_send(ServerMessage::PeerStoppedSharing {
-                peer_id: peer_id.to_string(),
+                peer_id: PeerId::from_relay(peer_id),
             });
         }
     }
@@ -728,14 +734,14 @@ fn watch_related(room: &Room, a: &str, b: &str) -> bool {
 }
 
 fn broadcast_watchers_changed(room: &Room, sharer_id: &str) {
-    let watchers: Vec<String> = room
+    let watchers: Vec<PeerId> = room
         .watchers
         .get(sharer_id)
-        .map(|w| w.iter().cloned().collect())
+        .map(|w| w.iter().map(|id| PeerId::from_relay(id.clone())).collect())
         .unwrap_or_default();
     for member in room.members.values() {
         let _ = member.sender.try_send(ServerMessage::WatchersChanged {
-            sharer_id: sharer_id.to_string(),
+            sharer_id: PeerId::from_relay(sharer_id),
             watchers: watchers.clone(),
         });
     }

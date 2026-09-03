@@ -2,7 +2,9 @@
 
 use std::time::Duration;
 
-use screen_share_protocol::{LatencyInfo, MemberInfo, ServerMessage, WatcherInfo, MAX_MEMBERS};
+use screen_share_protocol::{
+    Color, LatencyInfo, MemberInfo, Nick, ServerMessage, WatcherInfo, MAX_MEMBERS,
+};
 use screen_share_signaling::auth::MAX_PASSWORD_LEN;
 use screen_share_signaling::registry::*;
 
@@ -45,8 +47,8 @@ async fn create_room_registers_creator_and_returns_snapshot() {
         snapshot.members,
         vec![MemberInfo {
             peer_id: snapshot.peer_id.clone(),
-            nick: "Ana".to_string(),
-            color: "coral".to_string()
+            nick: Nick::from_relay("Ana"),
+            color: Color::from_relay("coral")
         }]
     );
     assert_eq!(snapshot.room_name, "Sala da Ana");
@@ -150,8 +152,8 @@ async fn join_room_success_notifies_existing_members_and_includes_them_in_snapsh
         notification,
         ServerMessage::PeerJoined {
             peer_id: snapshot.peer_id.clone(),
-            nick: "Bia".to_string(),
-            color: "sky".to_string()
+            nick: Nick::from_relay("Bia"),
+            color: Color::from_relay("sky")
         }
     );
 }
@@ -262,8 +264,8 @@ async fn join_room_from_same_device_kicks_the_previous_connection() {
         recv(&mut viewer_rx).await,
         ServerMessage::PeerJoined {
             peer_id: snapshot.peer_id.clone(),
-            nick: "AnaCelular".to_string(),
-            color: "coral".to_string()
+            nick: Nick::from_relay("AnaCelular"),
+            color: Color::from_relay("coral")
         }
     );
 
@@ -1694,8 +1696,8 @@ async fn join_room_with_an_empty_device_id_does_not_kick_another_empty_device_id
         recv(&mut host_rx).await,
         ServerMessage::PeerJoined {
             peer_id: bia.peer_id.clone(),
-            nick: "Bia".to_string(),
-            color: "sky".to_string(),
+            nick: Nick::from_relay("Bia"),
+            color: Color::from_relay("sky"),
         }
     );
     assert!(
