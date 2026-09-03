@@ -56,7 +56,7 @@ pub(crate) fn setup_quick_share_auto_flow(
     expanded: RwSignal<Option<String>>,
 ) {
     use crate::features::room::{build_invite_link, leave_room};
-    use crate::session::media::start_sharing;
+    use crate::session::media::{start_sharing, BrowserDisplayCapture};
 
     if !crate::quick_share::requested() {
         return;
@@ -76,6 +76,7 @@ pub(crate) fn setup_quick_share_auto_flow(
             let conn_for_cancel = conn_for_cancel.clone();
             let room_code_for_cancel = room_code.clone();
             start_sharing(
+                BrowserDisplayCapture,
                 conn.clone(),
                 share.set_is_sharing,
                 share.own_preview_hidden,

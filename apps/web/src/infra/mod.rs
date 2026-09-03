@@ -1,3 +1,4 @@
+pub(crate) mod display_capture;
 pub mod dom;
 pub mod rooms_api;
 pub mod session;

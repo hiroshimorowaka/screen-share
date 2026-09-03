@@ -263,3 +263,130 @@ fn native_stop_listener_is_retained_on_the_session_and_cleared_on_teardown() {
         "share teardown clears the stored listener"
     );
 }
+
+/// A `DisplayCapture` that resolves to a given stream instead of prompting
+/// a real picker — headless Chrome has no display to capture, so this is
+/// the only way `start_sharing`'s happy path (as opposed to the
+/// always-taken cancelled-picker branch) gets exercised outside `e2e-web`.
+#[derive(Clone)]
+struct FakeDisplayCapture {
+    stream: web_sys::MediaStream,
+}
+
+impl DisplayCapture for FakeDisplayCapture {
+    async fn capture(&self) -> Result<web_sys::MediaStream, wasm_bindgen::JsValue> {
+        // `Clone::clone`, not `self.stream.clone()`: `MediaStream` has an
+        // inherent `clone()` bound to the DOM's `MediaStream.clone()) —
+        // an actual new stream with a new id — which method-call syntax
+        // resolves to over the trait. UFCS forces the trait's cheap
+        // reference clone instead, so the test can still recognize the
+        // exact stream it handed in by `id()`.
+        Ok(Clone::clone(&self.stream))
+    }
+}
+
+/// A `DisplayCapture` that always rejects, like a real cancelled picker.
+#[derive(Clone)]
+struct RejectingDisplayCapture;
+
+impl DisplayCapture for RejectingDisplayCapture {
+    async fn capture(&self) -> Result<web_sys::MediaStream, wasm_bindgen::JsValue> {
+        Err(wasm_bindgen::JsValue::from_str("cancelled"))
+    }
+}
+
+/// `start_sharing` spawns its work via `leptos::task::spawn_local`, which
+/// needs a global executor initialized first — the real app gets this for
+/// free from `leptos::mount::hydrate_body`, but the wasm test harness
+/// never calls that. Idempotent (`init_wasm_bindgen` errors, harmlessly,
+/// on a second call), so every test in this file can call it.
+fn ensure_executor() {
+    let _ = any_spawner::Executor::init_wasm_bindgen();
+}
+
+/// `start_sharing` only ever awaits once (`capture.capture()`) before
+/// finishing synchronously — see the comment above `set_is_sharing.set(true)`
+/// in `start_sharing` itself. Yielding a few real microtask turns is
+/// enough for its `spawn_local`'d task to run to completion.
+async fn flush_microtasks() {
+    for _ in 0..5 {
+        let _ = wasm_bindgen_futures::JsFuture::from(js_sys::Promise::resolve(
+            &wasm_bindgen::JsValue::UNDEFINED,
+        ))
+        .await;
+    }
+}
+
+#[wasm_bindgen_test]
+async fn start_sharing_with_a_resolved_capture_marks_sharing_and_stores_the_stream() {
+    ensure_executor();
+    let owner = Owner::new();
+    let (is_sharing, set_is_sharing) = owner.with(|| signal(false));
+    let (my_peer_id, _) = owner.with(|| signal(None::<String>));
+    let (_status, set_status) = owner.with(|| signal(String::new()));
+    let own_preview_hidden = owner.with(|| RwSignal::new(false));
+    let expanded = owner.with(|| RwSignal::new(None::<String>));
+
+    let conn = crate::session::RoomSession::new();
+    let stream = stream_of(&["video"]);
+    let stream_id = stream.id();
+    let capture = FakeDisplayCapture { stream };
+
+    start_sharing(
+        capture,
+        conn.clone(),
+        set_is_sharing,
+        own_preview_hidden,
+        set_status,
+        my_peer_id,
+        expanded,
+        || panic!("a resolved capture must not run on_cancelled"),
+    );
+    flush_microtasks().await;
+
+    assert!(
+        is_sharing.get_untracked(),
+        "is_sharing flips true once the capture resolves"
+    );
+    assert!(conn.sharing.borrow().is_sharing());
+    assert_eq!(
+        conn.sharing.borrow().stream().map(web_sys::MediaStream::id),
+        Some(stream_id),
+        "the exact captured stream is stored, not a clone-of-a-clone"
+    );
+}
+
+#[wasm_bindgen_test]
+async fn start_sharing_with_a_rejecting_capture_runs_on_cancelled_and_stays_idle() {
+    ensure_executor();
+    let owner = Owner::new();
+    let (is_sharing, set_is_sharing) = owner.with(|| signal(false));
+    let (my_peer_id, _) = owner.with(|| signal(None::<String>));
+    let (status, set_status) = owner.with(|| signal(String::new()));
+    let own_preview_hidden = owner.with(|| RwSignal::new(false));
+    let expanded = owner.with(|| RwSignal::new(None::<String>));
+
+    let conn = crate::session::RoomSession::new();
+    let cancelled = std::rc::Rc::new(std::cell::Cell::new(false));
+    let cancelled_flag = cancelled.clone();
+
+    start_sharing(
+        RejectingDisplayCapture,
+        conn.clone(),
+        set_is_sharing,
+        own_preview_hidden,
+        set_status,
+        my_peer_id,
+        expanded,
+        move || cancelled_flag.set(true),
+    );
+    flush_microtasks().await;
+
+    assert!(
+        cancelled.get(),
+        "on_cancelled runs when the picker (here, the fake) rejects"
+    );
+    assert!(!is_sharing.get_untracked(), "sharing never starts");
+    assert!(!conn.sharing.borrow().is_sharing());
+    assert_eq!(status.get_untracked(), "Conectado.");
+}

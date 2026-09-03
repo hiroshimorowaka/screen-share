@@ -1,8 +1,25 @@
 use leptos::prelude::*;
 
+#[cfg(feature = "hydrate")]
+use crate::infra::display_capture::DisplayCapture;
 use crate::session::RoomSession;
 #[cfg(feature = "hydrate")]
 use crate::session::SharingState;
+
+/// The real, browser-backed `DisplayCapture` — a zero-sized marker with
+/// no `web_sys` inside it, so it's nameable from the `ssr` build's inert
+/// `switch_source_handler` stub too, which shares a call site with the
+/// `hydrate` one (`infra`, where `DisplayCapture` itself lives, doesn't
+/// exist at all under `ssr`).
+#[derive(Clone, Copy, Default)]
+pub(crate) struct BrowserDisplayCapture;
+
+#[cfg(feature = "hydrate")]
+impl DisplayCapture for BrowserDisplayCapture {
+    async fn capture(&self) -> Result<web_sys::MediaStream, wasm_bindgen::JsValue> {
+        crate::infra::webrtc::capture_display().await
+    }
+}
 
 #[cfg(not(feature = "hydrate"))]
 pub(crate) fn share_supported() -> bool {
@@ -71,6 +88,7 @@ pub(crate) fn share_toggle_handler(
             // sitting in the room unshared, same as before — only the
             // quick-share auto-trigger needs to react to a cancelled pick.
             start_sharing(
+                BrowserDisplayCapture,
                 conn.clone(),
                 set_is_sharing,
                 own_preview_hidden,
@@ -190,8 +208,13 @@ fn play_stream_in_self_preview(peer_id: &str, stream: &web_sys::MediaStream) {
 /// `on_cancelled` runs if the user closes the picker without choosing
 /// anything — the quick-share flow uses it to leave the room instead of
 /// sitting in it, hidden and unshared, forever.
+// Seven reactive/identity handles plus `capture` (the `DisplayCapture`
+// seam, step 8) — each distinct and needed as-is; see the matching note
+// on `switch_source_handler` below.
+#[allow(clippy::too_many_arguments)]
 #[cfg(feature = "hydrate")]
-pub(crate) fn start_sharing(
+pub(crate) fn start_sharing<C: DisplayCapture + 'static>(
+    capture: C,
     conn: RoomSession,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
@@ -202,13 +225,12 @@ pub(crate) fn start_sharing(
 ) {
     use leptos::task::spawn_local;
 
-    use crate::infra::webrtc::capture_display;
     use screen_share_protocol::ClientMessage;
 
     let my_peer_id_value = my_peer_id.get_untracked();
 
     spawn_local(async move {
-        let stream = match capture_display().await {
+        let stream = match capture.capture().await {
             Ok(stream) => stream,
             // Cancelling the OS picker rejects here; keep the status clean.
             Err(_) => {
@@ -439,7 +461,8 @@ pub(crate) fn stop_sharing(
 
 #[allow(clippy::too_many_arguments)]
 #[cfg(not(feature = "hydrate"))]
-pub(crate) fn switch_source_handler(
+pub(crate) fn switch_source_handler<C>(
+    _capture: C,
     _conn: RoomSession,
     _set_is_sharing: WriteSignal<bool>,
     _own_preview_hidden: RwSignal<bool>,
@@ -464,7 +487,8 @@ pub(crate) fn switch_source_handler(
 // bundling them into a struct would just move the same list one level down.
 #[allow(clippy::too_many_arguments)]
 #[cfg(feature = "hydrate")]
-pub(crate) fn switch_source_handler(
+pub(crate) fn switch_source_handler<C: DisplayCapture + Clone + 'static>(
+    capture: C,
     conn: RoomSession,
     set_is_sharing: WriteSignal<bool>,
     own_preview_hidden: RwSignal<bool>,
@@ -478,7 +502,7 @@ pub(crate) fn switch_source_handler(
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
 
-    use crate::infra::webrtc::{capture_display, stop_desktop_audio_loopback};
+    use crate::infra::webrtc::stop_desktop_audio_loopback;
 
     move |_| {
         // Nothing to switch if we aren't the one sharing.
@@ -486,6 +510,7 @@ pub(crate) fn switch_source_handler(
             return;
         }
         let conn = conn.clone();
+        let capture = capture.clone();
         let my_peer_id_value = my_peer_id.get_untracked();
 
         spawn_local(async move {
@@ -509,7 +534,7 @@ pub(crate) fn switch_source_handler(
             // doesn't stack a second one; a no-op in a plain browser.
             let _ = stop_desktop_audio_loopback().await;
 
-            let new_stream = match capture_display().await {
+            let new_stream = match capture.capture().await {
                 Ok(stream) => stream,
                 Err(_) => {
                     set_status.set("Conectado.".to_string());

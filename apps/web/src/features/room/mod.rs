@@ -194,6 +194,7 @@ pub fn RoomPage() -> impl IntoView {
     let set_video_mode =
         crate::session::video_mode::set_video_mode_handler(conn.clone(), video_mode);
     let switch_source = switch_source_handler(
+        crate::session::media::BrowserDisplayCapture,
         conn.clone(),
         share_ui.set_is_sharing,
         share_ui.own_preview_hidden,

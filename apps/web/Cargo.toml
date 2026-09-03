@@ -98,6 +98,12 @@ web-sys = { version = "0.3.104", optional = true, features = [
 # exact `=` requirement on `wasm-bindgen`, so Cargo enforces the pairing.
 wasm-bindgen-test = "=0.3.77"
 
+# `leptos::task::spawn_local` (used by `session::media::start_sharing`)
+# needs a global executor initialized first — `leptos::mount::hydrate_body`
+# does this for the real app, but the wasm test harness never calls it, so
+# tests that exercise a `spawn_local`'d path init one explicitly.
+any_spawner = "0.3"
+
 # Native-only: the `ssr` integration tests name `HandshakeConfig` to
 # exercise the SSR rate-limit middleware. Kept off the wasm32 target so
 # the `hydrate` `--lib` test build doesn't pull tokio/mio.
