@@ -6,6 +6,7 @@ use super::media_controls::{
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use crate::components::icons::{icon_eye, icon_maximize, icon_pip, icon_screen_off};
 use crate::components::palette::{avatar_letter, color_hex};
+use crate::session::share_ui::PeerMedia;
 use crate::session::RoomMember;
 use crate::session::RoomSession;
 use screen_share_protocol::{QualityLevel, MAX_MEMBERS};
@@ -28,11 +29,8 @@ pub(super) struct MemberCardSignals {
     pub(super) own_preview_hidden: RwSignal<bool>,
     pub(super) hide_idle: RwSignal<bool>,
     pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
-    pub(super) volume_by_peer: RwSignal<std::collections::HashMap<String, f64>>,
-    pub(super) muted_by_peer: RwSignal<std::collections::HashSet<String>>,
+    pub(super) peer_media: PeerMedia,
     pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
-    pub(super) quality_by_peer:
-        RwSignal<std::collections::HashMap<String, screen_share_protocol::QualityLevel>>,
     /// Touch device — see `super::touch`. On touch, watching a sharer also
     /// focuses their tile, and a tap on the focused video toggles the
     /// chrome instead of collapsing focus.
@@ -112,13 +110,16 @@ fn MemberCard(conn: RoomSession, signals: MemberCardSignals, index: usize) -> im
         own_preview_hidden,
         hide_idle,
         connection_errors,
-        volume_by_peer,
-        muted_by_peer,
+        peer_media,
         latency_by_peer,
-        quality_by_peer,
         is_touch,
         controls_visible,
     } = signals;
+    let PeerMedia {
+        volume_by_peer,
+        muted_by_peer,
+        quality_by_peer,
+    } = peer_media;
     let i = index;
 
     let member_at = move || members.get().get(i).cloned();

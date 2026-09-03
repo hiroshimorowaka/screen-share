@@ -18,7 +18,7 @@ const COPIED_INDICATOR_MS: i32 = 2000;
 /// which hands this same link to the Electron shell to copy on the
 /// sharer's behalf.
 #[cfg(feature = "hydrate")]
-pub(super) fn build_invite_link(room_code: &str) -> Option<String> {
+pub(crate) fn build_invite_link(room_code: &str) -> Option<String> {
     let window = web_sys::window()?;
     let origin = window.location().origin().ok()?;
     Some(format!("{origin}/r/{room_code}"))
@@ -30,7 +30,7 @@ pub(super) fn build_invite_link(room_code: &str) -> Option<String> {
 /// focus) just leaves `invite_copied` untouched. Shared by the invite
 /// button and the "copy on share start" effect in `RoomPage`.
 #[cfg(feature = "hydrate")]
-pub(super) fn copy_invite_link(room_code: &str, invite_copied: RwSignal<bool>) {
+pub(crate) fn copy_invite_link(room_code: &str, invite_copied: RwSignal<bool>) {
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
     use wasm_bindgen_futures::JsFuture;

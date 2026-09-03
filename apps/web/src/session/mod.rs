@@ -5,6 +5,8 @@ pub mod latency;
 pub mod media;
 pub mod quality;
 pub mod reconnect;
+pub(crate) mod share_effects;
+pub(crate) mod share_ui;
 pub mod video_mode;
 
 use leptos::prelude::*;

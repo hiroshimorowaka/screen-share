@@ -14,27 +14,39 @@ each left `cargo test --workspace --features ssr` (209), the wasm suite
 | 6 | `fd75e11` | Split `card.css` (691) → +`card-widgets.css`; `room.css` (590) → +`room-transmission-menu.css`. Verified the selector + declaration set is byte-identical | done |
 | 7 | `2a5923a` | New dependency-free `crates/domain`: `sdp` (whole module) + `backoff::BackoffPolicy`, now native-tested. Dependency ladder + CLAUDE.md updated | done |
 | 4 | `83c9415` | `member_cards` (333-ln free fn) → 6-line loop over `<MemberCard>`; `QualityMenu` + `VolumeControl` become components in `member_card/parts.rs` | done |
-| 5 | `ac80131` | The three pre-auth panels + `manual_join` → `<RoomGate>` in `features/room/gate.rs` | **partial** |
+| 5 | `ac80131`, — | The three pre-auth panels + `manual_join` → `<RoomGate>`; own-share/audio signals bundled into `ShareUi`/`PeerMedia` (`session::share_ui`); the quick-share and audio-effects blocks lifted into `session::share_effects` | **done** (`SharingState` enum split out — see below) |
 | 8 | — | Seam traits (`SignalingTransport` / `PeerLink` / `DisplayCapture`) | **deferred** |
 
 ## Remaining work
 
-### Step 5 — the rest
+### `SharingState` enum — deferred, own session (not part of step 5 anymore)
 
-`RoomPage` is still ~450 lines: it owns ~25 signals, the desktop
-quick-share auto-flow effect, the audio-self-test / mute / invite-copy
-effect block, and the stage-header + control-bar markup. Not yet done,
-each needs the manual two-tab gate:
+Replacing the `is_sharing: bool` signal + `RoomSession.local_stream:
+Option<MediaStream>` held separately with one `SharingState` enum
+(`Idle` / `Sharing { stream }`) was step 5's last item. Re-examining it
+against `docs/superpowers/plans/2026-08-28-refactor-phase-5-roomsession.md`
+(§"5b.5 — DEFERRED"), this exact change was already scoped and
+deliberately deferred there, bundled with the `RoomSession` method-API
+work, for the same reason: "each of its own sub-steps needs a full
+2-tab browser GATE" and it should be "scheduled as a dedicated
+session." That reasoning still holds and a background session has no
+way to run that gate — this stays out of scope here rather than being
+forced through unverified. Splitting it out of step 5 (which is now
+otherwise done) instead of leaving step 5 "partial" indefinitely.
 
-- **Bundle the signals** into small state structs (`ShareUi`, `WatchUi`,
-  `PeerMedia`) so consumers depend only on what they read.
-- **Lift the two `#[cfg(feature = "hydrate")]` effect blocks** into named
-  `fn`s under `session/` (paired `#[cfg(not(hydrate))]` no-ops), so
-  RoomPage stops holding browser-effect wiring inline.
-- **`SharingState` enum** (`Idle` / `Sharing { stream }`) replacing the
-  `is_sharing: bool` signal + `RoomSession.local_stream: Option<…>` held
-  in parallel — the "impossible states" tightening. Invasive: touches
-  `session/{mod,media}`, every `is_sharing` reader, and the wasm tests.
+**Why it doesn't reduce to a pure refactor:** `is_sharing` is a reactive
+Leptos signal the view reads; `local_stream` is a plain
+`Rc<RefCell<Option<MediaStream>>>` deliberately *non*-reactive so it stays
+readable/writable from JS callbacks and from a bare `wasm-bindgen-test`
+with no reactive runtime (see `teardown_local_share`'s doc comment and
+`session/media/wasm_tests.rs`). Folding both into one signal would need
+`local_stream` to become reactive too, which breaks that "callable
+outside any component" invariant several existing tests rely on. A
+narrower, still-real slice — replacing `RoomSession`'s
+`Option<MediaStream>` with an `Idle`/`Sharing{stream}` enum on its own,
+independent of the UI-facing `is_sharing` signal — is worth doing, but
+still needs the two-tab GATE (share → the browser's own "stop sharing"
+control → no stuck indicator) that this session can't run.
 
 ### Step 8 — deferred, own session
 
@@ -58,7 +70,9 @@ needs a maintainer gate between sub-steps, like the previously-deferred
 
 `scripts/test-all.sh --no-mutants` on the branch tip: fmt, clippy
 (ssr + hydrate), `cargo leptos build`, workspace tests (209), wasm suite
-(54), and every desktop check — all green.
+(54, including `session::media::wasm_tests` and
+`session::audio::wasm_tests`, both of which touch `local_stream`
+directly and still pass unchanged), and every desktop check — all green.
 
 `scripts/test-all.sh e2e-web` (Playwright, 36 tests, headed under xvfb) —
 all green. This covers the two-tab path the refactor most affects:

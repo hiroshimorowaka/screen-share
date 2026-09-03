@@ -96,7 +96,7 @@ pub(super) fn stop_watching_click_handler(
 /// cancelled-picker path (`share::start_sharing`'s `on_cancelled`).
 #[cfg(not(feature = "hydrate"))]
 #[allow(dead_code)]
-pub(super) fn leave_room(
+pub(crate) fn leave_room(
     _conn: &RoomSession,
     _room_code: &str,
     _my_peer_id: ReadSignal<Option<String>>,
@@ -104,7 +104,7 @@ pub(super) fn leave_room(
 }
 
 #[cfg(feature = "hydrate")]
-pub(super) fn leave_room(
+pub(crate) fn leave_room(
     conn: &RoomSession,
     room_code: &str,
     my_peer_id: ReadSignal<Option<String>>,

@@ -11,27 +11,29 @@ mod watch;
 
 #[cfg(debug_assertions)]
 pub(crate) use dev_preview::DevRoomPreviewPage;
+#[cfg(feature = "hydrate")]
+pub(crate) use invite::{build_invite_link, copy_invite_link};
+// Only read by `session::share_effects`, which is itself only reachable
+// from hydrate-only call sites — an `ssr` build sees no reads.
+#[cfg_attr(not(feature = "hydrate"), allow(unused_imports))]
+pub(crate) use watch::leave_room;
 
 use leptos::prelude::*;
 use leptos_router::hooks::use_params_map;
 
 use crate::session::latency::setup_ping_loop;
-#[cfg(feature = "hydrate")]
-use crate::session::media::start_sharing;
 use crate::session::media::{
     share_supported, share_toggle_handler, sharing_can_have_audio, switch_source_handler,
 };
+use crate::session::share_effects::{setup_quick_share_auto_flow, setup_share_side_effects};
+use crate::session::share_ui::{PeerMedia, ShareUi};
 use gate::RoomGate;
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
-#[cfg(feature = "hydrate")]
-use invite::build_invite_link;
 use invite::invite_click_handler;
 use media_controls::setup_fullscreen_autohide_controls;
 use member_card::{member_cards, MemberCardSignals};
 use room_check::start_room_check;
 use watch::leave_or_stop_watching_handler;
-#[cfg(feature = "hydrate")]
-use watch::leave_room;
 
 use crate::components::icons::{
     icon_check, icon_eye_off, icon_link, icon_log_out, icon_minimize, icon_monitor,
@@ -44,26 +46,11 @@ use crate::session::{
 };
 use screen_share_protocol::MAX_MEMBERS;
 
-/// Whether a captured share stream ended up with an audio track — the one
-/// signal the web side has for "this share carries audio", since the
-/// desktop picker's audio choice never crosses back to the renderer.
-#[cfg(feature = "hydrate")]
-fn stream_has_audio_track(stream: &web_sys::MediaStream) -> bool {
-    use wasm_bindgen::JsCast;
-
-    stream
-        .get_tracks()
-        .iter()
-        .filter_map(|entry| entry.dyn_into::<web_sys::MediaStreamTrack>().ok())
-        .any(|track| track.kind() == "audio")
-}
-
 // Over the line lint: the pre-auth panels are now `<RoomGate>` and the
-// per-slot card view is `<MemberCard>`, but RoomPage still owns the room's
-// ~25 signals, the desktop quick-share / audio-self-test effects, and the
-// stage-header + control-bar markup. Splitting the signal ownership into
-// small state structs and lifting the effects into `session::` is the
-// remaining follow-up.
+// per-slot card view is `<MemberCard>`, and the own-share/audio signals
+// are bundled into `ShareUi` (see `session::share_ui`) with their effects
+// lifted into `session::share_effects`, but RoomPage still owns the
+// room's remaining signals and the stage-header + control-bar markup.
 #[allow(clippy::too_many_lines)]
 #[component]
 pub fn RoomPage() -> impl IntoView {
@@ -96,33 +83,27 @@ pub fn RoomPage() -> impl IntoView {
     let turn_credentials = RwSignal::new(None::<screen_share_protocol::TurnCredentials>);
     let audio_preset = RwSignal::new(crate::session::audio::AudioPreset::default());
     let video_mode = RwSignal::new(crate::session::video_mode::VideoMode::default());
-    // Whether the sharer has silenced their own outgoing audio (the track
-    // stays published, viewers just hear silence). Reset to `false` when a
-    // share ends — see the effect below.
-    let audio_muted = RwSignal::new(false);
-    let own_preview_hidden = RwSignal::new(false);
-    let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
-    let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
-    let quality_by_peer = RwSignal::new(std::collections::HashMap::<
-        String,
-        screen_share_protocol::QualityLevel,
-    >::new());
+    // See `ShareUi` for what each of these drives; bundled into one struct
+    // so the quick-share flow, the audio-effects trio, and the header
+    // markup below each take one value instead of six loose ones.
+    let share_ui = ShareUi {
+        is_sharing,
+        set_is_sharing,
+        own_preview_hidden: RwSignal::new(false),
+        audio_muted: RwSignal::new(false),
+        share_has_audio: RwSignal::new(false),
+        audio_warning: RwSignal::new(None::<&'static str>),
+        share_generation: RwSignal::new(0u32),
+    };
+    let peer_media = PeerMedia {
+        volume_by_peer: RwSignal::new(std::collections::HashMap::<String, f64>::new()),
+        muted_by_peer: RwSignal::new(std::collections::HashSet::<String>::new()),
+        quality_by_peer: RwSignal::new(std::collections::HashMap::<
+            String,
+            screen_share_protocol::QualityLevel,
+        >::new()),
+    };
     let hide_idle = RwSignal::new(false);
-    // Set by the audio self-test once a share of ours has been probed (see
-    // the effect below); `None` means "nothing wrong / not checked yet".
-    let audio_warning = RwSignal::new(None::<&'static str>);
-    // Whether the current share's captured stream actually carries an audio
-    // track (see `stream_has_audio_track`). The web side never learns
-    // whether the sharer ticked "compartilhar áudio" in the desktop
-    // picker, so this is the closest signal for "this share has audio" —
-    // it drives the header audio chip's on/off wording. Reset when sharing
-    // stops.
-    let share_has_audio = RwSignal::new(false);
-    // Bumped on every source switch so the audio self-test effect below
-    // re-runs — `is_sharing` stays `true` across a switch, so without this
-    // the effect wouldn't re-read the new stream and the "Áudio ligado"
-    // chip would keep a stale value.
-    let share_generation = RwSignal::new(0u32);
     let controls_visible = RwSignal::new(true);
     // Touch device? Drives the tap-to-toggle chrome and the touch-only
     // auto-hide behaviour; everything else adapts in CSS. Starts `false`
@@ -179,48 +160,17 @@ pub fn RoomPage() -> impl IntoView {
     // The desktop tray's quick-share flow: once the room-creation join
     // above authenticates, start sharing immediately with no click, then
     // hand the invite link to the desktop shell as soon as the share goes
-    // live. Each effect has its own "already done" latch — `authenticated`
-    // and `is_sharing` can each change more than once over the page's
-    // life, but this must only ever fire once.
-    #[cfg(feature = "hydrate")]
-    {
-        let quick_share_active = crate::quick_share::requested();
-        let auto_share_started = RwSignal::new(false);
-        let auto_share_notified = RwSignal::new(false);
-        let room_code_for_notify = initial_code.clone();
-        let room_code_for_cancel = initial_code.clone();
-        let conn_for_auto_share = conn.clone();
-        let conn_for_cancel = conn.clone();
-
-        Effect::new(move |_| {
-            if quick_share_active && authenticated.get() && !auto_share_started.get_untracked() {
-                auto_share_started.set(true);
-                // Nobody's watching this hidden window to pick a screen a
-                // second time — cancelling the picker here means leaving,
-                // not sitting in the room unshared forever.
-                let conn_for_cancel = conn_for_cancel.clone();
-                let room_code_for_cancel = room_code_for_cancel.clone();
-                start_sharing(
-                    conn_for_auto_share.clone(),
-                    set_is_sharing,
-                    own_preview_hidden,
-                    set_status,
-                    my_peer_id,
-                    expanded,
-                    move || leave_room(&conn_for_cancel, &room_code_for_cancel, my_peer_id),
-                );
-            }
-        });
-
-        Effect::new(move |_| {
-            if quick_share_active && is_sharing.get() && !auto_share_notified.get_untracked() {
-                auto_share_notified.set(true);
-                if let Some(link) = build_invite_link(&room_code_for_notify) {
-                    crate::infra::webrtc::notify_desktop_share_ready(&link);
-                }
-            }
-        });
-    }
+    // live. See `session::share_effects` — a no-op unless the URL carries
+    // the `quick_share` flag.
+    setup_quick_share_auto_flow(
+        conn.clone(),
+        initial_code.clone(),
+        authenticated,
+        share_ui,
+        set_status,
+        my_peer_id,
+        expanded,
+    );
 
     start_room_check(
         initial_code.clone(),
@@ -231,9 +181,9 @@ pub fn RoomPage() -> impl IntoView {
 
     let toggle_share = share_toggle_handler(
         conn.clone(),
-        is_sharing,
-        set_is_sharing,
-        own_preview_hidden,
+        share_ui.is_sharing,
+        share_ui.set_is_sharing,
+        share_ui.own_preview_hidden,
         set_status,
         my_peer_id,
         expanded,
@@ -245,14 +195,14 @@ pub fn RoomPage() -> impl IntoView {
         crate::session::video_mode::set_video_mode_handler(conn.clone(), video_mode);
     let switch_source = switch_source_handler(
         conn.clone(),
-        set_is_sharing,
-        own_preview_hidden,
+        share_ui.set_is_sharing,
+        share_ui.own_preview_hidden,
         set_status,
         my_peer_id,
         expanded,
-        audio_muted.read_only(),
+        share_ui.audio_muted.read_only(),
         video_mode.read_only(),
-        share_generation,
+        share_ui.share_generation,
     );
     let leave_or_stop_watching = leave_or_stop_watching_handler(
         conn.clone(),
@@ -263,7 +213,13 @@ pub fn RoomPage() -> impl IntoView {
     );
     let (pause_hide_controls, resume_hide_controls) =
         setup_auto_hide_controls(controls_visible, is_touch, expanded);
-    setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
+    setup_adaptive_grid(
+        members,
+        hide_idle,
+        share_ui.own_preview_hidden,
+        share_ui.is_sharing,
+        expanded,
+    );
     setup_fullscreen_autohide_controls();
     setup_ping_loop(conn.clone());
     // On leaving the room, tear down every peer connection, its callbacks,
@@ -271,64 +227,19 @@ pub fn RoomPage() -> impl IntoView {
     // whole session alive in memory.
     crate::session::reconnect::drop_peers_on_cleanup(conn.clone());
 
-    // Audio self-test: whenever a share of ours starts, tap the captured
-    // stream for a couple of seconds and warn the sharer if no sound came
-    // through (capture failed, muted device, silent source). Cleared as
-    // soon as sharing stops.
-    #[cfg(feature = "hydrate")]
-    {
-        let conn_for_probe = conn.clone();
-        Effect::new(move |_| {
-            // Re-run after a source switch (see `share_generation`).
-            share_generation.track();
-            if !is_sharing.get() {
-                audio_warning.set(None);
-                share_has_audio.set(false);
-                return;
-            }
-            let Some(stream) = conn_for_probe.local_stream.borrow().clone() else {
-                return;
-            };
-            // A desktop share that opted out of audio and one whose
-            // loopback capture failed both arrive here as a video-only
-            // stream, indistinguishable from the renderer. Treat "the
-            // stream actually carries an audio track" as the intent: no
-            // track means audio simply wasn't part of this share (not a
-            // failure to warn about); a silent track is still flagged.
-            let has_audio_track = stream_has_audio_track(&stream);
-            share_has_audio.set(has_audio_track);
-            leptos::task::spawn_local(async move {
-                let health =
-                    crate::session::audio_health::probe_share_audio(&stream, has_audio_track).await;
-                audio_warning.set(health.warning());
-            });
-        });
+    // The audio self-test, the outgoing-mute toggle, and copying the
+    // invite link on share start — see `session::share_effects`.
+    setup_share_side_effects(conn.clone(), initial_code.clone(), share_ui, invite_copied);
 
-        // Applying/clearing the outgoing audio mute. Also resets the toggle
-        // when a share ends, so the next share starts un-muted.
-        let conn_for_mute = conn.clone();
-        Effect::new(move |_| {
-            let muted = audio_muted.get();
-            if !is_sharing.get() {
-                if muted {
-                    audio_muted.set(false);
-                }
-                return;
-            }
-            crate::session::audio::set_shared_audio_muted(&conn_for_mute, muted);
-        });
-
-        // Copy the invite link the moment a share of ours goes live, so
-        // there's something ready to paste — the quick-share flow already
-        // does this via the desktop shell, so skip it there.
-        let quick_share_active = crate::quick_share::requested();
-        let room_code_for_copy = initial_code.clone();
-        Effect::new(move |_| {
-            if is_sharing.get() && !quick_share_active {
-                invite::copy_invite_link(&room_code_for_copy, invite_copied);
-            }
-        });
-    }
+    // Local names for the markup below, which reads these often enough
+    // that `share_ui.foo` everywhere would be noise.
+    let ShareUi {
+        own_preview_hidden,
+        audio_muted,
+        share_has_audio,
+        audio_warning,
+        ..
+    } = share_ui;
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -463,10 +374,8 @@ pub fn RoomPage() -> impl IntoView {
                     own_preview_hidden,
                     hide_idle,
                     connection_errors,
-                    volume_by_peer,
-                    muted_by_peer,
+                    peer_media,
                     latency_by_peer,
-                    quality_by_peer,
                     is_touch,
                     controls_visible,
                 })}

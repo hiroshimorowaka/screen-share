@@ -22,6 +22,7 @@ use super::watch::leave_or_stop_watching_handler;
 use crate::components::color_picker::ColorPicker;
 use crate::components::icons::{icon_eye_off, icon_log_out, icon_screen_off, icon_video_off};
 use crate::components::palette::{color_hex, palette_ids, DEFAULT_COLOR};
+use crate::session::share_ui::PeerMedia;
 use crate::session::RoomMember;
 use crate::session::RoomSession;
 use screen_share_protocol::MAX_MEMBERS;
@@ -262,10 +263,12 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                     own_preview_hidden,
                     hide_idle,
                     connection_errors,
-                    volume_by_peer,
-                    muted_by_peer,
+                    peer_media: PeerMedia {
+                        volume_by_peer,
+                        muted_by_peer,
+                        quality_by_peer,
+                    },
                     latency_by_peer,
-                    quality_by_peer,
                     is_touch,
                     controls_visible,
                 })}
