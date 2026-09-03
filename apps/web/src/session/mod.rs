@@ -34,7 +34,11 @@ pub(crate) type LocalCaptureCallback =
 #[cfg(feature = "hydrate")]
 #[derive(Clone)]
 pub struct RoomSession {
-    pub(crate) ws: std::rc::Rc<std::cell::RefCell<Option<crate::infra::socket::WsClient>>>,
+    /// Boxed behind `SignalingTransport` (not the concrete `WsClient`) so
+    /// a test can swap in a fake that just records what was sent.
+    pub(crate) ws: std::rc::Rc<
+        std::cell::RefCell<Option<Box<dyn crate::infra::signaling_transport::SignalingTransport>>>,
+    >,
     pub(crate) outgoing: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
     >,
@@ -218,7 +222,7 @@ pub(crate) fn setup_room_connection(
                     signals,
                     room_code.clone(),
                 );
-                *conn.ws.borrow_mut() = Some(ws);
+                *conn.ws.borrow_mut() = Some(Box::new(ws));
                 save_profile(&Profile { nick, color });
             }
             Err(_) => set_status.set("Não foi possível conectar ao servidor.".to_string()),
@@ -276,5 +280,5 @@ pub(crate) fn adopt_pending_session(
         signals,
     );
 
-    *conn.ws.borrow_mut() = Some(session.ws);
+    *conn.ws.borrow_mut() = Some(Box::new(session.ws));
 }

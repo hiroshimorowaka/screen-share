@@ -193,7 +193,7 @@ mod wiring {
                     }
                 });
                 install_close_handler(&ws, conn.clone(), signals, room_code);
-                *conn.ws.borrow_mut() = Some(ws);
+                *conn.ws.borrow_mut() = Some(Box::new(ws));
             }
             // Couldn't even open the socket — treat it as another failed
             // attempt and back off again.
