@@ -17,8 +17,6 @@ pub mod room;
 
 #[cfg(feature = "hydrate")]
 pub mod client;
-#[cfg(feature = "hydrate")]
-pub mod quick_share;
 
 #[cfg(feature = "hydrate")]
 #[wasm_bindgen::prelude::wasm_bindgen]

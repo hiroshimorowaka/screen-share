@@ -1,3 +1,4 @@
+@layer components {
 /* The sharer transmission-settings popover (video mode, audio quality,
    mute) — see components/transmission_menu.rs. Split out of room.css;
    the selectors appear nowhere else. Loaded immediately after room.css. */
@@ -124,4 +125,5 @@
 .transmission-menu__opt:focus-visible {
   outline: 2px solid var(--accent-strong);
   outline-offset: 1px;
+}
 }

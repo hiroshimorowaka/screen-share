@@ -6,6 +6,7 @@
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
+use leptos::prelude::*;
 use wasm_bindgen::prelude::*;
 use wasm_bindgen::JsCast;
 use wasm_bindgen_futures::JsFuture;
@@ -319,6 +320,47 @@ pub(crate) async fn capture_loopback_audio(
 
     let promise = media_devices.get_user_media_with_constraints(&audio_constraints)?;
     JsFuture::from(promise).await?.dyn_into::<MediaStream>()
+}
+
+// --- Desktop tray quick-share flow -----------------------------------
+//
+// The tray's "share now" action loads the room with a `quick_share=1`
+// query param; the home + room pages read `requested()` to auto-create,
+// auto-join, and auto-start sharing with no form. A plain browser tab
+// never sets the param, so none of this affects normal usage.
+
+use leptos_router::hooks::use_query_map;
+
+const QUICK_SHARE_QUERY_PARAM: &str = "quick_share";
+
+/// Whether the current URL asks for the quick-share flow. Read once at
+/// mount time (`get_untracked`) — this is a one-shot trigger, not a value
+/// the page should keep reacting to.
+pub fn requested() -> bool {
+    use_query_map()
+        .get_untracked()
+        .get(QUICK_SHARE_QUERY_PARAM)
+        .as_deref()
+        == Some("1")
+}
+
+/// The room page URL that keeps the quick-share flag alive across the
+/// home page's post-creation redirect, so the room page knows to
+/// auto-start sharing instead of waiting for a click.
+pub fn room_path_with_flag(room_code: &str) -> String {
+    format!("/r/{room_code}?{QUICK_SHARE_QUERY_PARAM}=1")
+}
+
+fn random_suffix() -> u32 {
+    (js_sys::Math::random() * 9000.0) as u32 + 1000
+}
+
+pub fn random_nick() -> String {
+    format!("Convidado {}", random_suffix())
+}
+
+pub fn random_room_name() -> String {
+    format!("Sala rápida {}", random_suffix())
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]

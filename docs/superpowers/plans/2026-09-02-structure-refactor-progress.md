@@ -10,7 +10,7 @@
 | 4 | `client/` umbrella + split `webrtc/` | done (`07fae72`, `85044d3`) |
 | 5 | `RoomState` + `provide_context` (flat struct, deviation noted) | done (`35a0e37`) |
 | 6 | `pages/` + `room/` + `home/` feature slices | done |
-| 7 | `desktop_bridge` fold-in + CSS `@layer` | pending |
+| 7 | `desktop_bridge` fold-in + CSS `@layer` | done |
 | 8 | Collapse the 4 peer maps into `HashMap<PeerId, PeerLink>` | pending |
 
 ### Phase 6 notes
@@ -44,6 +44,30 @@ Gate: `scripts/test-all.sh` targets `lint`, `build`, `rust` (workspace
 ssr + wasm 62), and `e2e-web` (36) — all green. `grep -rn
 'crate::features::\|crate::session::' apps/web/src` is empty. Desktop
 suite / `e2e-desktop` not re-run (untouched by this phase).
+
+### Phase 7 notes
+
+`apps/web/src/quick_share.rs` is folded into
+`client/desktop_bridge.rs` (its "Desktop tray quick-share flow"
+section) — one hydrate-only module owns everything that reads the
+`quick_share=1` param or calls the Electron `window.desktopShare.*` /
+`window.desktopAudio.*` bridges. `crate::quick_share::*` →
+`crate::client::desktop_bridge::*` everywhere; `pub mod quick_share`
+dropped from `lib.rs`. The `notify_desktop_*` names are kept as-is (the
+v3 plan's rename to `notify_*` is cosmetic and left for later).
+
+CSS `@layer`: `tokens.css` opens with
+`@layer tokens, base, components, features, utilities;`, then each
+stylesheet's whole body is wrapped in its layer — `tokens`→tokens,
+`base`→base, `card`/`card-widgets`/`room-transmission-menu`→components,
+`home`/`room`→features, `dev_preview`→utilities. No selector or
+declaration edits. This does reorder the cascade (card rules now lose
+ties to room rules, per the plan's layer assignment); `e2e-web` (render
++ CSP + the two-tab flow) stays green, but a by-hand pixel check is
+still worth doing.
+
+Gate: `lint`, `build`, `rust` (workspace ssr + wasm 62), `e2e-web` (36)
+all green. Desktop suites untouched, not re-run.
 
 ---
 

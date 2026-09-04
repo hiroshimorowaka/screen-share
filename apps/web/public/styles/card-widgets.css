@@ -1,3 +1,4 @@
+@layer components {
 /* In-card control widgets: the per-stream quality dropdown and the
    per-stream volume fader. Split out of card.css; the selectors appear
    nowhere else and sit last in the card cascade. Loaded immediately
@@ -227,4 +228,5 @@
   .volume-control__popup {
     display: none;
   }
+}
 }

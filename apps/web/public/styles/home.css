@@ -1,3 +1,4 @@
+@layer features {
 /* The lobby (home page) and the 404 page — the entry surfaces. Same dark
    palette as the room; they just add a hero and the wordmark on top of
    base.css's shared primitives. See docs/decisions/0006-visual-redesign.md. */
@@ -187,4 +188,5 @@
   font-size: 0.75rem;
   color: var(--text-dim);
   flex-shrink: 0;
+}
 }

@@ -1,3 +1,4 @@
+@layer base {
 /* Colour and type tokens live in tokens.css (loaded first). This file is
    the shared primitives — layout reset, panel, status lamp, buttons,
    forms — themed entirely through those custom properties, so the
@@ -373,4 +374,5 @@ h2,
 
 .color-swatch--selected {
   border-color: var(--text);
+}
 }

@@ -40,7 +40,7 @@ pub(crate) fn setup_quick_share_auto_flow(
 /// authenticates, start sharing immediately with no click, then hand the
 /// invite link to the desktop shell as soon as the share goes live. A
 /// no-op unless the URL carries the `quick_share` flag (see
-/// `crate::quick_share`) — a plain browser tab never sets it.
+/// `crate::client::desktop_bridge`) — a plain browser tab never sets it.
 ///
 /// Each half has its own "already done" latch — `authenticated` and
 /// `share.is_sharing` can each change more than once over the page's
@@ -58,7 +58,7 @@ pub(crate) fn setup_quick_share_auto_flow(
     use crate::room::media::{start_sharing, BrowserDisplayCapture};
     use crate::room::{build_invite_link, leave_room};
 
-    if !crate::quick_share::requested() {
+    if !crate::client::desktop_bridge::requested() {
         return;
     }
 
@@ -165,7 +165,7 @@ pub(crate) fn setup_share_side_effects(
     // Copy the invite link the moment a share of ours goes live, so
     // there's something ready to paste — the quick-share flow already
     // does this via the desktop shell, so skip it there.
-    let quick_share_active = crate::quick_share::requested();
+    let quick_share_active = crate::client::desktop_bridge::requested();
     Effect::new(move |_| {
         if share.is_sharing.get() && !quick_share_active {
             copy_invite_link(&room_code, invite_copied);

@@ -1,3 +1,4 @@
+@layer components {
 /* A card is a monitor on the wall: a flat panel with a hairline bezel.
    The member's colour is not the bezel (a wall of rings) — it's confined
    to the small name tab and the avatar. `--member` is set per card by
@@ -467,4 +468,5 @@
     width: 2.75rem;
     height: 2.75rem;
   }
+}
 }

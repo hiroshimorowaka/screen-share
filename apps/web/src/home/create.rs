@@ -90,7 +90,7 @@ pub fn create_room_handler(
 /// quick-share flow (`start_quick_share_after_mount`), which supplies its
 /// own generated nick/room name instead of reading them from form signals.
 /// `quick_share` only changes which URL the post-join navigation lands on —
-/// see `crate::quick_share::room_path_with_flag`.
+/// see `crate::client::desktop_bridge::room_path_with_flag`.
 #[cfg(feature = "hydrate")]
 pub fn submit_create_room(
     nick_value: String,
@@ -169,7 +169,7 @@ pub fn submit_create_room(
                     });
                 }
                 let target = if quick_share {
-                    crate::quick_share::room_path_with_flag(&room)
+                    crate::client::desktop_bridge::room_path_with_flag(&room)
                 } else {
                     format!("/r/{room}")
                 };
@@ -228,18 +228,18 @@ pub fn start_quick_share_after_mount(
 ) {
     use leptos::task::spawn_local;
 
-    if !crate::quick_share::requested() {
+    if !crate::client::desktop_bridge::requested() {
         return;
     }
 
     spawn_local(async move {
         let profile = crate::client::storage::load_profile();
         let nick_value = if profile.nick.trim().is_empty() {
-            crate::quick_share::random_nick()
+            crate::client::desktop_bridge::random_nick()
         } else {
             profile.nick
         };
-        let room_name_value = crate::quick_share::random_room_name();
+        let room_name_value = crate::client::desktop_bridge::random_room_name();
         submit_create_room(
             nick_value,
             profile.color,
