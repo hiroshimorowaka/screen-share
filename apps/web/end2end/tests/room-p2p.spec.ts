@@ -60,7 +60,13 @@ test('two members: share, watch, real media flows, then teardown', async ({ brow
   // Ana stops sharing from the in-app control — Bob's view tears down and
   // the card falls back to the avatar, and the "Compartilhando" chip goes.
   await ana.getByRole('button', { name: 'Compartilhar ou parar de compartilhar minha tela' }).click();
-  await expect(bob.locator('.card', { hasText: 'Ana' }).locator('.card__avatar')).toBeVisible();
+  // Bob only falls back to the avatar once `PeerStoppedSharing` has crossed
+  // the socket and torn the incoming connection down — the same WebRTC
+  // round trip the watch assertion above waits `MEDIA_SETTLE_MS` for, so
+  // this one gets the same budget instead of the default 10s.
+  await expect(bob.locator('.card', { hasText: 'Ana' }).locator('.card__avatar')).toBeVisible({
+    timeout: MEDIA_SETTLE_MS,
+  });
   await expect(ana.locator('.share-chip')).toBeHidden();
 
   await anaCtx.close();
@@ -165,11 +171,12 @@ test('one watcher stopping does not disturb another watching the same sharer', a
   await watchSharer(bob, 'Ana');
   await watchSharer(caio, 'Ana');
 
-  // Bob stops watching — his own tile falls back to the avatar.
+  // Bob stops watching — his own tile falls back to the avatar once the
+  // incoming connection is torn down.
   const anaCardOnBob = bob.locator('.card', { hasText: 'Ana' });
   await anaCardOnBob.hover();
   await anaCardOnBob.getByRole('button', { name: 'Parar de assistir' }).click();
-  await expect(anaCardOnBob.locator('.card__avatar')).toBeVisible();
+  await expect(anaCardOnBob.locator('.card__avatar')).toBeVisible({ timeout: MEDIA_SETTLE_MS });
 
   // Caio's independent connection keeps decoding frames.
   await expect

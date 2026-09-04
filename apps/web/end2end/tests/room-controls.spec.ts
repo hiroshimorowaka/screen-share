@@ -294,7 +294,8 @@ test("the card's own stop-watching button ends just that watch", async ({ browse
   const anaCard = memberCard(bob, 'Ana');
   await anaCard.hover();
   await anaCard.getByRole('button', { name: 'Parar de assistir' }).click();
-  await expect(anaCard.locator('.card__avatar')).toBeVisible();
+  // Falls back to the avatar once the incoming connection is torn down.
+  await expect(anaCard.locator('.card__avatar')).toBeVisible({ timeout: MEDIA_SETTLE_MS });
   // Ana is still sharing — the watch pill comes back for a re-watch.
   await expect(anaCard.locator('.card__watch-pill')).toBeVisible();
 
