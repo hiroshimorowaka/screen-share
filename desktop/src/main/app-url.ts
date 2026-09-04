@@ -7,5 +7,5 @@ export const APP_URL = process.env.SCREEN_SHARE_URL ?? PROD_URL;
 
 /** Scheme + host + port of {@link APP_URL}. The single origin the renderer
  * is allowed to navigate to and the only one whose frames may drive the
- * privileged IPC bridges (findings F10, F11). */
+ * privileged IPC bridges. */
 export const APP_ORIGIN = new URL(APP_URL).origin;

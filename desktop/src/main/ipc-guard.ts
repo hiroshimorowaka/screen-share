@@ -8,13 +8,12 @@ import { APP_ORIGIN } from '#main/app-url.js';
  * the source picker).
  *
  * Trusted: a frame on the app's own origin, or the source-picker window's
- * exact `file://` URL. Everything else — a remote page that hijacked or
- * XSS'd its way into the renderer and then reached for `ipcRenderer`, or
- * any other local `file://` frame — is rejected (finding F11; the exact
- * URL match rather than a blanket `file://` prefix is follow-up audit
- * finding 13). Without this check any script running in the main window
- * could start a covert system-audio capture, enumerate running apps, or
- * hijack the clipboard.
+ * exact `file://` URL — an exact match, not a blanket `file://` prefix.
+ * Everything else — a remote page that hijacked or XSS'd its way into the
+ * renderer and then reached for `ipcRenderer`, or any other local
+ * `file://` frame — is rejected. Without this check any script running in
+ * the main window could start a covert system-audio capture, enumerate
+ * running apps, or hijack the clipboard.
  *
  * `senderFrame` can be `null` if the frame was disposed between sending
  * and handling; treat that as untrusted.

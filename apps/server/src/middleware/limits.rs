@@ -1,6 +1,6 @@
-//! DoS guards for the HTTP (render / server-fn) routes (P3 follow-up:
-//! slow-HTTP and render-amplification had no ceiling). Kept out of
-//! `main.rs` so the wiring is testable.
+//! DoS guards for the HTTP (render / server-fn) routes: a ceiling on
+//! slow-HTTP and render-amplification pile-ups. Kept out of `main.rs` so
+//! the wiring is testable.
 //!
 //! Applied to the Leptos routes only — the caller merges the signaling
 //! router (`/ws`, `/api/rooms/:code`) in afterwards, so a long-lived
@@ -11,9 +11,9 @@
 //! the caller: [`apply`] adds the body / concurrency / timeout tower
 //! layers (no state), and [`apply_rate_limit`] adds the per-client
 //! request-rate cap (needs `ConnectInfo` and the per-deployment
-//! [`HandshakeConfig`]). Re-audit follow-up A-05: [`apply`]'s concurrency
-//! ceiling is global, so a single source could still monopolise it —
-//! [`apply_rate_limit`] bounds one client first.
+//! [`HandshakeConfig`]). [`apply`]'s concurrency ceiling is global, so
+//! [`apply_rate_limit`] bounds one client first to stop a single source
+//! monopolising it.
 
 use std::collections::HashMap;
 use std::net::SocketAddr;

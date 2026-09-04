@@ -21,7 +21,7 @@ function checkNow(): void {
  * shows a native "update ready" notification, and installs it the next
  * time the app quits.
  *
- * Update integrity (see ADR-0008, finding F04):
+ * Update integrity:
  * - `electron-updater` always verifies the downloaded installer's SHA512
  *   against `latest.yml`.
  * - `build.win.verifyUpdateCodeSignature` is set to `true` in

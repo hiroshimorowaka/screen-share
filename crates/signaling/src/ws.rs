@@ -119,7 +119,7 @@ async fn handle_socket(
         // Count every frame against the budget, not just the ones we go on
         // to parse: a Binary/Ping/Pong flood (each up to `MAX_MESSAGE_BYTES`,
         // and a ping is answered with a pong out) would otherwise be bounded
-        // only by `IDLE_TIMEOUT` and the connection cap (finding F05).
+        // only by `IDLE_TIMEOUT` and the connection cap.
         if over_rate_limit(&mut recent_msgs, Instant::now()) {
             break;
         }

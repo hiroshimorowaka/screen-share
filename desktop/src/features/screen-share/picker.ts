@@ -17,8 +17,8 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
           fetchWindowIcons: true,
         });
       } catch (err) {
-        // Previously swallowed silently — the picker would just open
-        // empty with no indication anything had gone wrong.
+        // Log rather than swallow: otherwise the picker just opens empty
+        // with no indication anything went wrong.
         console.error('desktopCapturer.getSources failed:', err);
         sources = [];
       }
@@ -50,14 +50,13 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
           contextIsolation: true,
           sandbox: true,
           nodeIntegration: false,
-          // Match the main window: no DevTools in a packaged build
-          // (follow-up audit finding 13).
+          // Match the main window: no DevTools in a packaged build.
           devTools: !app.isPackaged,
         },
       });
       // Same navigation lock the main window gets — `will-navigate` /
-      // `will-redirect` / `window.open` off the picker page all blocked
-      // (finding 13). `loadFile` below does not fire `will-navigate`.
+      // `will-redirect` / `window.open` off the picker page all blocked.
+      // `loadFile` below does not fire `will-navigate`.
       lockNavigation(pickerWindow);
 
       let settled = false;
@@ -66,7 +65,7 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         settled = true;
         // If the picker was dismissed (blur -> close) the `once` listener
         // was never consumed — one leaked `ipcMain` listener per
-        // cancelled picker otherwise (finding 8d). Safe if already spent.
+        // cancelled picker otherwise. Safe if already spent.
         ipcMain.removeListener('picker:selected', onSelected);
         if (!choice) {
           resolve(null);

@@ -1,6 +1,5 @@
 //! All server runtime configuration, read from the environment at
-//! process start (see CLAUDE.md §Configuration — the deployed artifact
-//! carries no config file).
+//! process start — the deployed artifact carries no config file.
 
 use leptos::prelude::*;
 use screen_share_signaling::handshake::HandshakeConfig;
@@ -27,7 +26,7 @@ impl ServerConfig {
     /// # Errors
     /// Fails if `get_configuration` can't read the Leptos env vars, or if
     /// `TURN_SECRET` is set but malformed — the process aborts rather
-    /// than run a relay with a weak secret (finding F13).
+    /// than run a relay with a weak secret.
     pub fn from_env() -> Result<Self, Box<dyn std::error::Error>> {
         let conf = get_configuration(None)?;
         let leptos_options = conf.leptos_options;

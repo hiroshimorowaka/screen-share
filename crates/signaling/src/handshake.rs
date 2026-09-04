@@ -118,13 +118,12 @@ impl HandshakeConfig {
     /// constant.
     ///
     /// `fly-client-ip` is only honoured when the TCP peer is itself
-    /// loopback or in a private/link-local range (finding F10). Fly
-    /// delivers every edge request from its internal network, so a
-    /// genuine forwarded request always has a private/loopback peer; a
-    /// public peer address means the header is attacker-controlled (the
-    /// image running somewhere else, or a misconfigured front proxy), and
-    /// trusting it would let one source rotate the header to sidestep
-    /// every per-client limit.
+    /// loopback or in a private/link-local range. Fly delivers every edge
+    /// request from its internal network, so a genuine forwarded request
+    /// always has a private/loopback peer; a public peer address means the
+    /// header is attacker-controlled (the image running somewhere else, or
+    /// a misconfigured front proxy), and trusting it would let one source
+    /// rotate the header to sidestep every per-client limit.
     pub fn client_key(&self, headers: &HeaderMap, peer: SocketAddr) -> String {
         if self.trust_proxy_headers && is_internal_peer(peer.ip()) {
             if let Some(ip) = headers.get("fly-client-ip").and_then(|v| v.to_str().ok()) {

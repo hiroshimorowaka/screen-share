@@ -134,11 +134,10 @@ async fn listen_for_sound(stream: &web_sys::MediaStream) -> Result<bool, wasm_bi
     use wasm_bindgen_futures::JsFuture;
 
     let ctx = web_sys::AudioContext::new()?;
-    // Every `?` inside `run_probe` used to leak `ctx`, and a browser caps a
-    // page at ~6 `AudioContext`s — after a handful of failed probes (one
-    // per share-start *and* per source-switch) `AudioContext::new()` starts
-    // throwing and the probe is dead for the rest of the session (finding
-    // F09). Close the context unconditionally, whatever the inner result.
+    // A browser caps a page at ~6 `AudioContext`s, so `ctx` must be closed
+    // whatever `run_probe` returns — a `?` that leaked it would, after a
+    // handful of failed probes (one per share-start and per source-switch),
+    // make `AudioContext::new()` throw for the rest of the session.
     let result = run_probe(&ctx, stream).await;
     if let Ok(promise) = ctx.close() {
         let _ = JsFuture::from(promise).await;

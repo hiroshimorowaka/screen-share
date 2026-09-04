@@ -8,6 +8,5 @@ import { pathToFileURL } from 'node:url';
 export const PICKER_HTML_PATH = path.join(__dirname, '..', '..', '..', 'static', 'picker.html');
 
 /** The exact `file://` URL the picker window ends up at. `isTrustedFrame`
- * matches a sender against this instead of trusting *any* `file://` frame
- * (follow-up audit finding 13). */
+ * matches a sender against this instead of trusting *any* `file://` frame. */
 export const PICKER_FILE_URL = pathToFileURL(PICKER_HTML_PATH).href;

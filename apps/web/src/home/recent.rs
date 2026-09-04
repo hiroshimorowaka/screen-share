@@ -28,8 +28,8 @@ pub fn prune_recent_rooms(
 
 /// Checks each remembered room against `GET /api/rooms/:code`: drops the
 /// ones that no longer exist, and records the ones still up in
-/// `live_rooms`. The status endpoint no longer returns a member count
-/// (finding F06), so this only tracks liveness, not occupancy.
+/// `live_rooms`. The status endpoint exposes no member count, so this
+/// tracks liveness only, not occupancy.
 #[cfg(feature = "hydrate")]
 pub fn prune_recent_rooms(
     set_recent_rooms: WriteSignal<Vec<crate::profile::RecentRoom>>,

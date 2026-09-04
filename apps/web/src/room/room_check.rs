@@ -9,9 +9,9 @@ pub(crate) fn start_room_check(
 ) {
 }
 
-// The room name is deliberately not part of the unauthenticated
-// `GET /api/rooms/:code` response (finding F06) — it arrives in the
-// `Joined` snapshot once the member is in the room. So this check only
+// The unauthenticated `GET /api/rooms/:code` response deliberately omits
+// the room name (it would leak the human-chosen name to anyone holding a
+// code); it arrives in the `Joined` snapshot instead. So this check only
 // resolves existence and whether a password is needed.
 #[cfg(feature = "hydrate")]
 pub(crate) fn start_room_check(

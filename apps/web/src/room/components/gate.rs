@@ -87,7 +87,7 @@ where
         >
             <h1>"Entrar na sala"</h1>
             // Just the code here: the room name isn't known until the
-            // `Joined` snapshot (finding F06), and this panel is pre-join.
+            // `Joined` snapshot, and this panel is pre-join.
             <p class="status-row__meta">{move || code.get()}</p>
             <form on:submit=manual_join>
                 <label class="field">

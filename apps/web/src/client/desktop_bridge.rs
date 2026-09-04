@@ -154,18 +154,16 @@ type PcmBridgeCallback = Closure<dyn FnMut(JsValue)>;
 thread_local! {
     /// Held here rather than `Closure::forget`'d so each new bridge and
     /// each `stop_desktop_audio_loopback` replaces / clears the previous
-    /// one instead of leaking it once per share (finding F08b). Single
-    /// slot: only one local capture exists at a time.
+    /// one instead of leaking it once per share. Single slot: only one
+    /// local capture exists at a time.
     static PCM_BRIDGE_CALLBACK: RefCell<Option<PcmBridgeCallback>> = const { RefCell::new(None) };
 }
 
 /// Turns the desktop app's `window.desktopAudio.onPcmChunk` PCM stream
 /// into a real `MediaStreamTrack` via `MediaStreamTrackGenerator` +
-/// `AudioData` — see Task 1 in the Windows audio sharing plan for how
-/// this was proven to work (format `'f32'`, a monotonically increasing
-/// microsecond timestamp derived from cumulative frames written, no
-/// backpressure at the 20ms/960-frame chunk cadence the native mixer
-/// uses).
+/// `AudioData`. Format `'f32'`, a monotonically increasing microsecond
+/// timestamp derived from cumulative frames written, no backpressure at
+/// the 20ms/960-frame chunk cadence the native mixer uses.
 pub(crate) async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
     let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
     let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
@@ -177,9 +175,8 @@ pub(crate) async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue
     let writer: WritableStreamDefaultWriter = generator.writable().get_writer()?;
 
     // Cumulative frames written, so each chunk's timestamp is
-    // monotonically increasing — matches what Task 1 confirmed actually
-    // works. `Cell`, not `AtomicU64`: this closure only ever runs on the
-    // single-threaded JS event loop.
+    // monotonically increasing. `Cell`, not `AtomicU64`: this closure
+    // only ever runs on the single-threaded JS event loop.
     let frames_written = Rc::new(Cell::new(0u64));
     // A per-chunk failure here would otherwise be completely invisible —
     // the closure has no return value the caller ever inspects, unlike
@@ -272,9 +269,8 @@ pub(crate) async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
     JsFuture::from(promise).await?;
     // The native side has stopped emitting PCM chunks now, so the bridge
     // listener (and the writer + generator it owns) can be released
-    // instead of leaking until the tab closes (finding F08b). Also drop
-    // the preload's `ipcRenderer` listener for the channel if the shell
-    // exposes the hook (finding 8c of the follow-up audit).
+    // instead of leaking until the tab closes. Also drop the preload's
+    // `ipcRenderer` listener for the channel if the shell exposes the hook.
     PCM_BRIDGE_CALLBACK.with(|slot| slot.borrow_mut().take());
     if let Ok(off_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("offPcmChunk")) {
         if let Ok(off_fn) = off_fn.dyn_into::<js_sys::Function>() {

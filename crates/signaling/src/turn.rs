@@ -11,8 +11,8 @@ use screen_share_protocol::TurnCredentials;
 /// Shortest `TURN_SECRET` accepted. coturn's `use-auth-secret` scheme is
 /// only as strong as this secret — a short one is brute-forceable, so a
 /// misconfiguration should stop the process at boot rather than run a
-/// relay anyone can mint credentials for (finding F13). 32 hex chars is
-/// what the deploy docs already recommend (`openssl rand -hex 32` = 64).
+/// relay anyone can mint credentials for. 32 hex chars is what the deploy
+/// docs already recommend (`openssl rand -hex 32` = 64).
 const MIN_TURN_SECRET_LEN: usize = 24;
 
 /// Obvious placeholder secrets, rejected regardless of length so a

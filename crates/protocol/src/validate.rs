@@ -3,14 +3,13 @@
 //! source of truth and enforces these; the web client mirrors them for
 //! immediate feedback.
 //!
-//! Purpose (finding F08): a multi-megabyte nick is stored and rebroadcast
-//! to every member (broadcast amplification), and control / bidirectional
-//! formatting characters in a nick let one member visually impersonate
-//! another or the "you" label. Length is capped and those characters are
-//! rejected. Full Unicode NFC normalisation is intentionally *not* done
-//! here — it would need a dependency, and `crates/protocol` stays
-//! serde-only; rejecting the formatting characters removes the spoofing
-//! vectors the audit called out.
+//! Why: an unbounded nick is stored and rebroadcast to every member
+//! (broadcast amplification), and control / bidirectional formatting
+//! characters in a nick let one member visually impersonate another or the
+//! "you" label. Length is capped and those characters are rejected. Full
+//! Unicode NFC normalisation is deliberately not done here — it would need
+//! a dependency, and `crates/protocol` stays serde-only; rejecting the
+//! formatting characters is enough to close the spoofing vectors.
 
 /// Longest accepted nick, in Unicode scalar values. Enough for any real
 /// display name; short enough that the per-`PeerJoined` rebroadcast can't
@@ -23,9 +22,9 @@ pub const MAX_ROOM_NAME_LEN: usize = 64;
 /// Most combining marks allowed to stack on one base character. The length
 /// cap counts scalar values, so a 32-code-point "Zalgo" nick — dozens of
 /// combining marks piled on a couple of bases — passes it while still
-/// overflowing its card and bleeding into neighbours (P3 follow-up). Real
-/// text never stacks this many: even fully-decomposed Vietnamese tops out
-/// at two (a vowel modifier plus a tone).
+/// overflowing its card and bleeding into neighbours. Real text never
+/// stacks this many: even fully-decomposed Vietnamese tops out at two (a
+/// vowel modifier plus a tone).
 pub const MAX_MARKS_PER_CLUSTER: usize = 4;
 
 /// The colour ids a member may pick — the fixed avatar/border palette.

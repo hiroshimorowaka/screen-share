@@ -98,11 +98,10 @@ mod wiring {
     /// Taking the socket *out* is the point: it breaks the `Rc` cycle
     /// `conn.ws` -> `WsClient`'s message closure -> a `RoomSession` clone
     /// -> `conn.ws`, so the session (open socket, maps, timers) is actually
-    /// freed. Without this, any non-button exit (browser back, `navigate`,
-    /// an SPA route change) left the socket open with `expected_close`
-    /// false, so the server's idle reap eventually tripped `on_close` and
-    /// the reconnect loop rejoined the room on a page the user had already
-    /// left — forever (finding F01).
+    /// freed. Otherwise a non-button exit (browser back, `navigate`, an SPA
+    /// route change) leaves the socket open with `expected_close` false, so
+    /// the server's idle reap trips `on_close` and the reconnect loop
+    /// rejoins the room on a page the user already left.
     ///
     /// Idempotent: safe to call from both the explicit "leave" path and
     /// the `on_cleanup` that also fires on unmount.
