@@ -580,6 +580,12 @@ UI-touching change:
 
 ### Desktop — `desktop/` (run with `pnpm --dir desktop …` or from `desktop/`)
 
+- **Any change under `desktop/` must bump `desktop/package.json`'s
+  `version` (last digit for a fix, middle for a feature) and add a
+  matching `## X.Y.Z` section to `desktop/CHANGELOG.md`**, written for a
+  user (pt-BR, no technical detail — that changelog becomes the GitHub
+  release notes). A CI gate (`ci-cd.yml` "Desktop version + changelog
+  bump") fails the PR otherwise. Do this in the same commit as the change.
 - `pnpm run check` — Biome (lint + format + import order) clean.
 - `pnpm build` — `tsc` clean. Note that `tsc` does **not** check
   `__dirname`-relative runtime paths or the `#…` import map — those only
