@@ -123,7 +123,12 @@ pub(crate) async fn apply_audio_preset_to_all(
     conn: &crate::room::RoomSession,
     preset: AudioPreset,
 ) {
-    let peers: Vec<web_sys::RtcPeerConnection> = conn.outgoing.borrow().values().cloned().collect();
+    let peers: Vec<web_sys::RtcPeerConnection> = conn
+        .links_out
+        .borrow()
+        .values()
+        .map(|l| l.pc.clone())
+        .collect();
     for pc in &peers {
         let _ = apply_audio_preset(pc, preset).await;
     }

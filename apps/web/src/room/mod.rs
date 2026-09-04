@@ -32,6 +32,8 @@ pub(crate) use connection::{adopt_pending_session, setup_room_connection};
 pub(crate) use invite::{build_invite_link, copy_invite_link};
 pub(crate) use session::RoomSession;
 #[cfg(feature = "hydrate")]
+pub(crate) use session::{LinkDirection, PeerLink};
+#[cfg(feature = "hydrate")]
 pub(crate) use sharing_state::SharingState;
 pub(crate) use state::RoomState;
 // Only read by `share_effects`, which is itself only reachable from

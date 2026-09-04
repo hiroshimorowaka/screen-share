@@ -10,6 +10,44 @@
 pub(crate) type LocalCaptureCallback =
     std::rc::Rc<std::cell::RefCell<Option<wasm_bindgen::prelude::Closure<dyn FnMut()>>>>;
 
+/// Which end of a screen-share a [`PeerLink`] is: `Outgoing` = we are the
+/// sharer and the keyed peer is watching us; `Incoming` = the keyed peer
+/// is the sharer and we are watching them. The two coexist for the same
+/// peer under mutual watching, which is why they stay in separate maps
+/// (`RoomSession::links_out` / `links_in`) rather than one.
+#[cfg(feature = "hydrate")]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum LinkDirection {
+    Outgoing,
+    Incoming,
+}
+
+/// One peer connection bundled with the JS event callbacks bound to it.
+/// The pair is inserted and removed as a unit, so "a `pc` without its
+/// callbacks" (or vice versa) — previously possible with four parallel
+/// maps — can't be represented.
+#[cfg(feature = "hydrate")]
+pub(crate) struct PeerLink {
+    pub(crate) pc: web_sys::RtcPeerConnection,
+    /// Kept alive here rather than `Closure::forget`'d so the listeners —
+    /// and the `RoomSession` clone one of them captures — are dropped when
+    /// the link is removed or the room page unmounts. Never read; the
+    /// field just owns the closures for exactly that long.
+    #[allow(dead_code)]
+    pub(crate) callbacks: crate::room::messages::PeerCallbacks,
+}
+
+#[cfg(all(feature = "hydrate", test))]
+impl PeerLink {
+    /// A link with no callbacks, for tests that only need `pc` in a map.
+    pub(crate) fn for_test(pc: web_sys::RtcPeerConnection) -> Self {
+        Self {
+            pc,
+            callbacks: crate::room::messages::PeerCallbacks::empty_for_test(),
+        }
+    }
+}
+
 #[cfg(feature = "hydrate")]
 #[derive(Clone)]
 pub struct RoomSession {
@@ -20,23 +58,12 @@ pub struct RoomSession {
             Option<Box<dyn crate::client::seam::signaling_transport::SignalingTransport>>,
         >,
     >,
-    pub(crate) outgoing: std::rc::Rc<
-        std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
-    >,
-    pub(crate) incoming: std::rc::Rc<
-        std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
-    >,
-    // The JS event callbacks bound to each `outgoing` / `incoming` peer
-    // connection (see `messages::PeerCallbacks`), kept alive here rather
-    // than `Closure::forget`'d so they — and the `RoomSession` clone one
-    // of them captures — are dropped when the connection is removed or the
-    // room page unmounts. Keyed the same as the maps above.
-    pub(crate) outgoing_callbacks: std::rc::Rc<
-        std::cell::RefCell<std::collections::HashMap<String, crate::room::messages::PeerCallbacks>>,
-    >,
-    pub(crate) incoming_callbacks: std::rc::Rc<
-        std::cell::RefCell<std::collections::HashMap<String, crate::room::messages::PeerCallbacks>>,
-    >,
+    /// Connections where we are the sharer, keyed by the watching peer.
+    pub(crate) links_out:
+        std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, PeerLink>>>,
+    /// Connections where the keyed peer is the sharer and we are watching.
+    pub(crate) links_in:
+        std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, PeerLink>>>,
     /// Whether we're sharing and, if so, the captured stream — see
     /// `SharingState` for why this isn't a bare `Option<MediaStream>`.
     pub(crate) sharing: std::rc::Rc<std::cell::RefCell<super::SharingState>>,
@@ -76,10 +103,8 @@ impl RoomSession {
     pub(crate) fn new() -> Self {
         Self {
             ws: Default::default(),
-            outgoing: Default::default(),
-            incoming: Default::default(),
-            outgoing_callbacks: Default::default(),
-            incoming_callbacks: Default::default(),
+            links_out: Default::default(),
+            links_in: Default::default(),
             sharing: Default::default(),
             local_capture_callback: Default::default(),
             expected_close: Default::default(),

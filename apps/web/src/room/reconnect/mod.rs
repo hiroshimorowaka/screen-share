@@ -83,14 +83,12 @@ mod wiring {
     /// when the user leaves the room.
     pub(crate) fn drop_all_peer_connections(conn: &RoomSession) {
         crate::room::quality::stop_all_auto_polling(conn);
-        for (_, pc) in conn.outgoing.borrow_mut().drain() {
-            pc.close();
+        for (_, link) in conn.links_out.borrow_mut().drain() {
+            link.pc.close();
         }
-        for (_, pc) in conn.incoming.borrow_mut().drain() {
-            pc.close();
+        for (_, link) in conn.links_in.borrow_mut().drain() {
+            link.pc.close();
         }
-        conn.outgoing_callbacks.borrow_mut().clear();
-        conn.incoming_callbacks.borrow_mut().clear();
     }
 
     /// Shuts a room session down without navigating: mark the close

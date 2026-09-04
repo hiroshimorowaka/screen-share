@@ -137,7 +137,12 @@ pub(crate) async fn apply_video_mode_to_all(conn: &crate::room::RoomSession, mod
         }
     }
 
-    let peers: Vec<web_sys::RtcPeerConnection> = conn.outgoing.borrow().values().cloned().collect();
+    let peers: Vec<web_sys::RtcPeerConnection> = conn
+        .links_out
+        .borrow()
+        .values()
+        .map(|l| l.pc.clone())
+        .collect();
     for pc in &peers {
         let _ = apply_video_mode(pc, mode).await;
     }

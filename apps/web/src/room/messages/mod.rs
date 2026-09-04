@@ -13,18 +13,18 @@ use wasm_bindgen::JsCast;
 use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
 #[cfg(feature = "hydrate")]
-use crate::client::seam::peer_link::PeerLink;
+use crate::client::seam::peer_link::Negotiate;
 #[cfg(feature = "hydrate")]
 use crate::client::webrtc::new_peer_connection;
 #[cfg(feature = "hydrate")]
-use crate::room::RoomSession;
+use crate::room::{LinkDirection, PeerLink, RoomSession};
 #[cfg(feature = "hydrate")]
 use screen_share_protocol::{ClientMessage, ServerMessage};
 
 /// The JS event callbacks bound to one peer's `RTCPeerConnection`
 /// (`ontrack` — only for a connection we receive on — plus
 /// `onicecandidate` and `oniceconnectionstatechange`). Held in
-/// `RoomSession::{outgoing,incoming}_callbacks` so they — and the
+/// the link that owns them (`RoomSession::links_{out,in}`) so they — and the
 /// `RoomSession` clone one of them captures — drop when the connection is
 /// removed or the room page unmounts, instead of being `Closure::forget`'d
 /// and leaked for the life of the tab. Never read; the `Vec` just owns the
@@ -126,30 +126,27 @@ pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomState
 //
 // A (sharer, viewer) peer connection is torn down from several messages
 // (`PeerLeft`, `PeerStoppedSharing`, `WatchStopped`) and from
-// `media`/`watch`. These two helpers are the one place the
-// close-and-forget sequence for each direction lives, so the order —
-// stop the Auto poll, `close()` the `RTCPeerConnection`, then drop its
-// retained callbacks — stays identical everywhere.
+// `media`/`watch`. `teardown_link` is the one place the close-and-forget
+// sequence lives — removing the `PeerLink` drops its callbacks with it, so
+// the order (stop the Auto poll, then `close()`) stays identical
+// everywhere.
 
-/// Tear down the outgoing (we-are-the-sharer → `peer_id`-is-the-viewer)
-/// connection, if any, and stop that viewer's Auto-quality poll.
+/// Tear down the peer connection in the given direction, if any: for an
+/// outgoing link (we-are-the-sharer → `peer_id`-is-the-viewer) also stop
+/// that viewer's Auto-quality poll. Removing the [`PeerLink`] drops its
+/// retained JS callbacks with it.
 #[cfg(feature = "hydrate")]
-pub(crate) fn teardown_outgoing(conn: &RoomSession, peer_id: &str) {
-    super::quality::stop_auto_polling(conn, peer_id);
-    if let Some(pc) = conn.outgoing.borrow_mut().remove(peer_id) {
-        pc.close();
+pub(crate) fn teardown_link(conn: &RoomSession, peer_id: &str, direction: LinkDirection) {
+    let map = match direction {
+        LinkDirection::Outgoing => {
+            super::quality::stop_auto_polling(conn, peer_id);
+            &conn.links_out
+        }
+        LinkDirection::Incoming => &conn.links_in,
+    };
+    if let Some(link) = map.borrow_mut().remove(peer_id) {
+        link.pc.close();
     }
-    conn.outgoing_callbacks.borrow_mut().remove(peer_id);
-}
-
-/// Tear down the incoming (`peer_id`-is-the-sharer → we-are-the-viewer)
-/// connection, if any.
-#[cfg(feature = "hydrate")]
-pub(crate) fn teardown_incoming(conn: &RoomSession, peer_id: &str) {
-    if let Some(pc) = conn.incoming.borrow_mut().remove(peer_id) {
-        pc.close();
-    }
-    conn.incoming_callbacks.borrow_mut().remove(peer_id);
 }
 
 /// Drop grid focus when the focused tile belongs to `peer_id` (or the
@@ -224,7 +221,6 @@ fn answer_offer(conn: RoomSession, signals: RoomState, from: String, sdp: String
                 return;
             }
         };
-        conn.incoming.borrow_mut().insert(from.clone(), pc.clone());
         connection_errors.update(|errors| {
             errors.remove(&from);
         });
@@ -281,13 +277,20 @@ fn answer_offer(conn: RoomSession, signals: RoomState, from: String, sdp: String
             oniceconnectionstatechange.as_ref().unchecked_ref(),
         ));
 
-        conn.incoming_callbacks.borrow_mut().insert(
+        // Everything above this point is synchronous (no `.await` between
+        // `new_peer_connection` and here), so no relayed ICE candidate can
+        // arrive and miss the map before the link is in it — one insert,
+        // pc and callbacks together.
+        conn.links_in.borrow_mut().insert(
             from.clone(),
-            PeerCallbacks(vec![
-                Box::new(ontrack),
-                Box::new(onicecandidate),
-                Box::new(oniceconnectionstatechange),
-            ]),
+            PeerLink {
+                pc: pc.clone(),
+                callbacks: PeerCallbacks(vec![
+                    Box::new(ontrack),
+                    Box::new(onicecandidate),
+                    Box::new(oniceconnectionstatechange),
+                ]),
+            },
         );
 
         match pc.answer(&sdp).await {
@@ -312,7 +315,7 @@ fn answer_offer(conn: RoomSession, signals: RoomState, from: String, sdp: String
 /// `setRemoteDescription` can drop.
 #[cfg(feature = "hydrate")]
 fn accept_answer_from(conn: RoomSession, signals: RoomState, from: String, sdp: String) {
-    let Some(pc) = conn.outgoing.borrow().get(&from).cloned() else {
+    let Some(pc) = conn.links_out.borrow().get(&from).map(|l| l.pc.clone()) else {
         return;
     };
     let video_mode = signals.video_mode;
@@ -350,12 +353,12 @@ fn route_ice_candidate(
     sdp_mid: Option<String>,
     sdp_m_line_index: Option<u16>,
 ) {
-    let pc = if stream_owner == from {
-        conn.incoming.borrow().get(&from).cloned()
+    let links = if stream_owner == from {
+        &conn.links_in
     } else {
-        conn.outgoing.borrow().get(&from).cloned()
+        &conn.links_out
     };
-    if let Some(pc) = pc {
+    if let Some(pc) = links.borrow().get(&from).map(|l| l.pc.clone()) {
         pc.add_ice_candidate(&candidate, sdp_mid, sdp_m_line_index);
     }
 }
@@ -434,7 +437,6 @@ fn offer_to_watcher(conn: RoomSession, signals: RoomState, from: String) {
                 return;
             }
         };
-        conn.outgoing.borrow_mut().insert(from.clone(), pc.clone());
         connection_errors.update(|errors| {
             errors.remove(&from);
         });
@@ -443,34 +445,11 @@ fn offer_to_watcher(conn: RoomSession, signals: RoomState, from: String) {
             attach_local_tracks(&pc, stream);
         }
 
-        // Establish the screen-tuned encoding (bitrate/scale/fps ceiling,
-        // then the sharer's video mode and audio preset) before the offer
-        // is built, so every viewer connection starts from it even if that
-        // viewer never touches the quality menu. A later explicit tier or
-        // Auto poll re-runs `apply_tier`; `apply_video_mode` owns
-        // degradation preference and is re-asserted after each of those.
-        let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
-        let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
-        let _ = super::audio::apply_audio_preset(&pc, audio_preset.get_untracked()).await;
-
-        // `Auto` is the default and every card shows it selected, but
-        // nothing sends a `SetQuality` for it — without this a plain
-        // "assistir" would pin `High` forever and never actually adapt.
-        // Start the poll here, where the connection exists (unlike a racing
-        // `QualityRequested`); `AlreadyApplied` because the `apply_tier` +
-        // `apply_video_mode` above just set the encoding — a redundant
-        // re-apply here would race the offer built just below.
-        super::quality::start_auto_polling(
-            conn.clone(),
-            from.clone(),
-            super::quality::InitialTier::AlreadyApplied,
-        );
-
         let target_id = from.clone();
         // Unlike the `Offer` branch: here the remote peer is the viewer,
         // not the stream owner. `stream_owner` must be my own peer_id, not
         // `target_id`, or the other side stores the candidate in the wrong
-        // map (`outgoing` instead of `incoming`) and the connection never
+        // map (`links_out` instead of `links_in`) and the connection never
         // closes its ICE.
         let stream_owner_id = my_peer_id
             .get_untracked()
@@ -509,12 +488,41 @@ fn offer_to_watcher(conn: RoomSession, signals: RoomState, from: String) {
             oniceconnectionstatechange.as_ref().unchecked_ref(),
         ));
 
-        conn.outgoing_callbacks.borrow_mut().insert(
+        // Insert the link — pc and its callbacks together — before the
+        // first `.await` below, so a relayed ICE candidate arriving during
+        // the encoding setup finds it in the map.
+        conn.links_out.borrow_mut().insert(
             from.clone(),
-            PeerCallbacks(vec![
-                Box::new(onicecandidate),
-                Box::new(oniceconnectionstatechange),
-            ]),
+            PeerLink {
+                pc: pc.clone(),
+                callbacks: PeerCallbacks(vec![
+                    Box::new(onicecandidate),
+                    Box::new(oniceconnectionstatechange),
+                ]),
+            },
+        );
+
+        // Establish the screen-tuned encoding (bitrate/scale/fps ceiling,
+        // then the sharer's video mode and audio preset) before the offer
+        // is built, so every viewer connection starts from it even if that
+        // viewer never touches the quality menu. A later explicit tier or
+        // Auto poll re-runs `apply_tier`; `apply_video_mode` owns
+        // degradation preference and is re-asserted after each of those.
+        let _ = super::quality::apply_tier(&pc, super::quality::Tier::High).await;
+        let _ = super::video_mode::apply_video_mode(&pc, video_mode.get_untracked()).await;
+        let _ = super::audio::apply_audio_preset(&pc, audio_preset.get_untracked()).await;
+
+        // `Auto` is the default and every card shows it selected, but
+        // nothing sends a `SetQuality` for it — without this a plain
+        // "assistir" would pin `High` forever and never actually adapt.
+        // Start the poll here, where the connection exists (unlike a racing
+        // `QualityRequested`); `AlreadyApplied` because the `apply_tier` +
+        // `apply_video_mode` above just set the encoding — a redundant
+        // re-apply here would race the offer built just below.
+        super::quality::start_auto_polling(
+            conn.clone(),
+            from.clone(),
+            super::quality::InitialTier::AlreadyApplied,
         );
 
         match pc.offer().await {
@@ -544,7 +552,7 @@ fn apply_quality_request(
     super::quality::stop_auto_polling(&conn, &from);
     match super::quality::tier_for(quality) {
         Some(tier) => {
-            if let Some(pc) = conn.outgoing.borrow().get(&from).cloned() {
+            if let Some(pc) = conn.links_out.borrow().get(&from).map(|l| l.pc.clone()) {
                 let video_mode = signals.video_mode;
                 spawn_local(async move {
                     let _ = super::quality::apply_tier(&pc, tier).await;
@@ -589,8 +597,8 @@ fn on_peer_left(conn: &RoomSession, signals: RoomState, peer_id: String) {
     signals
         .set_members
         .update(|members| members.retain(|m| m.peer_id != peer_id));
-    teardown_outgoing(conn, &peer_id);
-    teardown_incoming(conn, &peer_id);
+    teardown_link(conn, &peer_id, LinkDirection::Outgoing);
+    teardown_link(conn, &peer_id, LinkDirection::Incoming);
     drop_focus_if_showing(signals.expanded, &peer_id);
 }
 
@@ -615,7 +623,7 @@ fn on_peer_stopped_sharing(conn: &RoomSession, signals: RoomState, peer_id: Stri
     signals.watchers_by_sharer.update(|w| {
         w.remove(&peer_id);
     });
-    teardown_incoming(conn, &peer_id);
+    teardown_link(conn, &peer_id, LinkDirection::Incoming);
 }
 
 /// Time a `Pong` against the matching `Ping` and report the round trip.
@@ -734,7 +742,9 @@ pub(crate) fn build_message_handler(
         ServerMessage::WatchRequested { from } => {
             offer_to_watcher(conn.clone(), signals, from.to_string())
         }
-        ServerMessage::WatchStopped { from } => teardown_outgoing(&conn, &from),
+        ServerMessage::WatchStopped { from } => {
+            teardown_link(&conn, &from, LinkDirection::Outgoing)
+        }
         ServerMessage::QualityRequested { from, quality } => {
             apply_quality_request(conn.clone(), signals, from.to_string(), quality)
         }

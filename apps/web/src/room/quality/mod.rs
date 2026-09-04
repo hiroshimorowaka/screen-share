@@ -174,12 +174,17 @@ pub(crate) fn start_auto_polling(
     let monitor = Rc::new(RefCell::new(AdaptiveQuality::new()));
 
     // Nothing to poll if the connection isn't up yet.
-    if !conn.outgoing.borrow().contains_key(&viewer_peer_id) {
+    if !conn.links_out.borrow().contains_key(&viewer_peer_id) {
         return;
     }
 
     if let InitialTier::ResetToHigh = initial {
-        if let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() {
+        if let Some(pc) = conn
+            .links_out
+            .borrow()
+            .get(&viewer_peer_id)
+            .map(|l| l.pc.clone())
+        {
             let starting_tier = monitor.borrow().tier();
             spawn_local(async move {
                 let _ = apply_tier(&pc, starting_tier).await;
@@ -194,7 +199,12 @@ pub(crate) fn start_auto_polling(
             let viewer_peer_id = viewer_peer_id.clone();
             let monitor = monitor.clone();
             spawn_local(async move {
-                let Some(pc) = conn.outgoing.borrow().get(&viewer_peer_id).cloned() else {
+                let Some(pc) = conn
+                    .links_out
+                    .borrow()
+                    .get(&viewer_peer_id)
+                    .map(|l| l.pc.clone())
+                else {
                     return;
                 };
                 let Some(reading) = read_reading(&pc).await else {

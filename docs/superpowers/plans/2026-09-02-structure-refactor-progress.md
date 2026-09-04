@@ -11,7 +11,7 @@
 | 5 | `RoomState` + `provide_context` (flat struct, deviation noted) | done (`35a0e37`) |
 | 6 | `pages/` + `room/` + `home/` feature slices | done |
 | 7 | `desktop_bridge` fold-in + CSS `@layer` | done |
-| 8 | Collapse the 4 peer maps into `HashMap<PeerId, PeerLink>` | pending |
+| 8 | Collapse the 4 peer maps into two `HashMap<String, PeerLink>` | done (see notes) |
 
 ### Phase 6 notes
 
@@ -68,6 +68,46 @@ still worth doing.
 
 Gate: `lint`, `build`, `rust` (workspace ssr + wasm 62), `e2e-web` (36)
 all green. Desktop suites untouched, not re-run.
+
+### Phase 8 notes
+
+`RoomSession`'s four parallel maps (`outgoing`, `incoming`,
+`outgoing_callbacks`, `incoming_callbacks`) collapse into a `PeerLink`
+struct — `{ pc, callbacks }` — held in **two** maps, `links_out` and
+`links_in` (`room::session`). A `pc` without its callbacks (or vice
+versa) is no longer representable.
+
+Deviations from the v3 Phase 8 design:
+
+- **Two maps, not one.** A single `HashMap<peer, PeerLink>` collides
+  under mutual watching: A can have both an outgoing link to B (B watches
+  A) and an incoming link from B (A watches B), keyed identically. Kept
+  the split; `LinkDirection` (an enum) is what `teardown_link` takes to
+  pick a map, and there is no redundant `direction` field on `PeerLink`.
+- **Keys stay `String`.** The web side never adopted the typed `PeerId`
+  for these maps; converting ~40 sites was out of scope here.
+- **Trait rename.** The step-8c seam trait `PeerLink` (offer / answer /
+  ICE on one `RtcPeerConnection`) is renamed `Negotiate` to free the
+  name for the bundle struct.
+- **`teardown_outgoing` + `teardown_incoming` → `teardown_link(conn,
+  peer, direction)`** — the one close-and-forget path the plan asked for.
+- **`offer_to_watcher` reordered** so the closures + the `links_out`
+  insert all run before the first `.await` (the encoding setup), so a
+  relayed ICE candidate arriving mid-setup still finds the link — the
+  early bare-`pc` insert the four-map version relied on is no longer
+  needed.
+- **Deferred (as before):** genericizing the negotiation fns over the
+  seam traits + `FakeTransport` / `FakePeerConnection` native tests —
+  still bundled with the `RoomSession` method-API rewrite
+  (`2026-08-28-refactor-phase-5-roomsession.md`).
+
+Gate: `lint` (clippy ssr + hydrate), `build`, `rust` (workspace ssr +
+wasm 62), `e2e-web` (36 — incl. `room-p2p` real-media share/watch/
+teardown, source switch, stop-watching, watcher reload + reconnect) all
+green. **Still owed:** the maintainer's two-tab manual checklist
+(`2026-08-28-refactor-phase-5-roomsession.md` §5b) — Chrome's own "stop
+sharing" bar, mutual watch with 3+ members, ICE ordering — has no
+automation harness.
 
 ---
 

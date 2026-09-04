@@ -62,7 +62,9 @@ async fn replace_outgoing_tracks_swaps_every_matching_sender() {
     for peer in ["viewer-a", "viewer-b"] {
         let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
         pc.add_track_0(&old_video, &old_stream);
-        conn.outgoing.borrow_mut().insert(peer.to_string(), pc);
+        conn.links_out
+            .borrow_mut()
+            .insert(peer.to_string(), crate::room::PeerLink::for_test(pc));
     }
 
     let new_stream = stream_of(&["video"]);
@@ -72,7 +74,8 @@ async fn replace_outgoing_tracks_swaps_every_matching_sender() {
     let swapped = replace_outgoing_tracks(&conn, &new_stream).await;
 
     assert_eq!(swapped, 2, "one video sender per connection");
-    for pc in conn.outgoing.borrow().values() {
+    for link in conn.links_out.borrow().values() {
+        let pc = &link.pc;
         let sender: web_sys::RtcRtpSender = pc.get_senders().get(0).unchecked_into();
         assert_eq!(
             sender.track().map(|t| t.id()),
@@ -92,17 +95,15 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
     for peer in ["viewer-a", "viewer-b"] {
         let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
         pc.add_track_0(&shared_video, &shared);
-        conn.outgoing.borrow_mut().insert(peer.to_string(), pc);
+        conn.links_out
+            .borrow_mut()
+            .insert(peer.to_string(), crate::room::PeerLink::for_test(pc));
         // A live Auto poll for this viewer — teardown must stop it without
         // deadlocking on `quality_auto_intervals` (the id is a throwaway;
         // `clear_interval` no-ops on an unknown handle).
         conn.quality_auto_intervals.borrow_mut().insert(
             peer.to_string(),
             crate::room::quality::AutoPoll::for_test(0),
-        );
-        conn.outgoing_callbacks.borrow_mut().insert(
-            peer.to_string(),
-            crate::room::messages::PeerCallbacks::empty_for_test(),
         );
     }
     *conn.sharing.borrow_mut() = SharingState::Sharing {
@@ -123,16 +124,12 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
         "the capture stream handle is released"
     );
     assert!(
-        conn.outgoing.borrow().is_empty(),
+        conn.links_out.borrow().is_empty(),
         "every viewer connection is dropped"
     );
     assert!(
         conn.quality_auto_intervals.borrow().is_empty(),
         "every Auto poll is stopped"
-    );
-    assert!(
-        conn.outgoing_callbacks.borrow().is_empty(),
-        "every viewer connection's callbacks are dropped"
     );
 }
 
@@ -145,7 +142,9 @@ async fn replace_outgoing_tracks_clears_the_audio_sender_when_the_new_stream_has
     let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     pc.add_track_0(&old_video.unwrap(), &old);
     pc.add_track_0(&old_audio.clone().unwrap(), &old);
-    conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
+    conn.links_out
+        .borrow_mut()
+        .insert("viewer".to_string(), crate::room::PeerLink::for_test(pc));
 
     // New source is video-only: the audio sender is cleared, not left
     // holding the old (by then stopped) track (bug: a desktop switch that
@@ -156,7 +155,7 @@ async fn replace_outgoing_tracks_clears_the_audio_sender_when_the_new_stream_has
         swapped, 2,
         "the video sender is swapped and the audio sender cleared"
     );
-    let pc = conn.outgoing.borrow().values().next().unwrap().clone();
+    let pc = conn.links_out.borrow().values().next().unwrap().pc.clone();
     let any_audio_track = pc.get_senders().iter().any(|entry| {
         let sender: web_sys::RtcRtpSender = entry.unchecked_into();
         sender.track().map(|t| t.kind()) == Some("audio".to_string())
@@ -176,7 +175,9 @@ async fn replace_outgoing_tracks_fills_a_reserved_audio_mline_when_a_switch_gain
     let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     pc.add_track_0(&silent_video.unwrap(), &started_silent);
     crate::client::webrtc::reserve_audio_mline(&pc, &started_silent);
-    conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
+    conn.links_out
+        .borrow_mut()
+        .insert("viewer".to_string(), crate::room::PeerLink::for_test(pc));
 
     // "Trocar fonte" to a source that now carries audio.
     let with_audio = stream_of(&["video", "audio"]);
@@ -189,7 +190,7 @@ async fn replace_outgoing_tracks_fills_a_reserved_audio_mline_when_a_switch_gain
         swapped, 2,
         "the video sender and the reserved audio sender both take a track"
     );
-    let pc = conn.outgoing.borrow().values().next().unwrap().clone();
+    let pc = conn.links_out.borrow().values().next().unwrap().pc.clone();
     let carries_switched_in_audio = pc.get_senders().iter().any(|entry| {
         let sender: web_sys::RtcRtpSender = entry.unchecked_into();
         sender.track().map(|t| t.id()) == Some(switched_in_audio_id.clone())

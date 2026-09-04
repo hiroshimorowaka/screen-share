@@ -330,7 +330,8 @@ pub(crate) async fn replace_outgoing_tracks(
     // `None` = clear this sender.
     let mut replacements: Vec<(web_sys::RtcRtpSender, Option<web_sys::MediaStreamTrack>)> =
         Vec::new();
-    for pc in conn.outgoing.borrow().values() {
+    for link in conn.links_out.borrow().values() {
+        let pc = &link.pc;
         for entry in pc.get_transceivers().iter() {
             let transceiver: web_sys::RtcRtpTransceiver = entry.unchecked_into();
             let sender = transceiver.sender();
@@ -391,7 +392,8 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     // RTCRtpSender still references the track, even after the track itself
     // is stopped — detach it from every viewer's connection first, or the
     // indicator survives `track.stop()` and stacks with the next share.
-    for pc in conn.outgoing.borrow().values() {
+    for link in conn.links_out.borrow().values() {
+        let pc = &link.pc;
         for sender in pc.get_senders().iter() {
             let sender: web_sys::RtcRtpSender = sender.unchecked_into();
             pc.remove_track(&sender);
@@ -423,10 +425,9 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
             }
         }
     }
-    for (_, pc) in conn.outgoing.borrow_mut().drain() {
-        pc.close();
+    for (_, link) in conn.links_out.borrow_mut().drain() {
+        link.pc.close();
     }
-    conn.outgoing_callbacks.borrow_mut().clear();
     clear_local_capture_callback(conn);
     // Every viewer's Auto poll would otherwise keep firing against a
     // connection that's already closed.

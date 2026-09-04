@@ -1,19 +1,19 @@
-//! `PeerLink` — the last of step 8's three seam traits: one
+//! `Negotiate` — the last of step 8's three seam traits: one
 //! `RtcPeerConnection`'s negotiation lifecycle (offer / answer / ICE),
 //! named as a domain contract instead of four free functions imported
 //! wherever a peer connection is negotiated.
 //!
 //! Unlike `SignalingTransport` and `DisplayCapture`, this one is **not**
-//! wired up for fakes — see the structure-refactor progress doc for why.
+//! wired up for fakes (the bundling struct that owns a `pc` + its callbacks is `room::session::PeerLink`) — see the structure-refactor progress doc for why.
 //! In short: `session::handler`'s negotiation functions don't just call
 //! offer/answer/close, they also wire `RtcPeerConnection` event
 //! listeners (`ontrack`, `onicecandidate`, `oniceconnectionstatechange`)
-//! and store the connection itself in `RoomSession::{outgoing,incoming}`
+//! and store the connection itself in `RoomSession::{links_out,links_in}`
 //! (`HashMap<String, RtcPeerConnection>`, a concrete type shared with
 //! `session::{media,quality}`, which need the *rest* of
 //! `RtcPeerConnection`'s surface — senders, transceivers — that a
 //! narrow offer/answer/ICE trait doesn't cover). Genericizing those
-//! functions over `PeerLink` alone wouldn't compile without also
+//! functions over `Negotiate` alone wouldn't compile without also
 //! abstracting that other surface, and abstracting *all* of it is the
 //! `RoomSession` method-API rewrite already scoped and deferred in
 //! `docs/superpowers/plans/2026-08-28-refactor-phase-5-roomsession.md`.
@@ -31,7 +31,7 @@
 use wasm_bindgen::JsValue;
 use web_sys::RtcPeerConnection;
 
-pub(crate) trait PeerLink {
+pub(crate) trait Negotiate {
     /// Creates and sets an SDP offer as the local description, returning
     /// the (Opus/bitrate-tuned) SDP to send to the peer.
     async fn offer(&self) -> Result<String, JsValue>;
@@ -51,7 +51,7 @@ pub(crate) trait PeerLink {
     );
 }
 
-impl PeerLink for RtcPeerConnection {
+impl Negotiate for RtcPeerConnection {
     async fn offer(&self) -> Result<String, JsValue> {
         crate::client::webrtc::create_offer(self).await
     }
