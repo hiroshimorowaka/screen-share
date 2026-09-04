@@ -10,7 +10,7 @@
 use wasm_bindgen_test::*;
 
 use super::*;
-use crate::features::profile::{Profile, RecentRoom};
+use crate::profile::{Profile, RecentRoom};
 
 wasm_bindgen_test_configure!(run_in_browser);
 

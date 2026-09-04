@@ -1,5 +1,52 @@
 # Structure & code-design refactor — progress
 
+## v3 plan phase status (`2026-09-03-structure-refactor-v3.md`)
+
+| Phase | What | Status |
+|-------|------|--------|
+| 1 | Extract `apps/server` | done (`d6ade1f`) |
+| 2 | Typed ids in `protocol::ids` | done (`8a7a347`, `543b33f`) |
+| 3 | Finish `crates/domain` (quality machine, status) | done (`f7ef111`, `60aa7af`) |
+| 4 | `client/` umbrella + split `webrtc/` | done (`07fae72`, `85044d3`) |
+| 5 | `RoomState` + `provide_context` (flat struct, deviation noted) | done (`35a0e37`) |
+| 6 | `pages/` + `room/` + `home/` feature slices | done |
+| 7 | `desktop_bridge` fold-in + CSS `@layer` | pending |
+| 8 | Collapse the 4 peer maps into `HashMap<PeerId, PeerLink>` | pending |
+
+### Phase 6 notes
+
+`features/` and `session/` are gone. New tree: `app/{mod,router}`,
+`pages/{home,room,not_found}` (thin route shells), `room/` (the room
+slice: `state`, `session`, `connection`, `messages`, `reconnect`,
+`share_effects`, the per-capability handlers, and `components/` with
+`stage` + `stage_header` + `sharing_controls` + `view_controls` +
+`room_controls` + `gate` + `participant/{mod,badges,action_bar,watch_widgets,parts}`
++ `participant_grid` + `transmission_menu`), `home/` (`state` +
+`create`/`join`/`recent` + `components/{create_panel,join_panel}`),
+top-level `profile.rs`, `components/{ui,palette}`.
+
+`RoomPage` / `HomePage` split into a route shell plus components, which
+retired four of the five `#[allow(clippy::too_many_lines)]`. The fifth,
+on `room::dev_preview::DevRoomPreviewPage`, is kept: it is
+`#[cfg(debug_assertions)]` fixture scaffolding that never ships, and
+splitting a 350-line hand-built `view!` there is churn without payoff —
+a conscious carve-out, like Phase 5's flat `RoomState`.
+
+Deviations from the v3 file map: `RoomSession` (not `Send`) is threaded
+as a value / component prop, never `provide_context`'d (a
+`components/layout/header.rs` `<Wordmark>` component was tried and
+reverted — it broke hydration); the `room/` internals stay a flat set of
+modules rather than the full `actions/` + `effects/` folder split (same
+"consolidation is the goal" call as Phase 5). `components/` keeps `ui/`
+but not `layout/`.
+
+Gate: `scripts/test-all.sh` targets `lint`, `build`, `rust` (workspace
+ssr + wasm 62), and `e2e-web` (36) — all green. `grep -rn
+'crate::features::\|crate::session::' apps/web/src` is empty. Desktop
+suite / `e2e-desktop` not re-run (untouched by this phase).
+
+---
+
 Branch: `worktree-refactor+structure-and-code-design`. Executes the
 sequence from the independent review (decoupling / directory layout /
 code design + cyclomatic complexity). Every step below is its own commit;

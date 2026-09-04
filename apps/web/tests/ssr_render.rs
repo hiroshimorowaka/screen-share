@@ -8,7 +8,7 @@
 #![cfg(feature = "ssr")]
 
 use leptos::prelude::*;
-use screen_share::components::status_message::StatusMessage;
+use screen_share::components::ui::status_message::StatusMessage;
 
 /// Render a view to its server HTML string under a fresh reactive owner
 /// (signals created in the closure need one).
