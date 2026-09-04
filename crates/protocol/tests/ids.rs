@@ -15,6 +15,8 @@ fn peer_id_round_trips_through_str() {
 fn peer_id_rejects_empty_and_overlong() {
     assert_eq!(PeerId::parse(""), Err(IdError::PeerId));
     assert_eq!(PeerId::parse("x".repeat(65)), Err(IdError::PeerId));
+    // The cap itself is inclusive: exactly 64 bytes is still accepted.
+    assert!(PeerId::parse("x".repeat(64)).is_ok());
     // A UUID and an 8-char room-style code are both comfortably inside.
     assert!(PeerId::parse("550e8400-e29b-41d4-a716-446655440000").is_ok());
 }
@@ -28,6 +30,8 @@ fn room_code_accepts_any_plausible_lookup_key_and_rejects_the_bogus() {
     assert!(RoomCode::parse("abcd1234").is_ok());
     assert_eq!(RoomCode::parse(""), Err(IdError::RoomCode));
     assert_eq!(RoomCode::parse("x".repeat(65)), Err(IdError::RoomCode));
+    // The cap itself is inclusive: exactly 64 bytes is still accepted.
+    assert!(RoomCode::parse("x".repeat(64)).is_ok());
 }
 
 #[test]
