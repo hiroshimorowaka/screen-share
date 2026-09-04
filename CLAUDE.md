@@ -317,6 +317,12 @@ considering a change to that layer done (see §"Definition of done" →
 - Do not run individual `cargo test` / `cargo clippy` / `playwright test`
   commands by hand.
 - Mutation tests are not run locally — CI runs them.
+- **After a run that comes back fully green and the task is done**, run
+  `cargo clean` to reclaim disk. `cargo-mutants`, `cargo-llvm-cov` and
+  the release builds leave large artifacts behind (`mutants.out/`,
+  coverage data, a bloated `target/`); clearing them once the work is
+  verified keeps the checkout small. Only do this at the end — a green,
+  finished task — never mid-iteration, since the next build is then cold.
 
 ## Rust and Leptos coding practices
 
