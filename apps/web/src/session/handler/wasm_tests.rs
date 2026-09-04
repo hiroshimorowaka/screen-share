@@ -11,7 +11,7 @@ use screen_share_protocol::{
 use wasm_bindgen_test::*;
 
 use super::*;
-use crate::infra::storage::load_recent_rooms;
+use crate::client::storage::load_recent_rooms;
 use crate::session::{RoomMember, RoomSignals};
 
 wasm_bindgen_test_configure!(run_in_browser);

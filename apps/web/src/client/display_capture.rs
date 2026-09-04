@@ -1,7 +1,7 @@
 //! The seam over `getDisplayMedia` — step 8 of the structure-refactor
 //! plan. `start_sharing` / `switch_source_handler` (`session::media`)
 //! take a `DisplayCapture` instead of calling
-//! `infra::webrtc::capture_display` directly, so a test can hand them a
+//! `client::webrtc::capture_display` directly, so a test can hand them a
 //! stream without a real capture prompt.
 //!
 //! This isn't a stylistic nicety: headless Chrome has no display to
@@ -16,11 +16,11 @@
 //! all that exist, so there's no dyn-safety cost to pay for a
 //! never-exercised trait-object path.
 //!
-//! The trait lives here (all of `infra` is `hydrate`-only); the real
+//! The trait lives here (all of `client` is `hydrate`-only); the real
 //! `BrowserDisplayCapture` impl lives in `session::media` instead — a
 //! zero-sized marker with no `web_sys` inside it, so the `ssr` build's
 //! inert `switch_source_handler` stub, which shares a call site with
-//! the `hydrate` one, can still name the type even though `infra`
+//! the `hydrate` one, can still name the type even though `client`
 //! doesn't exist there at all.
 
 pub(crate) trait DisplayCapture {

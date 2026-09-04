@@ -15,7 +15,7 @@ pub fn load_recent_rooms_after_mount(
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        set_recent_rooms.set(crate::infra::storage::load_recent_rooms());
+        set_recent_rooms.set(crate::client::storage::load_recent_rooms());
     });
 }
 
@@ -37,9 +37,9 @@ pub fn prune_recent_rooms(
 ) {
     use leptos::task::spawn_local;
 
-    use crate::infra::{rooms_api::check_room, storage::remove_recent_room};
+    use crate::client::{rooms_api::check_room, storage::remove_recent_room};
 
-    for room in crate::infra::storage::load_recent_rooms() {
+    for room in crate::client::storage::load_recent_rooms() {
         let code = room.code.clone();
         spawn_local(async move {
             if let Some(status) = check_room(&code).await {

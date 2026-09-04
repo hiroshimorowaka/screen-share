@@ -10,7 +10,7 @@ use super::*;
 wasm_bindgen_test_configure!(run_in_browser);
 
 async fn pc_with_video_track() -> web_sys::RtcPeerConnection {
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     let generator = web_sys::MediaStreamTrackGenerator::new(
         &web_sys::MediaStreamTrackGeneratorInit::new("video"),
     )
@@ -83,6 +83,6 @@ async fn switching_modes_live_updates_both_the_hint_and_the_degradation_preferen
 
 #[wasm_bindgen_test]
 async fn apply_video_mode_is_a_noop_without_a_video_sender() {
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     apply_video_mode(&pc, VideoMode::Motion).await.unwrap();
 }

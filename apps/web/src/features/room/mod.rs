@@ -152,7 +152,7 @@ pub fn RoomPage() -> impl IntoView {
     // first load. Only runs if that didn't already authenticate us.
     #[cfg(feature = "hydrate")]
     if !authenticated.get_untracked() {
-        if let Some(stored) = crate::infra::storage::load_room_session(&initial_code) {
+        if let Some(stored) = crate::client::storage::load_room_session(&initial_code) {
             join_room(stored.nick, stored.color, stored.password);
         }
     }

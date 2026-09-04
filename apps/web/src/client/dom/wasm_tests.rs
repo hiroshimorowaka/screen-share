@@ -1,4 +1,4 @@
-//! Browser (`wasm32`) tests for `infra::dom` — the listener/timer
+//! Browser (`wasm32`) tests for `client::dom` — the listener/timer
 //! registrations must be gone once the owning reactive scope is cleaned
 //! up. Split into its own file so `.cargo/mutants.toml`'s
 //! `**/*_wasm_tests.rs` exclusion covers it.

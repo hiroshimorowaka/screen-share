@@ -8,7 +8,7 @@ pub fn load_last_room_name_after_mount(set_room_name: WriteSignal<String>) {
     use leptos::task::spawn_local;
 
     spawn_local(async move {
-        if let Some(name) = crate::infra::storage::load_last_room_name() {
+        if let Some(name) = crate::client::storage::load_last_room_name() {
             set_room_name.set(name);
         }
     });
@@ -106,13 +106,13 @@ pub fn submit_create_room(
 
     use leptos_router::hooks::use_navigate;
 
-    use crate::features::profile::{Profile, RecentRoom};
-    use crate::infra::session::{self, PendingSession};
-    use crate::infra::socket::WsClient;
-    use crate::infra::storage::{
+    use crate::client::session::{self, PendingSession};
+    use crate::client::socket::WsClient;
+    use crate::client::storage::{
         ensure_device_id, save_last_room_name, save_profile, save_recent_room, save_room_session,
         RoomSession,
     };
+    use crate::features::profile::{Profile, RecentRoom};
     use screen_share_protocol::{ClientMessage, ServerMessage};
 
     set_submitting.set(true);
@@ -233,7 +233,7 @@ pub fn start_quick_share_after_mount(
     }
 
     spawn_local(async move {
-        let profile = crate::infra::storage::load_profile();
+        let profile = crate::client::storage::load_profile();
         let nick_value = if profile.nick.trim().is_empty() {
             crate::quick_share::random_nick()
         } else {

@@ -14,7 +14,7 @@ pub mod features;
 pub mod session;
 
 #[cfg(feature = "hydrate")]
-pub mod infra;
+pub mod client;
 #[cfg(feature = "hydrate")]
 pub mod quick_share;
 

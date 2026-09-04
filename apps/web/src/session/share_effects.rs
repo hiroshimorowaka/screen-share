@@ -92,7 +92,7 @@ pub(crate) fn setup_quick_share_auto_flow(
         if share.is_sharing.get() && !auto_share_notified.get_untracked() {
             auto_share_notified.set(true);
             if let Some(link) = build_invite_link(&room_code_for_notify) {
-                crate::infra::webrtc::notify_desktop_share_ready(&link);
+                crate::client::webrtc::notify_desktop_share_ready(&link);
             }
         }
     });

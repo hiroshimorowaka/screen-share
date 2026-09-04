@@ -40,7 +40,7 @@ fn configure_encoding_pins_bitrate_scale_and_framerate() {
 
 #[wasm_bindgen_test]
 async fn apply_tier_writes_the_selected_tier_onto_the_video_senders_parameters() {
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     let generator = web_sys::MediaStreamTrackGenerator::new(
         &web_sys::MediaStreamTrackGeneratorInit::new("video"),
     )
@@ -63,7 +63,7 @@ async fn apply_tier_writes_the_selected_tier_onto_the_video_senders_parameters()
 
 #[wasm_bindgen_test]
 async fn apply_tier_is_a_noop_when_no_video_sender_exists_yet() {
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     // No track added — must resolve Ok rather than panic or reject.
     apply_tier(&pc, Tier::High).await.unwrap();
 }

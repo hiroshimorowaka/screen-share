@@ -37,7 +37,7 @@ pub struct RoomSession {
     /// Boxed behind `SignalingTransport` (not the concrete `WsClient`) so
     /// a test can swap in a fake that just records what was sent.
     pub(crate) ws: std::rc::Rc<
-        std::cell::RefCell<Option<Box<dyn crate::infra::signaling_transport::SignalingTransport>>>,
+        std::cell::RefCell<Option<Box<dyn crate::client::signaling_transport::SignalingTransport>>>,
     >,
     pub(crate) outgoing: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
@@ -179,9 +179,9 @@ pub(crate) fn setup_room_connection(
     conn: RoomSession,
     signals: RoomSignals,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
+    use crate::client::socket::WsClient;
+    use crate::client::storage::{ensure_device_id, save_profile};
     use crate::features::profile::Profile;
-    use crate::infra::socket::WsClient;
-    use crate::infra::storage::{ensure_device_id, save_profile};
     use screen_share_protocol::ClientMessage;
 
     use crate::session::handler::build_message_handler;
@@ -246,7 +246,7 @@ pub(crate) fn adopt_pending_session(
     signals: RoomSignals,
     set_requires_password: WriteSignal<bool>,
 ) {
-    use crate::infra::session;
+    use crate::client::session;
 
     use crate::session::handler::{apply_joined_snapshot, build_message_handler, JoinedSnapshot};
 

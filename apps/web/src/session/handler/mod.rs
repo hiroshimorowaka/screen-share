@@ -13,9 +13,9 @@ use wasm_bindgen::JsCast;
 use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
 #[cfg(feature = "hydrate")]
-use crate::infra::peer_link::PeerLink;
+use crate::client::peer_link::PeerLink;
 #[cfg(feature = "hydrate")]
-use crate::infra::webrtc::new_peer_connection;
+use crate::client::webrtc::new_peer_connection;
 #[cfg(feature = "hydrate")]
 use crate::session::RoomSession;
 #[cfg(feature = "hydrate")]
@@ -58,8 +58,8 @@ pub(crate) struct JoinedSnapshot {
 pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSignals) {
     use std::collections::HashSet;
 
+    use crate::client::storage::save_recent_room;
     use crate::features::profile::RecentRoom;
-    use crate::infra::storage::save_recent_room;
 
     let JoinedSnapshot {
         room_code,
@@ -375,7 +375,7 @@ fn attach_local_tracks(pc: &web_sys::RtcPeerConnection, stream: &MediaStream) {
         pc.add_track_0(&track, stream);
     }
     if !shares_audio {
-        crate::infra::webrtc::reserve_audio_mline(pc, stream);
+        crate::client::webrtc::reserve_audio_mline(pc, stream);
     }
 }
 
@@ -631,7 +631,7 @@ pub(crate) fn build_message_handler(
             color,
         } => {
             let (peer_id, nick, color) = (peer_id.to_string(), nick.to_string(), color.to_string());
-            crate::infra::webrtc::notify_desktop_member_joined(&nick);
+            crate::client::webrtc::notify_desktop_member_joined(&nick);
             set_members.update(|members| {
                 members.push(RoomMember {
                     peer_id,

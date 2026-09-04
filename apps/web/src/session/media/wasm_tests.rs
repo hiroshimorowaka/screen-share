@@ -32,7 +32,7 @@ fn sharing_can_have_audio_holds_in_a_plain_browser_that_can_screen_share() {
         &web_sys::window().unwrap(),
         &wasm_bindgen::JsValue::from_str("desktopAudio"),
     );
-    assert!(!crate::infra::webrtc::is_desktop_app());
+    assert!(!crate::client::webrtc::is_desktop_app());
     assert!(sharing_can_have_audio());
 }
 
@@ -60,7 +60,7 @@ async fn replace_outgoing_tracks_swaps_every_matching_sender() {
 
     // Two viewer connections, each sending the old video track.
     for peer in ["viewer-a", "viewer-b"] {
-        let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+        let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
         pc.add_track_0(&old_video, &old_stream);
         conn.outgoing.borrow_mut().insert(peer.to_string(), pc);
     }
@@ -90,7 +90,7 @@ async fn teardown_local_share_releases_the_stream_and_every_viewer_connection() 
     let (shared_video, _) = video_and_audio_tracks(&shared);
     let shared_video = shared_video.unwrap();
     for peer in ["viewer-a", "viewer-b"] {
-        let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+        let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
         pc.add_track_0(&shared_video, &shared);
         conn.outgoing.borrow_mut().insert(peer.to_string(), pc);
         // A live Auto poll for this viewer — teardown must stop it without
@@ -142,7 +142,7 @@ async fn replace_outgoing_tracks_clears_the_audio_sender_when_the_new_stream_has
 
     let old = stream_of(&["video", "audio"]);
     let (old_video, old_audio) = video_and_audio_tracks(&old);
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     pc.add_track_0(&old_video.unwrap(), &old);
     pc.add_track_0(&old_audio.clone().unwrap(), &old);
     conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
@@ -173,9 +173,9 @@ async fn replace_outgoing_tracks_fills_a_reserved_audio_mline_when_a_switch_gain
     // `WatchRequested` builds now.
     let started_silent = stream_of(&["video"]);
     let (silent_video, _) = video_and_audio_tracks(&started_silent);
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     pc.add_track_0(&silent_video.unwrap(), &started_silent);
-    crate::infra::webrtc::reserve_audio_mline(&pc, &started_silent);
+    crate::client::webrtc::reserve_audio_mline(&pc, &started_silent);
     conn.outgoing.borrow_mut().insert("viewer".to_string(), pc);
 
     // "Trocar fonte" to a source that now carries audio.
@@ -202,11 +202,11 @@ async fn replace_outgoing_tracks_fills_a_reserved_audio_mline_when_a_switch_gain
 
 #[wasm_bindgen_test]
 fn reserve_audio_mline_adds_one_sendonly_audio_transceiver() {
-    let pc = crate::infra::webrtc::new_peer_connection(None).unwrap();
+    let pc = crate::client::webrtc::new_peer_connection(None).unwrap();
     let stream = stream_of(&["video"]);
     pc.add_track_0(&video_and_audio_tracks(&stream).0.unwrap(), &stream);
 
-    crate::infra::webrtc::reserve_audio_mline(&pc, &stream);
+    crate::client::webrtc::reserve_audio_mline(&pc, &stream);
 
     let audio_transceivers = pc
         .get_transceivers()

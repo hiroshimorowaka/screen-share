@@ -14,8 +14,8 @@ use screen_share_protocol::ClientMessage;
 use wasm_bindgen_test::*;
 
 use super::*;
-use crate::infra::signaling_transport::SignalingTransport;
-use crate::infra::socket::WsClient;
+use crate::client::signaling_transport::SignalingTransport;
+use crate::client::socket::WsClient;
 use crate::session::{RoomSession, RoomSignals, SharingState};
 
 wasm_bindgen_test_configure!(run_in_browser);

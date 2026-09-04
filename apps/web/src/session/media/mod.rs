@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 #[cfg(feature = "hydrate")]
-use crate::infra::display_capture::DisplayCapture;
+use crate::client::display_capture::DisplayCapture;
 use crate::session::RoomSession;
 #[cfg(feature = "hydrate")]
 use crate::session::SharingState;
@@ -9,7 +9,7 @@ use crate::session::SharingState;
 /// The real, browser-backed `DisplayCapture` — a zero-sized marker with
 /// no `web_sys` inside it, so it's nameable from the `ssr` build's inert
 /// `switch_source_handler` stub too, which shares a call site with the
-/// `hydrate` one (`infra`, where `DisplayCapture` itself lives, doesn't
+/// `hydrate` one (`client`, where `DisplayCapture` itself lives, doesn't
 /// exist at all under `ssr`).
 #[derive(Clone, Copy, Default)]
 pub(crate) struct BrowserDisplayCapture;
@@ -17,7 +17,7 @@ pub(crate) struct BrowserDisplayCapture;
 #[cfg(feature = "hydrate")]
 impl DisplayCapture for BrowserDisplayCapture {
     async fn capture(&self) -> Result<web_sys::MediaStream, wasm_bindgen::JsValue> {
-        crate::infra::webrtc::capture_display().await
+        crate::client::webrtc::capture_display().await
     }
 }
 
@@ -28,7 +28,7 @@ pub(crate) fn share_supported() -> bool {
 
 #[cfg(feature = "hydrate")]
 pub(crate) fn share_supported() -> bool {
-    crate::infra::webrtc::is_display_media_supported()
+    crate::client::webrtc::is_display_media_supported()
 }
 
 /// Whether a share started here can carry audio at all. The desktop shell
@@ -48,7 +48,7 @@ pub(crate) fn sharing_can_have_audio() -> bool {
 
 #[cfg(feature = "hydrate")]
 pub(crate) fn sharing_can_have_audio() -> bool {
-    crate::infra::webrtc::is_desktop_app() || crate::infra::webrtc::is_display_media_supported()
+    crate::client::webrtc::is_desktop_app() || crate::client::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -272,7 +272,7 @@ pub(crate) fn start_sharing<C: DisplayCapture + 'static>(
         // and `stop()` keep working fine on the clone.
         *conn.sharing.borrow_mut() = SharingState::Sharing { stream };
 
-        crate::infra::webrtc::notify_desktop_sharing_changed(true);
+        crate::client::webrtc::notify_desktop_sharing_changed(true);
     });
 }
 
@@ -383,7 +383,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     // browser (no `window.desktopAudio` there), where it's likewise a
     // harmless no-op inside `stop_desktop_audio_loopback` itself.
     spawn_local(async {
-        let _ = crate::infra::webrtc::stop_desktop_audio_loopback().await;
+        let _ = crate::client::webrtc::stop_desktop_audio_loopback().await;
     });
 
     // Chrome keeps its native "sharing" indicator alive as long as any
@@ -433,7 +433,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);
     }
-    crate::infra::webrtc::notify_desktop_sharing_changed(false);
+    crate::client::webrtc::notify_desktop_sharing_changed(false);
 }
 
 #[cfg(feature = "hydrate")]
@@ -502,7 +502,7 @@ pub(crate) fn switch_source_handler<C: DisplayCapture + Clone + 'static>(
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
 
-    use crate::infra::webrtc::stop_desktop_audio_loopback;
+    use crate::client::webrtc::stop_desktop_audio_loopback;
 
     move |_| {
         // Nothing to switch if we aren't the one sharing.

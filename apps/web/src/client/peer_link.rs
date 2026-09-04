@@ -22,7 +22,7 @@
 //! functions (`answer_offer`, `accept_answer_from`, `route_ice_candidate`)
 //! call `pc.offer()` / `pc.answer(&sdp)` / `pc.accept_answer(&sdp)` /
 //! `pc.add_ice_candidate(...)` instead of importing
-//! `infra::webrtc::{create_offer, create_answer, accept_answer,
+//! `client::webrtc::{create_offer, create_answer, accept_answer,
 //! add_ice_candidate}` — the negotiation contract reads as one named
 //! interface at its call sites, per CLAUDE.md's "design around domain
 //! concepts rather than leaking implementation details" API guideline,
@@ -53,15 +53,15 @@ pub(crate) trait PeerLink {
 
 impl PeerLink for RtcPeerConnection {
     async fn offer(&self) -> Result<String, JsValue> {
-        crate::infra::webrtc::create_offer(self).await
+        crate::client::webrtc::create_offer(self).await
     }
 
     async fn answer(&self, offer_sdp: &str) -> Result<String, JsValue> {
-        crate::infra::webrtc::create_answer(self, offer_sdp).await
+        crate::client::webrtc::create_answer(self, offer_sdp).await
     }
 
     async fn accept_answer(&self, answer_sdp: &str) -> Result<(), JsValue> {
-        crate::infra::webrtc::accept_answer(self, answer_sdp).await
+        crate::client::webrtc::accept_answer(self, answer_sdp).await
     }
 
     fn add_ice_candidate(
@@ -70,6 +70,6 @@ impl PeerLink for RtcPeerConnection {
         sdp_mid: Option<String>,
         sdp_m_line_index: Option<u16>,
     ) {
-        crate::infra::webrtc::add_ice_candidate(self, candidate, sdp_mid, sdp_m_line_index);
+        crate::client::webrtc::add_ice_candidate(self, candidate, sdp_mid, sdp_m_line_index);
     }
 }

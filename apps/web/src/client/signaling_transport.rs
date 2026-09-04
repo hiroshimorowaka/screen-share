@@ -1,5 +1,5 @@
 //! The seam between session/room code and the concrete `WsClient`
-//! (`infra::socket`) — step 8 of the structure-refactor plan.
+//! (`client::socket`) — step 8 of the structure-refactor plan.
 //! `RoomSession.ws` holds a `Box<dyn SignalingTransport>` instead of a
 //! `WsClient` directly, so a test can stand in a fake that just records
 //! what was sent, instead of opening a real `WsClient::connect` socket
@@ -19,7 +19,7 @@ pub(crate) trait SignalingTransport {
 }
 
 #[cfg(feature = "hydrate")]
-impl SignalingTransport for crate::infra::socket::WsClient {
+impl SignalingTransport for crate::client::socket::WsClient {
     fn send(&self, msg: &ClientMessage) {
         Self::send(self, msg)
     }

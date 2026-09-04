@@ -37,5 +37,5 @@ pub(super) fn setup_touch_signal(set_is_touch: WriteSignal<bool>) {
         let query = query.clone();
         move || set_is_touch.set(query.matches())
     });
-    crate::infra::dom::listen_until_cleanup(&query, "change", on_change);
+    crate::client::dom::listen_until_cleanup(&query, "change", on_change);
 }

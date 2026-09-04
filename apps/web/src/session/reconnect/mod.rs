@@ -37,8 +37,8 @@ mod wiring {
     use wasm_bindgen::JsCast;
 
     use super::BackoffPolicy;
-    use crate::infra::socket::WsClient;
-    use crate::infra::storage::{ensure_device_id, load_room_session};
+    use crate::client::socket::WsClient;
+    use crate::client::storage::{ensure_device_id, load_room_session};
     use crate::session::handler::build_message_handler;
     use crate::session::{RoomSession, RoomSignals};
     use screen_share_protocol::ClientMessage;

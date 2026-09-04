@@ -1,6 +1,6 @@
 use std::cell::RefCell;
 
-use crate::infra::socket::WsClient;
+use crate::client::socket::WsClient;
 use screen_share_protocol::{MemberInfo, TurnCredentials};
 
 /// An already-authenticated connection that `HomePage` leaves ready for

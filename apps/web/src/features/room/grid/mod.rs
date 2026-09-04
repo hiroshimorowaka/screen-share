@@ -83,7 +83,7 @@ pub(super) fn setup_auto_hide_controls(
             show_and_schedule_hide();
         })
     };
-    crate::infra::dom::listen_until_cleanup(&window, "mousemove", on_move);
+    crate::client::dom::listen_until_cleanup(&window, "mousemove", on_move);
 
     // Touch has no `mousemove`. Outside focus mode keep the (two-button)
     // bar up; entering focus mode arms the fade so the chrome gets out of
@@ -175,7 +175,7 @@ pub(super) fn setup_adaptive_grid(
     });
 
     if let Some(window) = web_sys::window() {
-        crate::infra::dom::listen_until_cleanup(
+        crate::client::dom::listen_until_cleanup(
             &window,
             "resize",
             Closure::<dyn FnMut()>::new(schedule_recompute),

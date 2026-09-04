@@ -53,7 +53,7 @@ pub(crate) fn setup_ping_loop(conn: crate::session::RoomSession) {
     // an already-closed socket ("WebSocket is already in CLOSING or
     // CLOSED state").
     let on_tick = Closure::<dyn FnMut()>::new(move || send_ping(&conn));
-    crate::infra::dom::interval_until_cleanup(on_tick, PING_INTERVAL_MS);
+    crate::client::dom::interval_until_cleanup(on_tick, PING_INTERVAL_MS);
 }
 
 #[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]

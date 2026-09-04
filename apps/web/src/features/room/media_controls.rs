@@ -290,7 +290,7 @@ pub(super) fn setup_fullscreen_autohide_controls() {
     // Removed when `RoomPage` is disposed — without this the pair of
     // `document` listeners piled up on every room entry (each fires on
     // every mouse move for the whole page).
-    crate::infra::dom::listen_until_cleanup(&document, "mousemove", on_mousemove);
+    crate::client::dom::listen_until_cleanup(&document, "mousemove", on_mousemove);
 
     let on_fullscreenchange = {
         let document = document.clone();
@@ -302,5 +302,5 @@ pub(super) fn setup_fullscreen_autohide_controls() {
             }
         })
     };
-    crate::infra::dom::listen_until_cleanup(&document, "fullscreenchange", on_fullscreenchange);
+    crate::client::dom::listen_until_cleanup(&document, "fullscreenchange", on_fullscreenchange);
 }

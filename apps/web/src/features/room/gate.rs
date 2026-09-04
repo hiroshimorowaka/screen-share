@@ -50,9 +50,9 @@ where
             }
             let password_value = (!password_value.is_empty()).then_some(password_value);
             #[cfg(feature = "hydrate")]
-            crate::infra::storage::save_room_session(
+            crate::client::storage::save_room_session(
                 &join_room_code,
-                &crate::infra::storage::RoomSession {
+                &crate::client::storage::RoomSession {
                     nick: nick_value.clone(),
                     color: color.get_untracked(),
                     password: password_value.clone(),

@@ -123,7 +123,7 @@ pub(crate) fn leave_room(
         crate::session::media::teardown_local_share(conn, me.as_deref());
     }
 
-    crate::infra::storage::clear_room_session(room_code);
+    crate::client::storage::clear_room_session(room_code);
     // Same teardown every non-button exit gets (see `session::reconnect`):
     // mark the close expected so the reconnect loop doesn't treat it as a
     // drop, stop any in-flight reconnect, drop the peer connections, and
