@@ -2,7 +2,7 @@
 //! readable (refactor Phase 4). Kept in-crate: they exercise items that
 //! are not part of the crate's public API.
 
-use super::*;
+use screen_share_domain::quality::*;
 
 fn reading(limitation_is_bad: bool, sent_total: f64, lost_total: f64) -> RawReading {
     RawReading {

@@ -2095,6 +2095,9 @@ dependencies = [
 [[package]]
 name = "screen-share-domain"
 version = "0.1.0"
+dependencies = [
+ "screen-share-protocol",
+]
 
 [[package]]
 name = "screen-share-protocol"

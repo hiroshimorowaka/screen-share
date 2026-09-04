@@ -7,3 +7,4 @@ edition = "2021"
 name = "screen_share_domain"
 
 [dependencies]
+screen-share-protocol = { path = "../protocol" }
