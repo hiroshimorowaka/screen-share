@@ -13,7 +13,7 @@ use wasm_bindgen::JsCast;
 use web_sys::{MediaStream, RtcPeerConnectionIceEvent, RtcTrackEvent};
 
 #[cfg(feature = "hydrate")]
-use crate::client::peer_link::PeerLink;
+use crate::client::seam::peer_link::PeerLink;
 #[cfg(feature = "hydrate")]
 use crate::client::webrtc::new_peer_connection;
 #[cfg(feature = "hydrate")]
@@ -631,7 +631,7 @@ pub(crate) fn build_message_handler(
             color,
         } => {
             let (peer_id, nick, color) = (peer_id.to_string(), nick.to_string(), color.to_string());
-            crate::client::webrtc::notify_desktop_member_joined(&nick);
+            crate::client::desktop_bridge::notify_desktop_member_joined(&nick);
             set_members.update(|members| {
                 members.push(RoomMember {
                     peer_id,

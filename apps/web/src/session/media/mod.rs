@@ -1,7 +1,7 @@
 use leptos::prelude::*;
 
 #[cfg(feature = "hydrate")]
-use crate::client::display_capture::DisplayCapture;
+use crate::client::seam::display_capture::DisplayCapture;
 use crate::session::RoomSession;
 #[cfg(feature = "hydrate")]
 use crate::session::SharingState;
@@ -48,7 +48,8 @@ pub(crate) fn sharing_can_have_audio() -> bool {
 
 #[cfg(feature = "hydrate")]
 pub(crate) fn sharing_can_have_audio() -> bool {
-    crate::client::webrtc::is_desktop_app() || crate::client::webrtc::is_display_media_supported()
+    crate::client::desktop_bridge::is_desktop_app()
+        || crate::client::webrtc::is_display_media_supported()
 }
 
 #[cfg(not(feature = "hydrate"))]
@@ -272,7 +273,7 @@ pub(crate) fn start_sharing<C: DisplayCapture + 'static>(
         // and `stop()` keep working fine on the clone.
         *conn.sharing.borrow_mut() = SharingState::Sharing { stream };
 
-        crate::client::webrtc::notify_desktop_sharing_changed(true);
+        crate::client::desktop_bridge::notify_desktop_sharing_changed(true);
     });
 }
 
@@ -383,7 +384,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     // browser (no `window.desktopAudio` there), where it's likewise a
     // harmless no-op inside `stop_desktop_audio_loopback` itself.
     spawn_local(async {
-        let _ = crate::client::webrtc::stop_desktop_audio_loopback().await;
+        let _ = crate::client::desktop_bridge::stop_desktop_audio_loopback().await;
     });
 
     // Chrome keeps its native "sharing" indicator alive as long as any
@@ -433,7 +434,7 @@ pub(crate) fn teardown_local_share(conn: &RoomSession, my_peer_id: Option<&str>)
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.send(&screen_share_protocol::ClientMessage::StopShare);
     }
-    crate::client::webrtc::notify_desktop_sharing_changed(false);
+    crate::client::desktop_bridge::notify_desktop_sharing_changed(false);
 }
 
 #[cfg(feature = "hydrate")]
@@ -502,7 +503,7 @@ pub(crate) fn switch_source_handler<C: DisplayCapture + Clone + 'static>(
     use leptos::task::spawn_local;
     use wasm_bindgen::JsCast;
 
-    use crate::client::webrtc::stop_desktop_audio_loopback;
+    use crate::client::desktop_bridge::stop_desktop_audio_loopback;
 
     move |_| {
         // Nothing to switch if we aren't the one sharing.

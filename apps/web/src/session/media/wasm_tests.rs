@@ -32,7 +32,7 @@ fn sharing_can_have_audio_holds_in_a_plain_browser_that_can_screen_share() {
         &web_sys::window().unwrap(),
         &wasm_bindgen::JsValue::from_str("desktopAudio"),
     );
-    assert!(!crate::client::webrtc::is_desktop_app());
+    assert!(!crate::client::desktop_bridge::is_desktop_app());
     assert!(sharing_can_have_audio());
 }
 

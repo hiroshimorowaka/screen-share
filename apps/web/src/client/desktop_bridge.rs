@@ -1,0 +1,326 @@
+//! Everything that talks to the Electron desktop shell: the tray/native
+//! notification bridges (`window.desktopShare.*`) and the system-audio
+//! loopback (`window.desktopAudio.*`, incl. the Windows PCM-over-IPC
+//! path). All of it is a no-op in a plain browser tab.
+
+use std::cell::{Cell, RefCell};
+use std::rc::Rc;
+
+use wasm_bindgen::prelude::*;
+use wasm_bindgen::JsCast;
+use wasm_bindgen_futures::JsFuture;
+use web_sys::{
+    AudioData, AudioDataInit, AudioSampleFormat, ConstrainDomStringParameters, MediaStream,
+    MediaStreamConstraints, MediaStreamTrackGenerator, MediaStreamTrackGeneratorInit,
+    MediaTrackConstraints, WritableStreamDefaultWriter,
+};
+
+pub(crate) fn is_desktop_app() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    js_sys::Reflect::has(&window, &JsValue::from_str("desktopAudio")).unwrap_or(false)
+}
+
+/// Hands the invite link for a just-started share to the desktop shell's
+/// `window.desktopShare.linkReady` bridge, so it can copy it to the
+/// clipboard on the sharer's behalf. Only the desktop app's preload script
+/// ever defines that bridge, so this is a no-op in a plain browser tab —
+/// and it has to go through the shell rather than the page's own Clipboard
+/// API, since the quick-share flow's window stays hidden throughout,
+/// and that API requires document focus.
+pub(crate) fn notify_desktop_share_ready(link: &str) {
+    if !is_desktop_app() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
+        return;
+    };
+    let Ok(link_ready) = js_sys::Reflect::get(&bridge, &JsValue::from_str("linkReady")) else {
+        return;
+    };
+    let Ok(link_ready) = link_ready.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = link_ready.call1(&bridge, &JsValue::from_str(link));
+}
+
+/// Tells the desktop shell's `window.desktopShare.memberJoined` bridge that
+/// someone just joined the room, so it can raise a native OS notification —
+/// the room page's window stays hidden/backgrounded for most of a desktop
+/// session, so an in-page toast would go unseen. No-op in a plain browser
+/// tab, same as `notify_desktop_share_ready`.
+pub(crate) fn notify_desktop_member_joined(nick: &str) {
+    if !is_desktop_app() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
+        return;
+    };
+    let Ok(member_joined) = js_sys::Reflect::get(&bridge, &JsValue::from_str("memberJoined"))
+    else {
+        return;
+    };
+    let Ok(member_joined) = member_joined.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = member_joined.call1(&bridge, &JsValue::from_str(nick));
+}
+
+/// Tells the desktop shell's `window.desktopShare.sharingChanged` bridge
+/// whether this member is currently sharing, so the tray icon can switch
+/// between its idle (green) and live (red) state. No-op in a plain browser
+/// tab.
+pub(crate) fn notify_desktop_sharing_changed(is_sharing: bool) {
+    if !is_desktop_app() {
+        return;
+    }
+    let Some(window) = web_sys::window() else {
+        return;
+    };
+    let Ok(bridge) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopShare")) else {
+        return;
+    };
+    let Ok(sharing_changed) = js_sys::Reflect::get(&bridge, &JsValue::from_str("sharingChanged"))
+    else {
+        return;
+    };
+    let Ok(sharing_changed) = sharing_changed.dyn_into::<js_sys::Function>() else {
+        return;
+    };
+    let _ = sharing_changed.call1(&bridge, &JsValue::from_bool(is_sharing));
+}
+
+pub(crate) fn has_pcm_bridge() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(desktop_audio) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))
+    else {
+        return false;
+    };
+    js_sys::Reflect::has(&desktop_audio, &JsValue::from_str("onPcmChunk")).unwrap_or(false)
+}
+
+/// Whether the Electron shell currently has an audio loopback running for
+/// this share — i.e. the sharer ticked "compartilhar áudio" in the
+/// picker. `false` (its own default) on any error or outside the desktop
+/// app.
+pub(crate) async fn desktop_audio_loopback_active() -> bool {
+    let Some(window) = web_sys::window() else {
+        return false;
+    };
+    let Ok(desktop_audio) = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))
+    else {
+        return false;
+    };
+    let Ok(active_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("active")) else {
+        return false;
+    };
+    let Ok(active_fn) = active_fn.dyn_into::<js_sys::Function>() else {
+        return false;
+    };
+    let Ok(result) = active_fn.call0(&desktop_audio) else {
+        return false;
+    };
+    let Ok(promise) = result.dyn_into::<js_sys::Promise>() else {
+        return false;
+    };
+    JsFuture::from(promise)
+        .await
+        .map(|value| value.is_truthy())
+        .unwrap_or(false)
+}
+
+// The mix the native Windows module (`desktop/native/windows-audio`)
+// produces and sends over IPC — interleaved stereo f32 PCM, matching
+// exactly what its `capture.rs` mixer emits.
+const PCM_BRIDGE_CHANNELS: u32 = 2;
+const PCM_BRIDGE_SAMPLE_RATE: f32 = 48_000.0;
+const PCM_BRIDGE_BYTES_PER_SAMPLE: u32 = 4;
+
+/// The `window.desktopAudio.onPcmChunk` listener for the current desktop
+/// (Windows) audio bridge — it owns the `WritableStreamDefaultWriter` and
+/// `MediaStreamTrackGenerator` by move.
+type PcmBridgeCallback = Closure<dyn FnMut(JsValue)>;
+
+thread_local! {
+    /// Held here rather than `Closure::forget`'d so each new bridge and
+    /// each `stop_desktop_audio_loopback` replaces / clears the previous
+    /// one instead of leaking it once per share (finding F08b). Single
+    /// slot: only one local capture exists at a time.
+    static PCM_BRIDGE_CALLBACK: RefCell<Option<PcmBridgeCallback>> = const { RefCell::new(None) };
+}
+
+/// Turns the desktop app's `window.desktopAudio.onPcmChunk` PCM stream
+/// into a real `MediaStreamTrack` via `MediaStreamTrackGenerator` +
+/// `AudioData` — see Task 1 in the Windows audio sharing plan for how
+/// this was proven to work (format `'f32'`, a monotonically increasing
+/// microsecond timestamp derived from cumulative frames written, no
+/// backpressure at the 20ms/960-frame chunk cadence the native mixer
+/// uses).
+pub(crate) async fn build_track_from_pcm_bridge() -> Result<MediaStream, JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
+    let on_pcm_chunk: js_sys::Function =
+        js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("onPcmChunk"))?.dyn_into()?;
+
+    let init = MediaStreamTrackGeneratorInit::new("audio");
+    let generator = MediaStreamTrackGenerator::new(&init)?;
+    let writer: WritableStreamDefaultWriter = generator.writable().get_writer()?;
+
+    // Cumulative frames written, so each chunk's timestamp is
+    // monotonically increasing — matches what Task 1 confirmed actually
+    // works. `Cell`, not `AtomicU64`: this closure only ever runs on the
+    // single-threaded JS event loop.
+    let frames_written = Rc::new(Cell::new(0u64));
+    // A per-chunk failure here would otherwise be completely invisible —
+    // the closure has no return value the caller ever inspects, unlike
+    // the one-time setup above this — so it's logged, but only once per
+    // failure kind, since this runs roughly every 20ms and would
+    // otherwise flood the console.
+    let logged_array_buffer_failure = Rc::new(Cell::new(false));
+    let logged_audio_data_failure = Rc::new(Cell::new(false));
+    let logged_write_failure = Rc::new(Cell::new(false));
+
+    let on_chunk = Closure::<dyn FnMut(JsValue)>::new(move |chunk: JsValue| {
+        let Ok(array_buffer) = chunk.dyn_into::<js_sys::ArrayBuffer>() else {
+            if !logged_array_buffer_failure.replace(true) {
+                web_sys::console::error_1(&JsValue::from_str(
+                    "PCM bridge chunk wasn't an ArrayBuffer; further occurrences won't be logged",
+                ));
+            }
+            return;
+        };
+        let frames =
+            array_buffer.byte_length() / (PCM_BRIDGE_CHANNELS * PCM_BRIDGE_BYTES_PER_SAMPLE);
+        if frames == 0 {
+            return;
+        }
+
+        let data = js_sys::Uint8Array::new(&array_buffer);
+        // `AudioDataInit::new(..)` takes an `i32` timestamp, which would
+        // overflow (wrapping the timestamp backwards) after ~35 minutes
+        // of continuous sharing at this chunk cadence — built by hand
+        // instead, the same way `AudioDataInit::new` itself is
+        // implemented internally, so `set_timestamp_f64` (the `f64`
+        // setter) can be used instead.
+        let audio_data_init: AudioDataInit =
+            wasm_bindgen::JsCast::unchecked_into(js_sys::Object::new());
+        audio_data_init.set_data_u8_array(&data);
+        audio_data_init.set_format(AudioSampleFormat::F32);
+        audio_data_init.set_number_of_channels(PCM_BRIDGE_CHANNELS);
+        audio_data_init.set_number_of_frames(frames);
+        audio_data_init.set_sample_rate(PCM_BRIDGE_SAMPLE_RATE);
+        let timestamp_us =
+            frames_written.get() as f64 / PCM_BRIDGE_SAMPLE_RATE as f64 * 1_000_000.0;
+        audio_data_init.set_timestamp_f64(timestamp_us);
+        frames_written.set(frames_written.get() + frames as u64);
+
+        let Ok(audio_data) = AudioData::new(&audio_data_init) else {
+            if !logged_audio_data_failure.replace(true) {
+                web_sys::console::error_1(&JsValue::from_str(
+                    "AudioData::new failed for a PCM bridge chunk; further occurrences won't be logged",
+                ));
+            }
+            return;
+        };
+        // Should only ever reject once the generator's track has ended
+        // (e.g. after a later share was stopped); a rejection from the
+        // very first chunks would point at something more fundamental,
+        // so the first one (only) is logged rather than blanket-swallowed.
+        let write_promise = writer.write_with_chunk(&audio_data.into());
+        let logged_write_failure = logged_write_failure.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            if let Err(err) = JsFuture::from(write_promise).await {
+                if !logged_write_failure.replace(true) {
+                    web_sys::console::error_2(
+                        &JsValue::from_str(
+                            "writer.write_with_chunk rejected for a PCM bridge chunk; further occurrences won't be logged:",
+                        ),
+                        &err,
+                    );
+                }
+            }
+        });
+    });
+
+    on_pcm_chunk.call1(&desktop_audio, on_chunk.as_ref().unchecked_ref())?;
+    // Outlives this call for the rest of the share, but is owned rather
+    // than forgotten: `stop_desktop_audio_loopback` (share teardown /
+    // source switch) clears the slot, and a fresh bridge replaces it.
+    PCM_BRIDGE_CALLBACK.with(|slot| *slot.borrow_mut() = Some(on_chunk));
+
+    let tracks = js_sys::Array::new();
+    tracks.push(generator.as_ref());
+    MediaStream::new_with_tracks(&tracks)
+}
+
+pub(crate) async fn stop_desktop_audio_loopback() -> Result<(), JsValue> {
+    let window = web_sys::window().ok_or_else(|| JsValue::from_str("no window"))?;
+    let desktop_audio = js_sys::Reflect::get(&window, &JsValue::from_str("desktopAudio"))?;
+    let stop_fn: js_sys::Function =
+        js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("stop"))?.dyn_into()?;
+    let promise: js_sys::Promise = stop_fn.call0(&desktop_audio)?.dyn_into()?;
+    JsFuture::from(promise).await?;
+    // The native side has stopped emitting PCM chunks now, so the bridge
+    // listener (and the writer + generator it owns) can be released
+    // instead of leaking until the tab closes (finding F08b). Also drop
+    // the preload's `ipcRenderer` listener for the channel if the shell
+    // exposes the hook (finding 8c of the follow-up audit).
+    PCM_BRIDGE_CALLBACK.with(|slot| slot.borrow_mut().take());
+    if let Ok(off_fn) = js_sys::Reflect::get(&desktop_audio, &JsValue::from_str("offPcmChunk")) {
+        if let Ok(off_fn) = off_fn.dyn_into::<js_sys::Function>() {
+            let _ = off_fn.call0(&desktop_audio);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) async fn capture_loopback_audio(
+    media_devices: &web_sys::MediaDevices,
+) -> Result<MediaStream, JsValue> {
+    let promise = media_devices.enumerate_devices()?;
+    let devices: js_sys::Array = JsFuture::from(promise).await?.dyn_into()?;
+
+    let mut device_id = None;
+    for device in devices.iter() {
+        let info: web_sys::MediaDeviceInfo = device.dyn_into()?;
+        if info.kind() == web_sys::MediaDeviceKind::Audioinput
+            && info.label().contains("Screen Share Mix")
+        {
+            device_id = Some(info.device_id());
+        }
+    }
+    let device_id =
+        device_id.ok_or_else(|| JsValue::from_str("Screen Share Mix device not found"))?;
+
+    // `exact` (not `ideal`): if this specific device isn't available for
+    // any reason, getUserMedia must reject instead of silently falling
+    // back to the system's default microphone.
+    let exact = ConstrainDomStringParameters::new();
+    exact.set_exact_str(&device_id);
+    let track_constraints = MediaTrackConstraints::new();
+    track_constraints.set_device_id_constrain_dom_string_parameters(&exact);
+    // This is system/music audio, not a voice call — Chromium's default
+    // voice-call audio processing (tuned for a mic) is actively harmful
+    // here, not just pointless.
+    track_constraints.set_echo_cancellation_bool(false);
+    track_constraints.set_noise_suppression_bool(false);
+    track_constraints.set_auto_gain_control_bool(false);
+    let audio_constraints = MediaStreamConstraints::new();
+    audio_constraints.set_audio_media_track_constraints(&track_constraints);
+
+    let promise = media_devices.get_user_media_with_constraints(&audio_constraints)?;
+    JsFuture::from(promise).await?.dyn_into::<MediaStream>()
+}
+
+#[cfg(all(test, target_arch = "wasm32", feature = "hydrate"))]
+#[path = "desktop_bridge_wasm_tests.rs"]
+mod wasm_tests;

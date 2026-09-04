@@ -37,7 +37,9 @@ pub struct RoomSession {
     /// Boxed behind `SignalingTransport` (not the concrete `WsClient`) so
     /// a test can swap in a fake that just records what was sent.
     pub(crate) ws: std::rc::Rc<
-        std::cell::RefCell<Option<Box<dyn crate::client::signaling_transport::SignalingTransport>>>,
+        std::cell::RefCell<
+            Option<Box<dyn crate::client::seam::signaling_transport::SignalingTransport>>,
+        >,
     >,
     pub(crate) outgoing: std::rc::Rc<
         std::cell::RefCell<std::collections::HashMap<String, web_sys::RtcPeerConnection>>,
