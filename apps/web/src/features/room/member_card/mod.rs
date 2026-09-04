@@ -6,9 +6,8 @@ use super::media_controls::{
 use super::watch::{stop_watching_click_handler, watch_click_handler};
 use crate::components::icons::{icon_eye, icon_maximize, icon_pip, icon_screen_off};
 use crate::components::palette::{avatar_letter, color_hex};
-use crate::session::share_ui::PeerMedia;
-use crate::session::RoomMember;
 use crate::session::RoomSession;
+use crate::session::RoomState;
 use screen_share_protocol::{QualityLevel, MAX_MEMBERS};
 
 mod parts;
@@ -16,30 +15,6 @@ use parts::{QualityMenu, VolumeControl};
 
 /// Border/background used for a card slot that currently holds no member.
 const EMPTY_SLOT_COLORS: (&str, &str) = ("#b0b8c1", "#2a2d31");
-
-/// Everything a member card needs to render itself and react to room state.
-#[derive(Clone, Copy)]
-pub(super) struct MemberCardSignals {
-    pub(super) members: ReadSignal<Vec<RoomMember>>,
-    pub(super) my_peer_id: ReadSignal<Option<String>>,
-    pub(super) is_sharing: ReadSignal<bool>,
-    pub(super) watching: RwSignal<std::collections::HashSet<String>>,
-    pub(super) expanded: RwSignal<Option<String>>,
-    pub(super) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    pub(super) own_preview_hidden: RwSignal<bool>,
-    pub(super) hide_idle: RwSignal<bool>,
-    pub(super) connection_errors: RwSignal<std::collections::HashSet<String>>,
-    pub(super) peer_media: PeerMedia,
-    pub(super) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
-    /// Touch device — see `super::touch`. On touch, watching a sharer also
-    /// focuses their tile, and a tap on the focused video toggles the
-    /// chrome instead of collapsing focus.
-    pub(super) is_touch: ReadSignal<bool>,
-    /// Shared "chrome shown" flag (also drives the control bar). `card_click`
-    /// flips it on a tap while focused; the CSS fades `.card__actions` and
-    /// the badges with it.
-    pub(super) controls_visible: RwSignal<bool>,
-}
 
 /// Below this, a ping reads as "good" (green); below `PING_WARN_MS`, "ok"
 /// (yellow); at or above it, "bad" (red) — the same three-tier read as a
@@ -81,10 +56,10 @@ pub(super) const QUALITY_LEVELS: [QualityLevel; 4] = [
 /// capture `RoomSession` (`Rc<RefCell<...>>`, not Send + Sync, which
 /// Leptos 0.8 requires of `<For>` children). Slot `i` shows whoever is in
 /// position `i` of `members`, not a fixed member.
-pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec<impl IntoView> {
+pub(super) fn member_cards(conn: RoomSession) -> Vec<impl IntoView> {
     (0..MAX_MEMBERS)
         .map(|slot| {
-            view! { <MemberCard conn=conn.clone() signals=signals index=slot/> }
+            view! { <MemberCard conn=conn.clone() index=slot/> }
         })
         .collect::<Vec<_>>()
 }
@@ -99,8 +74,8 @@ pub(super) fn member_cards(conn: RoomSession, signals: MemberCardSignals) -> Vec
 // widgets (quality, volume) are extracted to `parts`.
 #[allow(clippy::too_many_lines)]
 #[component]
-fn MemberCard(conn: RoomSession, signals: MemberCardSignals, index: usize) -> impl IntoView {
-    let MemberCardSignals {
+fn MemberCard(conn: RoomSession, index: usize) -> impl IntoView {
+    let RoomState {
         members,
         my_peer_id,
         is_sharing,
@@ -110,16 +85,14 @@ fn MemberCard(conn: RoomSession, signals: MemberCardSignals, index: usize) -> im
         own_preview_hidden,
         hide_idle,
         connection_errors,
-        peer_media,
         latency_by_peer,
         is_touch,
         controls_visible,
-    } = signals;
-    let PeerMedia {
         volume_by_peer,
         muted_by_peer,
         quality_by_peer,
-    } = peer_media;
+        ..
+    } = expect_context::<RoomState>();
     let i = index;
 
     let member_at = move || members.get().get(i).cloned();

@@ -1,7 +1,7 @@
 #[cfg(feature = "hydrate")]
 use crate::session::RoomMember;
 #[cfg(feature = "hydrate")]
-use crate::session::RoomSignals;
+use crate::session::RoomState;
 #[cfg(feature = "hydrate")]
 use leptos::prelude::*;
 
@@ -41,7 +41,7 @@ impl PeerCallbacks {
 }
 
 /// Everything the `Joined` snapshot carries, bundled so `apply_joined_snapshot`
-/// takes one argument for it instead of seven — same idea as `RoomSignals`.
+/// takes one argument for it instead of seven — same idea as `RoomState`.
 #[cfg(feature = "hydrate")]
 pub(crate) struct JoinedSnapshot {
     pub(crate) room_code: String,
@@ -55,7 +55,7 @@ pub(crate) struct JoinedSnapshot {
 }
 
 #[cfg(feature = "hydrate")]
-pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSignals) {
+pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomState) {
     use std::collections::HashSet;
 
     use crate::client::storage::save_recent_room;
@@ -71,7 +71,7 @@ pub(crate) fn apply_joined_snapshot(snapshot: JoinedSnapshot, signals: RoomSigna
         latencies,
         turn,
     } = snapshot;
-    let RoomSignals {
+    let RoomState {
         set_my_peer_id,
         set_members,
         set_room_name,
@@ -170,7 +170,7 @@ fn drop_focus_if_showing(expanded: RwSignal<Option<String>>, peer_id: &str) {
 /// Fan the `Joined` snapshot out into the room signals, then, if this is a
 /// reconnect's rejoin, replay what this member was doing before the drop.
 #[cfg(feature = "hydrate")]
-fn on_joined(conn: &RoomSession, signals: RoomSignals, snapshot: JoinedSnapshot) {
+fn on_joined(conn: &RoomSession, signals: RoomState, snapshot: JoinedSnapshot) {
     let present_peer_ids: Vec<String> = snapshot
         .members
         .iter()
@@ -187,7 +187,7 @@ fn on_joined(conn: &RoomSession, signals: RoomSignals, snapshot: JoinedSnapshot)
 /// went through `start_room_check`, so that signal was never populated and
 /// the gate would stay stuck on "Verificando sala..." forever.
 #[cfg(feature = "hydrate")]
-fn on_kicked(conn: &RoomSession, signals: RoomSignals) {
+fn on_kicked(conn: &RoomSession, signals: RoomState) {
     conn.expected_close.set(true);
     if let Some(ws) = conn.ws.borrow().as_ref() {
         ws.close();
@@ -205,7 +205,7 @@ fn on_kicked(conn: &RoomSession, signals: RoomSignals) {
 /// leaks host/srflx ICE candidates — for a screen the user did not choose
 /// to watch.
 #[cfg(feature = "hydrate")]
-fn answer_offer(conn: RoomSession, signals: RoomSignals, from: String, sdp: String) {
+fn answer_offer(conn: RoomSession, signals: RoomState, from: String, sdp: String) {
     if !signals.watching.get_untracked().contains(&from) {
         return;
     }
@@ -311,7 +311,7 @@ fn answer_offer(conn: RoomSession, signals: RoomSignals, from: String, sdp: Stri
 /// for a viewer still on `Auto`, re-assert the encoding that
 /// `setRemoteDescription` can drop.
 #[cfg(feature = "hydrate")]
-fn accept_answer_from(conn: RoomSession, signals: RoomSignals, from: String, sdp: String) {
+fn accept_answer_from(conn: RoomSession, signals: RoomState, from: String, sdp: String) {
     let Some(pc) = conn.outgoing.borrow().get(&from).cloned() else {
         return;
     };
@@ -409,11 +409,11 @@ fn fixed_status_text(msg: &ServerMessage) -> &'static str {
 /// callbacks, and send the offer. Ignores the request unless we actually
 /// have a local stream to offer (defence in depth for F07).
 #[cfg(feature = "hydrate")]
-fn offer_to_watcher(conn: RoomSession, signals: RoomSignals, from: String) {
+fn offer_to_watcher(conn: RoomSession, signals: RoomState, from: String) {
     if !conn.sharing.borrow().is_sharing() {
         return;
     }
-    let RoomSignals {
+    let RoomState {
         my_peer_id,
         connection_errors,
         turn_credentials,
@@ -537,7 +537,7 @@ fn offer_to_watcher(conn: RoomSession, signals: RoomSignals, from: String) {
 #[cfg(feature = "hydrate")]
 fn apply_quality_request(
     conn: RoomSession,
-    signals: RoomSignals,
+    signals: RoomState,
     from: String,
     quality: screen_share_protocol::QualityLevel,
 ) {
@@ -581,9 +581,9 @@ fn apply_quality_request(
 #[cfg(feature = "hydrate")]
 pub(crate) fn build_message_handler(
     conn: RoomSession,
-    signals: RoomSignals,
+    signals: RoomState,
 ) -> impl Fn(ServerMessage) + 'static {
-    let RoomSignals {
+    let RoomState {
         set_status,
         set_members,
         watching,

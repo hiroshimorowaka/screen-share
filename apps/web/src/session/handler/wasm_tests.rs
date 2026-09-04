@@ -3,7 +3,7 @@
 //! room UI's reactive signals. It calls `save_recent_room` (localStorage)
 //! so it can only run in a browser.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use screen_share_protocol::{
     Color, LatencyInfo, MemberInfo, Nick, PeerId, TurnCredentials, WatcherInfo,
@@ -12,7 +12,7 @@ use wasm_bindgen_test::*;
 
 use super::*;
 use crate::client::storage::load_recent_rooms;
-use crate::session::{RoomMember, RoomSignals};
+use crate::session::{RoomMember, RoomState};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -28,53 +28,22 @@ struct Reads {
     turn_credentials: RwSignal<Option<TurnCredentials>>,
 }
 
-/// A full `RoomSignals` plus handles to read back the ones under test.
+/// A full `RoomState` plus handles to read back the ones under test.
 /// Must be called inside a reactive `Owner` (`signal`/`RwSignal` panic
 /// without one).
-fn fresh_signals() -> (RoomSignals, Reads) {
-    let (status, set_status) = signal(String::new());
-    let (authenticated, set_authenticated) = signal(false);
-    let (room_name, set_room_name) = signal(None::<String>);
-    let (members, set_members) = signal(Vec::<RoomMember>::new());
-    let (my_peer_id, set_my_peer_id) = signal(None::<String>);
-    let (_room_exists, set_room_exists) = signal(None::<bool>);
-    let watching = RwSignal::new(HashSet::<String>::new());
-    let expanded = RwSignal::new(None::<String>);
-    let watchers_by_sharer = RwSignal::new(HashMap::<String, Vec<String>>::new());
-    let connection_errors = RwSignal::new(HashSet::<String>::new());
-    let latency_by_peer = RwSignal::new(HashMap::<String, u32>::new());
-    let turn_credentials = RwSignal::new(None::<TurnCredentials>);
-    let audio_preset = RwSignal::new(crate::session::audio::AudioPreset::default());
-    let video_mode = RwSignal::new(crate::session::video_mode::VideoMode::default());
-
-    let signals = RoomSignals {
-        set_status,
-        set_authenticated,
-        set_room_name,
-        set_members,
-        set_my_peer_id,
-        my_peer_id,
-        set_room_exists,
-        watching,
-        expanded,
-        watchers_by_sharer,
-        connection_errors,
-        latency_by_peer,
-        turn_credentials,
-        audio_preset,
-        video_mode,
-    };
+fn fresh_signals() -> (RoomState, Reads) {
+    let state = RoomState::new();
     let reads = Reads {
-        my_peer_id,
-        members,
-        room_name,
-        authenticated,
-        status,
-        watchers_by_sharer,
-        latency_by_peer,
-        turn_credentials,
+        my_peer_id: state.my_peer_id,
+        members: state.members,
+        room_name: state.room_name,
+        authenticated: state.authenticated,
+        status: state.status,
+        watchers_by_sharer: state.watchers_by_sharer,
+        latency_by_peer: state.latency_by_peer,
+        turn_credentials: state.turn_credentials,
     };
-    (signals, reads)
+    (state, reads)
 }
 
 fn member(peer_id: &str, nick: &str) -> MemberInfo {

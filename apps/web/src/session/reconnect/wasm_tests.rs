@@ -6,7 +6,7 @@
 //! exclusion covers it.
 
 use std::cell::RefCell;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::rc::Rc;
 
 use leptos::prelude::*;
@@ -16,7 +16,7 @@ use wasm_bindgen_test::*;
 use super::*;
 use crate::client::seam::signaling_transport::SignalingTransport;
 use crate::client::socket::WsClient;
-use crate::session::{RoomSession, RoomSignals, SharingState};
+use crate::session::{RoomSession, RoomState, SharingState};
 
 wasm_bindgen_test_configure!(run_in_browser);
 
@@ -34,36 +34,14 @@ impl SignalingTransport for FakeTransport {
     fn close(&self) {}
 }
 
-/// A minimal `RoomSignals` for tests that only read `watching` — the
+/// A minimal `RoomState` for tests that only read `watching` — the
 /// rest of the struct is wired to throwaway signals so the type
 /// constructs at all. Must run inside an `Owner` (`signal`/`RwSignal`
 /// panic without one).
-fn signals_watching(watching: RwSignal<HashSet<String>>) -> RoomSignals {
-    let (_status, set_status) = signal(String::new());
-    let (_authenticated, set_authenticated) = signal(false);
-    let (_room_name, set_room_name) = signal(None::<String>);
-    let (_members, set_members) = signal(Vec::new());
-    let (_my_peer_id, set_my_peer_id) = signal(None::<String>);
-    let (my_peer_id, _) = signal(None::<String>);
-    let (_room_exists, set_room_exists) = signal(None::<bool>);
-
-    RoomSignals {
-        set_status,
-        set_authenticated,
-        set_room_name,
-        set_members,
-        set_my_peer_id,
-        my_peer_id,
-        set_room_exists,
-        watching,
-        expanded: RwSignal::new(None),
-        watchers_by_sharer: RwSignal::new(HashMap::new()),
-        connection_errors: RwSignal::new(HashSet::new()),
-        latency_by_peer: RwSignal::new(HashMap::new()),
-        turn_credentials: RwSignal::new(None),
-        audio_preset: RwSignal::new(crate::session::audio::AudioPreset::default()),
-        video_mode: RwSignal::new(crate::session::video_mode::VideoMode::default()),
-    }
+fn signals_watching(watching: RwSignal<HashSet<String>>) -> RoomState {
+    let mut state = RoomState::new();
+    state.watching = watching;
+    state
 }
 
 #[wasm_bindgen_test]

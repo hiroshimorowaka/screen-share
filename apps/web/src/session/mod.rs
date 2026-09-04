@@ -6,12 +6,13 @@ pub mod media;
 pub mod quality;
 pub mod reconnect;
 pub(crate) mod share_effects;
-pub(crate) mod share_ui;
 pub(crate) mod sharing_state;
+pub(crate) mod state;
 pub mod video_mode;
 
 #[cfg(feature = "hydrate")]
 pub(crate) use sharing_state::SharingState;
+pub(crate) use state::RoomState;
 
 use leptos::prelude::*;
 
@@ -127,50 +128,11 @@ impl RoomSession {
     }
 }
 
-/// The reactive state a WebSocket message can update, bundled so the
-/// connection-setup and message-routing functions each take one argument
-/// for it instead of the same eleven signals apiece.
-///
-/// Every field is read from `#[cfg(feature = "hydrate")]` code only — the
-/// `ssr` build only ever passes this struct through inert stub functions,
-/// so an `ssr`-only compile sees no reads and would otherwise flag it as
-/// dead code.
-#[cfg_attr(not(feature = "hydrate"), allow(dead_code))]
-#[derive(Clone, Copy)]
-pub(crate) struct RoomSignals {
-    pub(crate) set_status: WriteSignal<String>,
-    pub(crate) set_authenticated: WriteSignal<bool>,
-    pub(crate) set_room_name: WriteSignal<Option<String>>,
-    pub(crate) set_members: WriteSignal<Vec<RoomMember>>,
-    pub(crate) set_my_peer_id: WriteSignal<Option<String>>,
-    pub(crate) my_peer_id: ReadSignal<Option<String>>,
-    pub(crate) set_room_exists: WriteSignal<Option<bool>>,
-    pub(crate) watching: RwSignal<std::collections::HashSet<String>>,
-    pub(crate) expanded: RwSignal<Option<String>>,
-    pub(crate) watchers_by_sharer: RwSignal<std::collections::HashMap<String, Vec<String>>>,
-    pub(crate) connection_errors: RwSignal<std::collections::HashSet<String>>,
-    pub(crate) latency_by_peer: RwSignal<std::collections::HashMap<String, u32>>,
-    /// Set once from the join snapshot, then reused for every peer
-    /// connection opened during this WebSocket session — see
-    /// `signaling::turn`. `None` on a deployment with no TURN server
-    /// configured.
-    pub(crate) turn_credentials: RwSignal<Option<screen_share_protocol::TurnCredentials>>,
-    /// The sharer's chosen outgoing audio quality. Read when opening a new
-    /// viewer connection so it starts at the current preset; the live
-    /// control updates every open connection itself (see `session::audio`).
-    pub(crate) audio_preset: RwSignal<crate::session::audio::AudioPreset>,
-    /// The sharer's chosen video mode (protect detail vs. motion). Same
-    /// lifecycle as `audio_preset` — read when opening a connection, and
-    /// re-applied over the top of every `apply_tier` (see
-    /// `session::video_mode`).
-    pub(crate) video_mode: RwSignal<crate::session::video_mode::VideoMode>,
-}
-
 #[cfg(not(feature = "hydrate"))]
 pub(crate) fn setup_room_connection(
     _room_code: String,
     _conn: RoomSession,
-    _signals: RoomSignals,
+    _signals: RoomState,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
     move |_nick: String, _color: String, _password: Option<String>| {}
 }
@@ -179,7 +141,7 @@ pub(crate) fn setup_room_connection(
 pub(crate) fn setup_room_connection(
     room_code: String,
     conn: RoomSession,
-    signals: RoomSignals,
+    signals: RoomState,
 ) -> impl Fn(String, String, Option<String>) + Clone + 'static {
     use crate::client::socket::WsClient;
     use crate::client::storage::{ensure_device_id, save_profile};
@@ -188,7 +150,7 @@ pub(crate) fn setup_room_connection(
 
     use crate::session::handler::build_message_handler;
 
-    let RoomSignals { set_status, .. } = signals;
+    let RoomState { set_status, .. } = signals;
 
     move |nick: String, color: String, password: Option<String>| {
         let conn = conn.clone();
@@ -236,7 +198,7 @@ pub(crate) fn setup_room_connection(
 pub(crate) fn adopt_pending_session(
     _room_code: String,
     _conn: RoomSession,
-    _signals: RoomSignals,
+    _signals: RoomState,
     _set_requires_password: WriteSignal<bool>,
 ) {
 }
@@ -245,7 +207,7 @@ pub(crate) fn adopt_pending_session(
 pub(crate) fn adopt_pending_session(
     room_code: String,
     conn: RoomSession,
-    signals: RoomSignals,
+    signals: RoomState,
     set_requires_password: WriteSignal<bool>,
 ) {
     use crate::client::session;

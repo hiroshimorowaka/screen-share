@@ -2,13 +2,13 @@
 //! the desktop tray's quick-share auto-flow, and the trio of effects that
 //! react to a share starting or stopping (the audio self-test, the
 //! outgoing-mute toggle, and copying the invite link). Kept here, next to
-//! the `ShareUi` signals they read and write, instead of buried in
+//! the `RoomState` signals they read and write, instead of buried in
 //! `RoomPage`'s body.
 
 use leptos::prelude::*;
 
-use crate::session::share_ui::ShareUi;
 use crate::session::RoomSession;
+use crate::session::RoomState;
 
 /// Whether a captured share stream ended up with an audio track — the one
 /// signal the web side has for "this share carries audio", since the
@@ -29,7 +29,7 @@ pub(crate) fn setup_quick_share_auto_flow(
     _conn: RoomSession,
     _room_code: String,
     _authenticated: ReadSignal<bool>,
-    _share: ShareUi,
+    _share: RoomState,
     _set_status: WriteSignal<String>,
     _my_peer_id: ReadSignal<Option<String>>,
     _expanded: RwSignal<Option<String>>,
@@ -50,7 +50,7 @@ pub(crate) fn setup_quick_share_auto_flow(
     conn: RoomSession,
     room_code: String,
     authenticated: ReadSignal<bool>,
-    share: ShareUi,
+    share: RoomState,
     set_status: WriteSignal<String>,
     my_peer_id: ReadSignal<Option<String>>,
     expanded: RwSignal<Option<String>>,
@@ -102,7 +102,7 @@ pub(crate) fn setup_quick_share_auto_flow(
 pub(crate) fn setup_share_side_effects(
     _conn: RoomSession,
     _room_code: String,
-    _share: ShareUi,
+    _share: RoomState,
     _invite_copied: RwSignal<bool>,
 ) {
 }
@@ -117,7 +117,7 @@ pub(crate) fn setup_share_side_effects(
 pub(crate) fn setup_share_side_effects(
     conn: RoomSession,
     room_code: String,
-    share: ShareUi,
+    share: RoomState,
     invite_copied: RwSignal<bool>,
 ) {
     use crate::features::room::copy_invite_link;

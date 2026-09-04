@@ -7,7 +7,7 @@
 //! and written from JS event callbacks and from teardown code that must
 //! stay callable with no Leptos reactive runtime in scope (see
 //! `media::teardown_local_share` and `media/wasm_tests.rs`). The
-//! reactive `is_sharing` signal the UI reads (`session::share_ui::ShareUi`)
+//! reactive `is_sharing` signal the UI reads (`session::state::RoomState`)
 //! stays a separate value, kept in sync at the same points it always
 //! was — that pairing is the reactive/imperative boundary, not
 //! something this enum collapses.

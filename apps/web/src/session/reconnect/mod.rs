@@ -40,7 +40,7 @@ mod wiring {
     use crate::client::socket::WsClient;
     use crate::client::storage::{ensure_device_id, load_room_session};
     use crate::session::handler::build_message_handler;
-    use crate::session::{RoomSession, RoomSignals};
+    use crate::session::{RoomSession, RoomState};
     use screen_share_protocol::ClientMessage;
 
     /// Installs an `on_close` handler on `ws` that reconnects on an
@@ -53,7 +53,7 @@ mod wiring {
     pub(crate) fn install_close_handler(
         ws: &WsClient,
         conn: RoomSession,
-        signals: RoomSignals,
+        signals: RoomState,
         room_code: String,
     ) {
         ws.on_close(move || {
@@ -66,7 +66,7 @@ mod wiring {
 
     /// Tears down the dead peer connections and schedules the first rejoin
     /// attempt.
-    fn begin_reconnect(conn: RoomSession, signals: RoomSignals, room_code: String) {
+    fn begin_reconnect(conn: RoomSession, signals: RoomState, room_code: String) {
         if conn.reconnecting.replace(true) {
             // A reconnect is already in flight (e.g. a second close event
             // for the same drop) — don't stack a second schedule.
@@ -130,7 +130,7 @@ mod wiring {
         on_cleanup(move || teardown_session(&conn));
     }
 
-    fn schedule_attempt(conn: RoomSession, signals: RoomSignals, room_code: String) {
+    fn schedule_attempt(conn: RoomSession, signals: RoomState, room_code: String) {
         let jitter = js_sys::Math::random();
         let Some(delay_ms) = conn.backoff.borrow_mut().next_delay_ms(jitter) else {
             conn.reconnecting.set(false);
@@ -158,7 +158,7 @@ mod wiring {
         );
     }
 
-    fn open_socket(conn: RoomSession, signals: RoomSignals, room_code: String) {
+    fn open_socket(conn: RoomSession, signals: RoomState, room_code: String) {
         // A deliberate leave between the schedule and this tick clears the
         // flag — nothing to do then.
         if !conn.reconnecting.get() {
@@ -207,7 +207,7 @@ mod wiring {
     /// re-watch anyone still in the room this member was watching before.
     pub(crate) fn replay_intent_after_rejoin(
         conn: &RoomSession,
-        signals: RoomSignals,
+        signals: RoomState,
         present_peer_ids: &[String],
     ) {
         if !conn.reconnecting.replace(false) {

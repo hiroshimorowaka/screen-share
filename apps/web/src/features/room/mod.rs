@@ -26,12 +26,11 @@ use crate::session::media::{
     share_supported, share_toggle_handler, sharing_can_have_audio, switch_source_handler,
 };
 use crate::session::share_effects::{setup_quick_share_auto_flow, setup_share_side_effects};
-use crate::session::share_ui::{PeerMedia, ShareUi};
 use gate::RoomGate;
 use grid::{setup_adaptive_grid, setup_auto_hide_controls};
 use invite::invite_click_handler;
 use media_controls::setup_fullscreen_autohide_controls;
-use member_card::{member_cards, MemberCardSignals};
+use member_card::member_cards;
 use room_check::start_room_check;
 use watch::leave_or_stop_watching_handler;
 
@@ -40,17 +39,16 @@ use crate::components::icons::{
     icon_screen_off, icon_switch, icon_video_off,
 };
 use crate::components::transmission_menu::TransmissionMenu;
-use crate::session::{
-    adopt_pending_session, setup_room_connection, RoomMember, RoomSession, RoomSignals,
-};
+use crate::session::{adopt_pending_session, setup_room_connection, RoomSession, RoomState};
 use screen_share_domain::status::status_meta;
 use screen_share_protocol::MAX_MEMBERS;
 
 // Over the line lint: the pre-auth panels are now `<RoomGate>` and the
-// per-slot card view is `<MemberCard>`, and the own-share/audio signals
-// are bundled into `ShareUi` (see `session::share_ui`) with their effects
-// lifted into `session::share_effects`, but RoomPage still owns the
-// room's remaining signals and the stage-header + control-bar markup.
+// per-slot card view is `<MemberCard>`; every room signal is created in
+// one `RoomState::new()` and `provide_context`'d (see `session::state`),
+// and the share side effects live in `session::share_effects`. What
+// remains here is the destructure the local markup names, the handler
+// wiring, and the stage-header + control-bar view.
 #[allow(clippy::too_many_lines)]
 #[component]
 pub fn RoomPage() -> impl IntoView {
@@ -64,53 +62,54 @@ pub fn RoomPage() -> impl IntoView {
     let (color, set_color) = signal(crate::components::palette::DEFAULT_COLOR.to_string());
     crate::features::profile::load_profile_after_mount(set_nick, set_color);
     let (password, set_password) = signal(String::new());
-    let (status, set_status) = signal("Informe o nick da sala.".to_string());
-    let (authenticated, set_authenticated) = signal(false);
-    let (room_exists, set_room_exists) = signal(None::<bool>);
-    let (room_name, set_room_name) = signal(None::<String>);
-    // Assume a password may be required until the room check resolves — the
-    // join panel that reads this stays hidden the whole time anyway (see
-    // `room_exists` above), so there's no flash of the wrong state.
-    let (requires_password, set_requires_password) = signal(true);
-    let (members, set_members) = signal(Vec::<RoomMember>::new());
-    let (my_peer_id, set_my_peer_id) = signal(None::<String>);
-    let (is_sharing, set_is_sharing) = signal(false);
-    let connection_errors = RwSignal::new(std::collections::HashSet::<String>::new());
-    let watching = RwSignal::new(std::collections::HashSet::<String>::new());
-    let expanded = RwSignal::new(None::<String>);
-    let watchers_by_sharer = RwSignal::new(std::collections::HashMap::<String, Vec<String>>::new());
-    let latency_by_peer = RwSignal::new(std::collections::HashMap::<String, u32>::new());
-    let turn_credentials = RwSignal::new(None::<screen_share_protocol::TurnCredentials>);
-    let audio_preset = RwSignal::new(crate::session::audio::AudioPreset::default());
-    let video_mode = RwSignal::new(crate::session::video_mode::VideoMode::default());
-    // See `ShareUi` for what each of these drives; bundled into one struct
-    // so the quick-share flow, the audio-effects trio, and the header
-    // markup below each take one value instead of six loose ones.
-    let share_ui = ShareUi {
+
+    // Every reactive signal the room view and its runtime share (see
+    // `session::state`). Created once here, `provide_context`'d so
+    // `<MemberCard>` reads it without a prop, and destructured for the
+    // local names the markup and handlers below use.
+    let state = RoomState::new();
+    provide_context(state);
+    let RoomState {
+        status,
+        set_status,
+        authenticated,
+        set_authenticated: _,
+        room_exists,
+        set_room_exists,
+        room_name,
+        set_room_name: _,
+        requires_password,
+        set_requires_password,
+        members,
+        set_members: _,
+        my_peer_id,
+        set_my_peer_id: _,
         is_sharing,
         set_is_sharing,
-        own_preview_hidden: RwSignal::new(false),
-        audio_muted: RwSignal::new(false),
-        share_has_audio: RwSignal::new(false),
-        audio_warning: RwSignal::new(None::<&'static str>),
-        share_generation: RwSignal::new(0u32),
-    };
-    let peer_media = PeerMedia {
-        volume_by_peer: RwSignal::new(std::collections::HashMap::<String, f64>::new()),
-        muted_by_peer: RwSignal::new(std::collections::HashSet::<String>::new()),
-        quality_by_peer: RwSignal::new(std::collections::HashMap::<
-            String,
-            screen_share_protocol::QualityLevel,
-        >::new()),
-    };
-    let hide_idle = RwSignal::new(false);
-    let controls_visible = RwSignal::new(true);
-    // Touch device? Drives the tap-to-toggle chrome and the touch-only
-    // auto-hide behaviour; everything else adapts in CSS. Starts `false`
-    // (the SSR assumption) and is corrected on mount by `setup_touch_signal`.
-    let (is_touch, set_is_touch) = signal(false);
+        connection_errors: _,
+        watching,
+        expanded,
+        watchers_by_sharer: _,
+        latency_by_peer: _,
+        turn_credentials: _,
+        audio_preset,
+        video_mode,
+        own_preview_hidden,
+        audio_muted,
+        share_has_audio,
+        audio_warning,
+        share_generation,
+        quality_by_peer: _,
+        volume_by_peer: _,
+        muted_by_peer: _,
+        hide_idle,
+        controls_visible,
+        is_touch,
+        set_is_touch,
+        invite_copied,
+    } = state;
+
     touch::setup_touch_signal(set_is_touch);
-    let invite_copied = RwSignal::new(false);
     let can_share = share_supported();
     // The desktop shell captures system audio; a plain browser tab can
     // capture its own tab audio through the picker. Either way the
@@ -119,30 +118,13 @@ pub fn RoomPage() -> impl IntoView {
     let sharing_has_audio = sharing_can_have_audio();
 
     let conn = RoomSession::new();
-    let room_signals = RoomSignals {
-        set_status,
-        set_authenticated,
-        set_room_name,
-        set_members,
-        set_my_peer_id,
-        my_peer_id,
-        set_room_exists,
-        watching,
-        expanded,
-        watchers_by_sharer,
-        connection_errors,
-        latency_by_peer,
-        turn_credentials,
-        audio_preset,
-        video_mode,
-    };
 
-    let join_room = setup_room_connection(initial_code.clone(), conn.clone(), room_signals);
+    let join_room = setup_room_connection(initial_code.clone(), conn.clone(), state);
 
     adopt_pending_session(
         initial_code.clone(),
         conn.clone(),
-        room_signals,
+        state,
         set_requires_password,
     );
 
@@ -166,7 +148,7 @@ pub fn RoomPage() -> impl IntoView {
         conn.clone(),
         initial_code.clone(),
         authenticated,
-        share_ui,
+        state,
         set_status,
         my_peer_id,
         expanded,
@@ -181,9 +163,9 @@ pub fn RoomPage() -> impl IntoView {
 
     let toggle_share = share_toggle_handler(
         conn.clone(),
-        share_ui.is_sharing,
-        share_ui.set_is_sharing,
-        share_ui.own_preview_hidden,
+        is_sharing,
+        set_is_sharing,
+        own_preview_hidden,
         set_status,
         my_peer_id,
         expanded,
@@ -196,14 +178,14 @@ pub fn RoomPage() -> impl IntoView {
     let switch_source = switch_source_handler(
         crate::session::media::BrowserDisplayCapture,
         conn.clone(),
-        share_ui.set_is_sharing,
-        share_ui.own_preview_hidden,
+        set_is_sharing,
+        own_preview_hidden,
         set_status,
         my_peer_id,
         expanded,
-        share_ui.audio_muted.read_only(),
+        audio_muted.read_only(),
         video_mode.read_only(),
-        share_ui.share_generation,
+        share_generation,
     );
     let leave_or_stop_watching = leave_or_stop_watching_handler(
         conn.clone(),
@@ -214,13 +196,7 @@ pub fn RoomPage() -> impl IntoView {
     );
     let (pause_hide_controls, resume_hide_controls) =
         setup_auto_hide_controls(controls_visible, is_touch, expanded);
-    setup_adaptive_grid(
-        members,
-        hide_idle,
-        share_ui.own_preview_hidden,
-        share_ui.is_sharing,
-        expanded,
-    );
+    setup_adaptive_grid(members, hide_idle, own_preview_hidden, is_sharing, expanded);
     setup_fullscreen_autohide_controls();
     setup_ping_loop(conn.clone());
     // On leaving the room, tear down every peer connection, its callbacks,
@@ -230,17 +206,7 @@ pub fn RoomPage() -> impl IntoView {
 
     // The audio self-test, the outgoing-mute toggle, and copying the
     // invite link on share start — see `session::share_effects`.
-    setup_share_side_effects(conn.clone(), initial_code.clone(), share_ui, invite_copied);
-
-    // Local names for the markup below, which reads these often enough
-    // that `share_ui.foo` everywhere would be noise.
-    let ShareUi {
-        own_preview_hidden,
-        audio_muted,
-        share_has_audio,
-        audio_warning,
-        ..
-    } = share_ui;
+    setup_share_side_effects(conn.clone(), initial_code.clone(), state, invite_copied);
 
     let lamp_class = move || {
         let (variant, _) = status_meta(&status.get());
@@ -365,21 +331,7 @@ pub fn RoomPage() -> impl IntoView {
                 </span>
             </div>
             <div id="member-grid" class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, MemberCardSignals {
-                    members,
-                    my_peer_id,
-                    is_sharing,
-                    watching,
-                    expanded,
-                    watchers_by_sharer,
-                    own_preview_hidden,
-                    hide_idle,
-                    connection_errors,
-                    peer_media,
-                    latency_by_peer,
-                    is_touch,
-                    controls_visible,
-                })}
+                {member_cards(conn)}
             </div>
             <div
                 class="room-controls"

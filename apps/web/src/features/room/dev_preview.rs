@@ -11,20 +11,18 @@
 //! this file, so there's no dev-only route or code path to accidentally
 //! ship.
 
-use std::collections::{HashMap, HashSet};
-
 use leptos::prelude::*;
 
 use super::grid::{setup_adaptive_grid, setup_auto_hide_controls};
 use super::media_controls::setup_fullscreen_autohide_controls;
-use super::member_card::{member_cards, MemberCardSignals};
+use super::member_card::member_cards;
 use super::watch::leave_or_stop_watching_handler;
 use crate::components::color_picker::ColorPicker;
 use crate::components::icons::{icon_eye_off, icon_log_out, icon_screen_off, icon_video_off};
 use crate::components::palette::{color_hex, palette_ids, DEFAULT_COLOR};
-use crate::session::share_ui::PeerMedia;
 use crate::session::RoomMember;
 use crate::session::RoomSession;
+use crate::session::RoomState;
 use screen_share_protocol::MAX_MEMBERS;
 
 /// Bulk-add nicknames cycle through this so "adicionar vários" gives you an
@@ -46,27 +44,30 @@ fn next_palette_color(current: &str) -> &'static str {
 #[allow(clippy::too_many_lines)]
 #[component]
 pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
-    let (members, set_members) = signal(Vec::<RoomMember>::new());
+    // The dev bench drives the exact same `<MemberCard>` components the
+    // real room does, so it builds a `RoomState` and `provide_context`s it
+    // the same way `RoomPage` does — then destructures the handles its own
+    // fixture controls poke.
+    let state = RoomState::new();
+    provide_context(state);
+    let RoomState {
+        members,
+        set_members,
+        my_peer_id,
+        set_my_peer_id,
+        is_sharing,
+        set_is_sharing,
+        watching,
+        expanded,
+        watchers_by_sharer,
+        hide_idle,
+        controls_visible,
+        is_touch,
+        own_preview_hidden,
+        latency_by_peer,
+        ..
+    } = state;
     let (next_id, set_next_id) = signal(0u32);
-    let (my_peer_id, set_my_peer_id) = signal(None::<String>);
-    let (is_sharing, set_is_sharing) = signal(false);
-    let connection_errors = RwSignal::new(HashSet::<String>::new());
-    let watching = RwSignal::new(HashSet::<String>::new());
-    let expanded = RwSignal::new(None::<String>);
-    let watchers_by_sharer = RwSignal::new(HashMap::<String, Vec<String>>::new());
-    let latency_by_peer = RwSignal::new(HashMap::<String, u32>::new());
-    let own_preview_hidden = RwSignal::new(false);
-    let hide_idle = RwSignal::new(false);
-    let volume_by_peer = RwSignal::new(std::collections::HashMap::<String, f64>::new());
-    let muted_by_peer = RwSignal::new(std::collections::HashSet::<String>::new());
-    let quality_by_peer = RwSignal::new(std::collections::HashMap::<
-        String,
-        screen_share_protocol::QualityLevel,
-    >::new());
-    let controls_visible = RwSignal::new(true);
-    // The dev bench is a desktop-only tool — touch adaptation isn't
-    // exercised here, so this stays `false`.
-    let (is_touch, _set_is_touch) = signal(false);
     let panel_open = RwSignal::new(true);
 
     let (new_nick, set_new_nick) = signal(String::new());
@@ -253,25 +254,7 @@ pub(crate) fn DevRoomPreviewPage() -> impl IntoView {
                 </button>
             </div>
             <div id="member-grid" class="grid" class:grid--focused=move || expanded.get().is_some()>
-                {member_cards(conn, MemberCardSignals {
-                    members,
-                    my_peer_id,
-                    is_sharing,
-                    watching,
-                    expanded,
-                    watchers_by_sharer,
-                    own_preview_hidden,
-                    hide_idle,
-                    connection_errors,
-                    peer_media: PeerMedia {
-                        volume_by_peer,
-                        muted_by_peer,
-                        quality_by_peer,
-                    },
-                    latency_by_peer,
-                    is_touch,
-                    controls_visible,
-                })}
+                {member_cards(conn)}
             </div>
             <div
                 class="room-controls"
