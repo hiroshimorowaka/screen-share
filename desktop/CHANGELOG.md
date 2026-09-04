@@ -11,6 +11,14 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.4
+
+- O botão "Convidar" volta a funcionar no app: ele não estava copiando o
+  link da sala para a área de transferência.
+- Compartilhar o áudio do sistema no Linux volta a funcionar — o
+  indicador de áudio ficava preso em "Áudio desligado" mesmo com a opção
+  marcada no seletor de tela.
+
 ## 0.3.3
 
 - Correção interna: fecha uma brecha rara em que dispensar o seletor de
