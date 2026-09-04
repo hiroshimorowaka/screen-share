@@ -39,11 +39,11 @@ use crate::components::icons::{
     icon_check, icon_eye_off, icon_link, icon_log_out, icon_minimize, icon_monitor,
     icon_screen_off, icon_switch, icon_video_off,
 };
-use crate::components::status::status_meta;
 use crate::components::transmission_menu::TransmissionMenu;
 use crate::session::{
     adopt_pending_session, setup_room_connection, RoomMember, RoomSession, RoomSignals,
 };
+use screen_share_domain::status::status_meta;
 use screen_share_protocol::MAX_MEMBERS;
 
 // Over the line lint: the pre-auth panels are now `<RoomGate>` and the

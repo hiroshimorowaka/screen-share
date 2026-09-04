@@ -1,6 +1,6 @@
 use leptos::prelude::*;
 
-use crate::components::status::status_meta;
+use screen_share_domain::status::status_meta;
 
 #[component]
 pub fn StatusMessage(status: ReadSignal<String>) -> impl IntoView {
