@@ -164,13 +164,16 @@ fly deploy
 ### One crate, two compiled targets
 
 This is the single most important thing to understand before touching any
-UI code. The web crate lives at `apps/web/` as the sole member of a Cargo
-workspace (`cargo-leptos` is driven from the repo root via
-`[[workspace.metadata.leptos]]`). It is compiled twice, under two
-mutually exclusive Cargo features:
+UI code. The web crate lives at `apps/web/` (`cargo-leptos` is driven
+from the repo root via `[[workspace.metadata.leptos]]`). It is a pure
+Leptos UI **library** compiled twice, under two mutually exclusive Cargo
+features:
 
-- **`ssr`** — a native binary (`apps/web/src/main.rs`) that renders pages
-  server-side and serves them over HTTP/WebSocket via Axum.
+- **`ssr`** — compiled into the `apps/server` binary
+  (`screen-share-server`), which renders these components server-side and
+  serves them over HTTP/WebSocket via Axum. `apps/server` owns the Axum
+  host, its router, env config, and the SSR-only CSP/DoS middleware;
+  `apps/web` owns none of that any more.
 - **`hydrate`** — a `wasm32-unknown-unknown` library that runs in the
   browser, takes over the server-rendered HTML, and makes it interactive.
 
@@ -314,6 +317,12 @@ considering a change to that layer done (see §"Definition of done" →
 - Do not run individual `cargo test` / `cargo clippy` / `playwright test`
   commands by hand.
 - Mutation tests are not run locally — CI runs them.
+- **After a run that comes back fully green and the task is done**, run
+  `cargo clean` to reclaim disk. `cargo-mutants`, `cargo-llvm-cov` and
+  the release builds leave large artifacts behind (`mutants.out/`,
+  coverage data, a bloated `target/`); clearing them once the work is
+  verified keeps the checkout small. Only do this at the end — a green,
+  finished task — never mid-iteration, since the next build is then cold.
 
 ## Rust and Leptos coding practices
 
@@ -334,20 +343,27 @@ architecture-refactor roadmap in `docs/superpowers/plans/`). These rules
 hold now and are enforced by the dependency graph once the crates exist:
 
 ```
-protocol    →  (serde only)
+domain      →  (nothing)
+protocol    →  serde, thiserror        (thiserror: IdError in protocol::ids)
 signaling   →  protocol
-apps/web    →  protocol, signaling
+apps/web    →  domain, protocol            (pure Leptos UI library — no Axum/Tokio)
+apps/server →  signaling, protocol, screen_share (= apps/web), leptos_axum, axum, tokio
 ```
 
-(A `crates/core` for shared domain types was considered and deferred —
-see `docs/decisions/0001-workspace-crate-split.md`. Add it only if
-genuinely shared, browser-agnostic domain logic appears.)
+`crates/domain` holds the web app's browser- and framework-free logic
+(SDP fmtp rewriting, the reconnect backoff schedule) so it is unit-tested
+natively instead of through the wasm harness. It must stay dependency-free
+— no `serde`, no `web-sys`, no async. Add to it only logic that genuinely
+has no browser/DOM/`RtcPeerConnection` dependency; anything that needs one
+stays in `apps/web/src/session`. (A `crates/core` for types shared with
+`signaling` was considered and deferred — see
+`docs/decisions/0001-workspace-crate-split.md`.)
 
 - **Dependency direction.** Dependencies point toward lower-level
-  abstractions only. `crates/protocol` depends on nothing but `serde` and
-  must never depend on Axum, Tokio, `web-sys`, `wasm-bindgen`, Leptos,
-  Electron, or any OS API. `crates/signaling` may depend on `protocol`,
-  never the reverse.
+  abstractions only. `crates/domain` depends on nothing; `crates/protocol`
+  depends only on `serde` and `thiserror`; neither may depend on Axum,
+  Tokio, `web-sys`, `wasm-bindgen`, Leptos, Electron, or any OS API.
+  `crates/signaling` may depend on `protocol`, never the reverse.
 - **UI components never do I/O.** A Leptos `#[component]` must not open a
   `WebSocket`, construct an `RtcPeerConnection`, call `getDisplayMedia`,
   touch `localStorage`, or reach into `crates/signaling`. It calls a
@@ -564,6 +580,12 @@ UI-touching change:
 
 ### Desktop — `desktop/` (run with `pnpm --dir desktop …` or from `desktop/`)
 
+- **Any change under `desktop/` must bump `desktop/package.json`'s
+  `version` (last digit for a fix, middle for a feature) and add a
+  matching `## X.Y.Z` section to `desktop/CHANGELOG.md`**, written for a
+  user (pt-BR, no technical detail — that changelog becomes the GitHub
+  release notes). A CI gate (`ci-cd.yml` "Desktop version + changelog
+  bump") fails the PR otherwise. Do this in the same commit as the change.
 - `pnpm run check` — Biome (lint + format + import order) clean.
 - `pnpm build` — `tsc` clean. Note that `tsc` does **not** check
   `__dirname`-relative runtime paths or the `#…` import map — those only

@@ -1,3 +1,6 @@
+@layer tokens, base, components, features, utilities;
+
+@layer tokens {
 /* Design tokens — the single source of truth for colour and type.
    See docs/decisions/0006-visual-redesign.md.
 
@@ -59,4 +62,5 @@
   --error: #e0484d;
   --success: var(--sig-live);
   --warning: #f0b232;
+}
 }

@@ -1,3 +1,4 @@
+@layer utilities {
 /* Floats over the room grid instead of reserving layout space — the grid
    still measures the full viewport, so `setup_adaptive_grid` behaves
    exactly like it does on the real room page (see the note on
@@ -89,4 +90,5 @@
 
 .dev-panel__watchers .btn {
   padding: 0.15rem 0.5rem;
+}
 }

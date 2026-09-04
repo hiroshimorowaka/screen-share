@@ -7,7 +7,7 @@ vi.mock('electron', () => ({
   session: { defaultSession: { setPermissionRequestHandler, setPermissionCheckHandler } },
 }));
 
-import { lockDownPermissions } from '#main/permissions.js';
+import { armAudioCaptureGrant, lockDownPermissions } from '#main/permissions.js';
 
 type RequestHandler = (
   wc: unknown,
@@ -32,14 +32,43 @@ function grants(request: RequestHandler, permission: string, details = {}): bool
 }
 
 describe('lockDownPermissions', () => {
-  it('denies camera/mic, geolocation, notifications and other requests (finding 6)', () => {
+  it('denies camera/mic, geolocation, notifications, clipboard-read and other requests (finding 6)', () => {
     const { request } = handlers();
 
     expect(grants(request, 'media', { mediaTypes: ['video'] })).toBe(false);
+    // Audio-only stays denied unless a system-audio capture grant is armed.
     expect(grants(request, 'media', { mediaTypes: ['audio'] })).toBe(false);
     expect(grants(request, 'geolocation')).toBe(false);
     expect(grants(request, 'notifications')).toBe(false);
     expect(grants(request, 'midi')).toBe(false);
+    expect(grants(request, 'clipboard-read')).toBe(false);
+  });
+
+  it('lets exactly one audio-only getUserMedia through after armAudioCaptureGrant', () => {
+    const { request } = handlers();
+
+    armAudioCaptureGrant();
+    // The renderer's capture of the "Screen Share Mix" device.
+    expect(grants(request, 'media', { mediaTypes: ['audio'] })).toBe(true);
+    // One-shot: a second audio request is denied again.
+    expect(grants(request, 'media', { mediaTypes: ['audio'] })).toBe(false);
+  });
+
+  it('never lets a camera+mic getUserMedia through, even with a grant armed', () => {
+    const { request } = handlers();
+
+    armAudioCaptureGrant();
+    expect(grants(request, 'media', { mediaTypes: ['audio', 'video'] })).toBe(false);
+    // The grant is untouched — a camera+mic request must not consume it.
+    expect(grants(request, 'media', { mediaTypes: ['audio'] })).toBe(true);
+  });
+
+  it('allows clipboard-sanitized-write so the invite button can copy the room link', () => {
+    const { request, check } = handlers();
+
+    expect(grants(request, 'clipboard-sanitized-write')).toBe(true);
+    expect(check({}, 'clipboard-sanitized-write')).toBe(true);
+    expect(check({}, 'clipboard-read')).toBe(false);
   });
 
   it('allows a display-capture request so getDisplayMedia reaches setDisplayMediaRequestHandler', () => {

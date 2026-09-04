@@ -2093,11 +2093,36 @@ dependencies = [
 ]
 
 [[package]]
+name = "screen-share-domain"
+version = "0.1.0"
+dependencies = [
+ "screen-share-protocol",
+]
+
+[[package]]
 name = "screen-share-protocol"
 version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "screen-share-server"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "leptos",
+ "leptos_axum",
+ "leptos_meta",
+ "leptos_router",
+ "screen-share-protocol",
+ "screen-share-signaling",
+ "screen_share",
+ "tokio",
+ "tower",
+ "tower-http",
 ]
 
 [[package]]
@@ -2123,21 +2148,17 @@ dependencies = [
 name = "screen_share"
 version = "0.1.0"
 dependencies = [
- "axum",
+ "any_spawner",
  "console_error_panic_hook",
  "js-sys",
  "leptos",
- "leptos_axum",
  "leptos_meta",
  "leptos_router",
+ "screen-share-domain",
  "screen-share-protocol",
- "screen-share-signaling",
  "send_wrapper",
  "serde",
  "serde_json",
- "tokio",
- "tower",
- "tower-http",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "wasm-bindgen-test",

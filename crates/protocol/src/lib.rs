@@ -6,12 +6,14 @@
 //! lives in `apps/web/src/session`.
 
 mod client;
+pub mod ids;
 mod info;
 mod media;
 mod server;
 pub mod validate;
 
 pub use client::ClientMessage;
+pub use ids::{Color, IdError, Nick, PeerId, RoomCode};
 pub use info::{LatencyInfo, MemberInfo, RoomStatus, WatcherInfo, MAX_MEMBERS};
 pub use media::{QualityLevel, TurnCredentials};
 pub use server::ServerMessage;

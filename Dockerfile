@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/usr/local/cargo/git,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
     cargo leptos build --release \
-    && cp target/release/screen_share /app/screen_share.out \
+    && cp target/release/screen-share-server /app/screen_share.out \
     && cp -r target/site /app/site.out
 
 # --- runtime image: only the compiled binary + generated site assets ---

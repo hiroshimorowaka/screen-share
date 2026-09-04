@@ -8,6 +8,7 @@ name = "screen_share_protocol"
 
 [dependencies]
 serde = { version = "1.0.229", features = ["derive"] }
+thiserror = "2"
 
 [dev-dependencies]
 serde_json = "1.0.151"
