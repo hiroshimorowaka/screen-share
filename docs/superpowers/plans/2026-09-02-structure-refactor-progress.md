@@ -16,14 +16,22 @@
 ### Phase 6 notes
 
 `features/` and `session/` are gone. New tree: `app/{mod,router}`,
-`pages/{home,room,not_found}` (thin route shells), `room/` (the room
-slice: `state`, `session`, `connection`, `messages`, `reconnect`,
+`room/` (the room slice — `page` is the `/r/:code` route shell, plus
+`state`, `session`, `connection`, `messages`, `reconnect`,
 `share_effects`, the per-capability handlers, and `components/` with
 `stage` + `stage_header` + `sharing_controls` + `view_controls` +
 `room_controls` + `gate` + `participant/{mod,badges,action_bar,watch_widgets,parts}`
-+ `participant_grid` + `transmission_menu`), `home/` (`state` +
-`create`/`join`/`recent` + `components/{create_panel,join_panel}`),
-top-level `profile.rs`, `components/{ui,palette}`.
++ `participant_grid` + `transmission_menu`), `home/` (`page` is the `/`
+route, plus `state` + `create`/`join`/`recent` +
+`components/{create_panel,join_panel}`), top-level `profile.rs` +
+`not_found.rs`, `components/{ui,palette}`.
+
+The v3 plan's separate `pages/` layer was dropped (maintainer decision,
+post-Phase-6): it was a three-file indirection whose "thin route
+component" meaning didn't survive `pages/room.rs` being a shell over a
+whole `room/` slice. Each route entry now lives in its feature folder as
+`page.rs` (`room::RoomPage`, `home::HomePage`); `app::router` names them
+directly.
 
 `RoomPage` / `HomePage` split into a route shell plus components, which
 retired four of the five `#[allow(clippy::too_many_lines)]`. The fifth,

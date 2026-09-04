@@ -1,8 +1,9 @@
-//! The room feature slice: the authenticated room view and everything
-//! its runtime needs — the socket lifecycle (`connection`, `reconnect`),
-//! the `ServerMessage` dispatch (`messages`), the per-capability handlers
-//! (`media`, `audio`, `video_mode`, `quality`, `watch`), the reactive
-//! store (`state`), and the view components (`components`).
+//! The room feature slice: the `/r/:code` route component (`page`), the
+//! authenticated room view and everything its runtime needs — the socket
+//! lifecycle (`connection`, `reconnect`), the `ServerMessage` dispatch
+//! (`messages`), the per-capability handlers (`media`, `audio`,
+//! `video_mode`, `quality`, `watch`), the reactive store (`state`), and
+//! the view components (`components`).
 
 pub mod audio;
 pub mod audio_health;
@@ -13,6 +14,7 @@ pub mod latency;
 pub mod media;
 pub(crate) mod media_controls;
 pub mod messages;
+mod page;
 pub mod quality;
 pub mod reconnect;
 pub(crate) mod room_check;
@@ -30,6 +32,7 @@ pub mod dev_preview;
 pub(crate) use connection::{adopt_pending_session, setup_room_connection};
 #[cfg(feature = "hydrate")]
 pub(crate) use invite::{build_invite_link, copy_invite_link};
+pub use page::RoomPage;
 pub(crate) use session::RoomSession;
 #[cfg(feature = "hydrate")]
 pub(crate) use session::{LinkDirection, PeerLink};

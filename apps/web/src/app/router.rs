@@ -5,9 +5,11 @@ use leptos_router::{
     ParamSegment, StaticSegment,
 };
 
-use crate::pages::{HomePage, NotFound, RoomPage};
+use crate::home::HomePage;
+use crate::not_found::NotFound;
 #[cfg(debug_assertions)]
 use crate::room::dev_preview::DevRoomPreviewPage;
+use crate::room::RoomPage;
 
 /// The dev-only room test bench route only exists in debug builds — a
 /// release build never compiles `app_routes`'s debug body (the route's own
