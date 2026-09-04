@@ -32,7 +32,7 @@ function grants(request: RequestHandler, permission: string, details = {}): bool
 }
 
 describe('lockDownPermissions', () => {
-  it('denies camera/mic, geolocation, notifications and other requests (finding 6)', () => {
+  it('denies camera/mic, geolocation, notifications, clipboard-read and other requests (finding 6)', () => {
     const { request } = handlers();
 
     expect(grants(request, 'media', { mediaTypes: ['video'] })).toBe(false);
@@ -40,6 +40,15 @@ describe('lockDownPermissions', () => {
     expect(grants(request, 'geolocation')).toBe(false);
     expect(grants(request, 'notifications')).toBe(false);
     expect(grants(request, 'midi')).toBe(false);
+    expect(grants(request, 'clipboard-read')).toBe(false);
+  });
+
+  it('allows clipboard-sanitized-write so the invite button can copy the room link', () => {
+    const { request, check } = handlers();
+
+    expect(grants(request, 'clipboard-sanitized-write')).toBe(true);
+    expect(check({}, 'clipboard-sanitized-write')).toBe(true);
+    expect(check({}, 'clipboard-read')).toBe(false);
   });
 
   it('allows a display-capture request so getDisplayMedia reaches setDisplayMediaRequestHandler', () => {
