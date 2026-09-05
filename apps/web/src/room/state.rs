@@ -13,8 +13,14 @@ use leptos::prelude::*;
 use screen_share_protocol::{QualityLevel, TurnCredentials};
 
 use crate::room::audio::AudioPreset;
+use crate::room::audio_health::AudioHealth;
 use crate::room::video_mode::VideoMode;
 use crate::room::RoomMember;
+
+/// The gate's status sentence before a member is authenticated. Also what
+/// a dismissible pre-auth error on `status` reverts to — see
+/// `crate::client::dom::auto_dismiss_error` in `room::page`.
+pub(crate) const INITIAL_STATUS: &str = "Informe o nick da sala.";
 
 /// `ssr` builds only ever pass this through inert stub functions, so an
 /// `ssr`-only compile sees no reads and would flag it as dead code.
@@ -58,9 +64,12 @@ pub(crate) struct RoomState {
     /// Whether the current share's captured stream actually carries an
     /// audio track. Reset when sharing stops.
     pub(crate) share_has_audio: RwSignal<bool>,
-    /// The audio self-test's diagnostic once a share of ours is probed;
-    /// `None` means nothing wrong / not checked yet.
-    pub(crate) audio_warning: RwSignal<Option<&'static str>>,
+    /// The audio self-test's verdict once a share of ours is probed.
+    /// Carries the full [`AudioHealth`] (not just its message) so the chip
+    /// can tell a hard failure (no track at all — red) from a soft one (a
+    /// track that just stayed silent so far — amber, might start any
+    /// moment) apart, instead of collapsing both into one warning string.
+    pub(crate) audio_health: RwSignal<AudioHealth>,
     /// Bumped on every source switch so effects keyed to `is_sharing`
     /// alone (which stays `true` across a switch) re-run.
     pub(crate) share_generation: RwSignal<u32>,
@@ -93,7 +102,7 @@ impl RoomState {
         let (members, set_members) = signal(Vec::<RoomMember>::new());
         let (my_peer_id, set_my_peer_id) = signal(None::<String>);
         let (is_sharing, set_is_sharing) = signal(false);
-        let (status, set_status) = signal("Informe o nick da sala.".to_string());
+        let (status, set_status) = signal(INITIAL_STATUS.to_string());
         let (authenticated, set_authenticated) = signal(false);
         let (room_exists, set_room_exists) = signal(None::<bool>);
         let (room_name, set_room_name) = signal(None::<String>);
@@ -126,7 +135,7 @@ impl RoomState {
             own_preview_hidden: RwSignal::new(false),
             audio_muted: RwSignal::new(false),
             share_has_audio: RwSignal::new(false),
-            audio_warning: RwSignal::new(None),
+            audio_health: RwSignal::new(AudioHealth::NotShared),
             share_generation: RwSignal::new(0),
             audio_preset: RwSignal::new(AudioPreset::default()),
             video_mode: RwSignal::new(VideoMode::default()),

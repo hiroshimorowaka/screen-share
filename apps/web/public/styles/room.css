@@ -81,6 +81,14 @@ body:has(.room-page.hidden) {
   color: var(--text-dim);
 }
 
+/* `.status-text--error` (base layer) loses the cascade here — `features`
+   is declared after `base` in the `@layer` order in tokens.css, so a
+   later-layer rule always wins regardless of specificity. Redeclaring the
+   same colour in this layer is what actually turns the text red. */
+.stage-header__status--error {
+  color: var(--error);
+}
+
 /* "Convidar" button in the room header — copies the invite link to the
    clipboard. */
 .invite-btn {
@@ -332,6 +340,13 @@ body:has(.room-page.hidden) {
 
 .audio-chip--muted .audio-chip__dot {
   background: var(--warning);
+}
+
+/* A capture that was requested and failed outright — not a maybe, the
+   share genuinely has no audio. Unlike the merely-silent-so-far case
+   (still amber via the "!" below), this dot is red. */
+.audio-chip--error .audio-chip__dot {
+  background: var(--error);
 }
 
 /* A small amber "!" the sharer can hover (or focus) for the full audio
