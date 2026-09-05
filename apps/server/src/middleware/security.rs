@@ -75,6 +75,35 @@ pub fn static_headers() -> [(&'static str, &'static str); 6] {
     ]
 }
 
+/// URL prefix cargo-leptos serves the JS/WASM bundle from — MUST stay in
+/// sync with `site-pkg-dir` in the workspace `Cargo.toml`.
+const HASHED_ASSET_PATH_PREFIX: &str = "/pkg/";
+
+/// A year, the conventional ceiling for an `immutable` asset: `hash-files`
+/// (workspace `Cargo.toml`) puts the content hash in this path's filename,
+/// so a change in content is a change in URL — the old cached copy is
+/// simply never requested again, making a long cache lifetime safe.
+const HASHED_ASSET_CACHE_CONTROL: &str = "public, max-age=31536000, immutable";
+
+/// Everything that isn't behind [`HASHED_ASSET_PATH_PREFIX`] — the SSR'd
+/// HTML and the hand-authored CSS under `/styles/`, neither of which
+/// changes its URL when its content does. `no-cache` still lets the
+/// browser keep a copy, but forces a conditional GET (cheap: a 304 when
+/// nothing changed) instead of serving a stale copy for whatever window
+/// its own caching heuristics pick — which is what previously made a
+/// hard refresh necessary to see a deployed change.
+const REVALIDATE_CACHE_CONTROL: &str = "no-cache";
+
+/// The `Cache-Control` value for a response to `path`. See
+/// [`HASHED_ASSET_CACHE_CONTROL`] and [`REVALIDATE_CACHE_CONTROL`].
+fn cache_control_for(path: &str) -> &'static str {
+    if path.starts_with(HASHED_ASSET_PATH_PREFIX) {
+        HASHED_ASSET_CACHE_CONTROL
+    } else {
+        REVALIDATE_CACHE_CONTROL
+    }
+}
+
 /// `axum::middleware::from_fn_with_state` handler: mint a CSP nonce, hand
 /// it to the inner render via [`NONCE_REQUEST_HEADER`], run the inner
 /// service, then stamp [`static_headers`] plus the nonce-bearing
@@ -89,6 +118,7 @@ pub async fn apply(State(dev): State<bool>, mut request: Request, next: Next) ->
             .headers_mut()
             .insert(HeaderName::from_static(NONCE_REQUEST_HEADER), value);
     }
+    let cache_control = cache_control_for(request.uri().path());
 
     let mut response = next.run(request).await;
     let response_headers = response.headers_mut();
@@ -98,6 +128,10 @@ pub async fn apply(State(dev): State<bool>, mut request: Request, next: Next) ->
             HeaderValue::from_static(value),
         );
     }
+    response_headers.insert(
+        HeaderName::from_static("cache-control"),
+        HeaderValue::from_static(cache_control),
+    );
     if let Ok(value) = HeaderValue::from_str(&content_security_policy(&nonce, dev)) {
         response_headers.insert(HeaderName::from_static("content-security-policy"), value);
     }
