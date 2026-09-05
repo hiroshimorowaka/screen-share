@@ -1,0 +1,6 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": ["src/preload.ts", "scripts/*.mjs"],
+  "project": ["src/**/*.ts", "scripts/**/*.mjs"],
+  "ignoreBinaries": ["pw-link", "pw-loopback"]
+}

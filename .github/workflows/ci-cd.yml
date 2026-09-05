@@ -95,10 +95,11 @@ jobs:
           # Binary download of the same tool the Dockerfile builds from
           # source (`cargo install cargo-leptos --locked`); unpinned to
           # track that.
-          tool: cargo-leptos
+          tool: cargo-leptos,cargo-machete
       - run: cargo fmt --check
       - run: cargo clippy --workspace --all-targets --features ssr -- -D warnings
       - run: cargo clippy -p screen_share --target wasm32-unknown-unknown --all-targets --no-default-features --features hydrate -- -D warnings
+      - run: cargo machete
       # The web app's real build authority — a plain `cargo build` passing
       # is not enough (see CLAUDE.md §"Definition of done").
       - run: cargo leptos build
@@ -353,6 +354,8 @@ jobs:
           fi
       - uses: ./.github/actions/setup-desktop
       - run: pnpm run check   # Biome — lint + format + import order
+        working-directory: desktop
+      - run: pnpm run check:unused  # knip — dead files/exports/deps
         working-directory: desktop
       - run: pnpm run build   # tsc typecheck (does not run in packaging jobs)
         working-directory: desktop

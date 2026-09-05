@@ -1,6 +1,6 @@
 {
   "name": "screen-share-desktop",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "description": "Desktop app for Screen Share — persistent, password-protected screen sharing rooms with system audio.",
   "author": {
     "name": "hiroshimorowaka",
@@ -24,6 +24,7 @@
     "dist:win": "tsc && electron-builder --win --publish never",
     "check": "biome check",
     "check:fix": "biome check --write",
+    "check:unused": "knip",
     "format": "biome format --write",
     "test": "vitest run",
     "test:watch": "vitest",
@@ -43,6 +44,7 @@
     "@vitest/coverage-v8": "^4.1.11",
     "electron": "^43.4.1",
     "electron-builder": "26.15.3",
+    "knip": "^6.34.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.11"
   },

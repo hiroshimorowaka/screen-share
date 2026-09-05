@@ -107,6 +107,58 @@ struct Room {
     cleanup_scheduled: bool,
 }
 
+impl Room {
+    /// Projects this room's current state, from `peer_id`'s point of view,
+    /// into the snapshot sent back on a successful join.
+    fn snapshot_for(&self, peer_id: &str) -> JoinedSnapshot {
+        let members: Vec<MemberInfo> = self
+            .members
+            .iter()
+            .map(|(id, m)| MemberInfo {
+                peer_id: PeerId::from_relay(id.clone()),
+                nick: Nick::from_relay(m.nick.clone()),
+                color: Color::from_relay(m.color.clone()),
+            })
+            .collect();
+        let active_sharers: Vec<PeerId> = self
+            .sharers
+            .iter()
+            .map(|id| PeerId::from_relay(id.clone()))
+            .collect();
+        let watcher_info: Vec<WatcherInfo> = self
+            .sharers
+            .iter()
+            .map(|sharer_id| WatcherInfo {
+                sharer_id: PeerId::from_relay(sharer_id.clone()),
+                watchers: self
+                    .watchers
+                    .get(sharer_id)
+                    .map(|w| w.iter().map(|id| PeerId::from_relay(id.clone())).collect())
+                    .unwrap_or_default(),
+            })
+            .collect();
+        let latencies: Vec<LatencyInfo> = self
+            .members
+            .iter()
+            .filter_map(|(id, m)| {
+                m.latency_ms.map(|ms| LatencyInfo {
+                    peer_id: PeerId::from_relay(id.clone()),
+                    ms,
+                })
+            })
+            .collect();
+
+        JoinedSnapshot {
+            peer_id: PeerId::from_relay(peer_id.to_string()),
+            room_name: self.name.clone(),
+            members,
+            active_sharers,
+            watcher_info,
+            latencies,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct JoinedSnapshot {
     pub peer_id: PeerId,
@@ -249,14 +301,9 @@ impl Registry {
             sender,
         } = request;
 
-        let nick = clean_nick(&nick).map_err(|_| CreateRoomError::InvalidInput)?;
         let room_name = clean_room_name(&room_name).map_err(|_| CreateRoomError::InvalidInput)?;
-        if !is_valid_color(&color) {
-            return Err(CreateRoomError::InvalidInput);
-        }
-        if password_too_long(password.as_deref()) {
-            return Err(CreateRoomError::InvalidInput);
-        }
+        let nick = validate_new_member_fields(&nick, &color, password.as_deref())
+            .map_err(|()| CreateRoomError::InvalidInput)?;
 
         let peer_id = Uuid::new_v4().to_string();
         let password_hash = hash_optional_password(password);
@@ -335,13 +382,8 @@ impl Registry {
             sender,
         } = request;
 
-        let nick = clean_nick(&nick).map_err(|_| JoinError::InvalidInput)?;
-        if !is_valid_color(&color) {
-            return Err(JoinError::InvalidInput);
-        }
-        if password_too_long(password.as_deref()) {
-            return Err(JoinError::InvalidInput);
-        }
+        let nick = validate_new_member_fields(&nick, &color, password.as_deref())
+            .map_err(|()| JoinError::InvalidInput)?;
 
         let mut rooms = self.lock_rooms();
         let room = rooms.get_mut(room_code).ok_or(JoinError::NotFound)?;
@@ -358,26 +400,7 @@ impl Registry {
             return Err(JoinError::WrongPassword);
         }
 
-        // Same device_id already has an open entry in this room (another tab) —
-        // disconnect it before checking capacity, otherwise re-joining from the
-        // same device would count as one extra member instead of taking its place.
-        //
-        // Skip this entirely for an empty device_id: `ensure_device_id` in the
-        // web client returns `""` on every failure path (no localStorage, no
-        // crypto), so two locked-down browsers would otherwise evict each other
-        // on join to a public room.
-        if !device_id.is_empty() {
-            if let Some(previous_peer_id) = room
-                .members
-                .iter()
-                .find(|(_, m)| m.device_id == device_id)
-                .map(|(id, _)| id.clone())
-            {
-                if let Some(removed) = remove_member(room, &previous_peer_id) {
-                    let _ = removed.sender.try_send(ServerMessage::Kicked);
-                }
-            }
-        }
+        evict_stale_session(room, &device_id);
 
         if room.members.len() >= MAX_MEMBERS {
             return Err(JoinError::Full);
@@ -396,59 +419,15 @@ impl Registry {
         room.members.insert(
             peer_id.clone(),
             Member {
-                nick: nick.clone(),
-                color: color.clone(),
+                nick,
+                color,
                 device_id,
                 sender,
                 latency_ms: None,
             },
         );
 
-        let members: Vec<MemberInfo> = room
-            .members
-            .iter()
-            .map(|(id, m)| MemberInfo {
-                peer_id: PeerId::from_relay(id.clone()),
-                nick: Nick::from_relay(m.nick.clone()),
-                color: Color::from_relay(m.color.clone()),
-            })
-            .collect();
-        let active_sharers: Vec<PeerId> = room
-            .sharers
-            .iter()
-            .map(|id| PeerId::from_relay(id.clone()))
-            .collect();
-        let watcher_info: Vec<WatcherInfo> = room
-            .sharers
-            .iter()
-            .map(|sharer_id| WatcherInfo {
-                sharer_id: PeerId::from_relay(sharer_id.clone()),
-                watchers: room
-                    .watchers
-                    .get(sharer_id)
-                    .map(|w| w.iter().map(|id| PeerId::from_relay(id.clone())).collect())
-                    .unwrap_or_default(),
-            })
-            .collect();
-        let latencies: Vec<LatencyInfo> = room
-            .members
-            .iter()
-            .filter_map(|(id, m)| {
-                m.latency_ms.map(|ms| LatencyInfo {
-                    peer_id: PeerId::from_relay(id.clone()),
-                    ms,
-                })
-            })
-            .collect();
-
-        Ok(JoinedSnapshot {
-            peer_id: PeerId::from_relay(peer_id),
-            room_name: room.name.clone(),
-            members,
-            active_sharers,
-            watcher_info,
-            latencies,
-        })
+        Ok(room.snapshot_for(&peer_id))
     }
 
     pub fn room_status(&self, room_code: &str) -> Option<RoomSummary> {
@@ -652,6 +631,25 @@ fn password_too_long(password: Option<&str>) -> bool {
     password.is_some_and(|password| password.chars().count() > MAX_PASSWORD_LEN)
 }
 
+/// Shared `create_room`/`join_room` input validation: a cleaned-up nick, a
+/// palette colour, and a password within [`MAX_PASSWORD_LEN`]. Returns the
+/// cleaned nick on success; the two callers each map `Err(())` to their own
+/// `InvalidInput` variant.
+fn validate_new_member_fields(
+    nick: &str,
+    color: &str,
+    password: Option<&str>,
+) -> Result<String, ()> {
+    let nick = clean_nick(nick).map_err(|_| ())?;
+    if !is_valid_color(color) {
+        return Err(());
+    }
+    if password_too_long(password) {
+        return Err(());
+    }
+    Ok(nick)
+}
+
 /// `None` or an empty string both mean "no password".
 fn hash_optional_password(password: Option<String>) -> Option<String> {
     let password = password?;
@@ -721,6 +719,31 @@ fn remove_member(room: &mut Room, peer_id: &str) -> Option<Member> {
     }
 
     Some(removed)
+}
+
+/// Same `device_id` already has an open entry in `room` (another tab) —
+/// disconnect it, otherwise re-joining from the same device would count as
+/// one extra member instead of taking its place.
+///
+/// No-op for an empty `device_id`: `ensure_device_id` in the web client
+/// returns `""` on every failure path (no localStorage, no crypto), so two
+/// locked-down browsers would otherwise evict each other on join to a
+/// public room.
+fn evict_stale_session(room: &mut Room, device_id: &str) {
+    if device_id.is_empty() {
+        return;
+    }
+    let Some(previous_peer_id) = room
+        .members
+        .iter()
+        .find(|(_, m)| m.device_id == device_id)
+        .map(|(id, _)| id.clone())
+    else {
+        return;
+    };
+    if let Some(removed) = remove_member(room, &previous_peer_id) {
+        let _ = removed.sender.try_send(ServerMessage::Kicked);
+    }
 }
 
 /// Whether `a` and `b` are in a watch relationship in `room` — either one

@@ -8,12 +8,12 @@
 #
 # Targets (pick one; default `all`):
 #   all            every group below, minus whatever --no-* flags remove
-#   lint           cargo fmt --check + clippy (ssr + wasm/hydrate)
+#   lint           cargo fmt --check + clippy (ssr + wasm/hydrate) + cargo-machete
 #   build          cargo leptos build
 #   rust           cargo test (workspace, ssr) + wasm-bindgen (hydrate)
 #   wasm           wasm-bindgen (hydrate) suite only
 #   mutants        cargo-mutants (protocol + signaling); + apps/web with --web-mutants
-#   desktop        desktop: biome + tsc + vitest + StrykerJS
+#   desktop        desktop: biome + knip + tsc + vitest + StrykerJS
 #   e2e            both Playwright suites (web + desktop)
 #   e2e-web        Playwright web suite only
 #   e2e-desktop    Playwright _electron suite only
@@ -105,6 +105,11 @@ if want lint && [ "$run_lint" = 1 ]; then
   run "clippy (ssr)" cargo clippy --workspace --all-targets --features ssr -- -D warnings
   run "clippy (wasm/hydrate)" cargo clippy -p screen_share --target wasm32-unknown-unknown \
     --all-targets --no-default-features --features hydrate -- -D warnings
+  if have cargo-machete; then
+    run "cargo-machete (unused deps)" cargo machete
+  else
+    skip "cargo-machete (not installed: cargo install cargo-machete)"
+  fi
 fi
 
 # --- build gate ---
@@ -160,6 +165,7 @@ fi
 if want desktop; then
   if have pnpm; then
     run "desktop: biome check" in_dir desktop pnpm run check
+    run "desktop: knip (unused files/exports/deps)" in_dir desktop pnpm run check:unused
     run "desktop: tsc build" in_dir desktop pnpm run build
     if [ "$run_coverage" = 1 ]; then
       run "desktop: vitest + coverage" in_dir desktop pnpm run test:cov
