@@ -64,6 +64,35 @@ pub(super) fn exit_fullscreen_if_active() -> bool {
     true
 }
 
+#[cfg(not(feature = "hydrate"))]
+pub(super) fn reveal_fullscreen_controls_if_active() -> bool {
+    false
+}
+
+/// The touch counterpart to [`exit_fullscreen_if_active`]: a tap on a
+/// fullscreen card should surface the idle-hidden controls, never drop out
+/// of fullscreen (leaving is the fullscreen button's job alone there).
+/// Returns whether fullscreen was active, so `card_click` can skip its own
+/// behaviour.
+///
+/// The reveal and the re-armed hide timer already live in
+/// [`setup_fullscreen_autohide_controls`], which keys off `mousemove` —
+/// touch fires none, so dispatch a synthetic one rather than duplicate
+/// that wiring.
+#[cfg(feature = "hydrate")]
+pub(super) fn reveal_fullscreen_controls_if_active() -> bool {
+    let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+        return false;
+    };
+    if document.fullscreen_element().is_none() {
+        return false;
+    }
+    if let Ok(event) = web_sys::Event::new("mousemove") {
+        let _ = document.dispatch_event(&event);
+    }
+    true
+}
+
 /// Used when a watched peer stops sharing or leaves the room: if their card
 /// (identified by the `card-{peer_id}` id set in `member_card.rs`) is the
 /// one currently in fullscreen, back out of fullscreen instead of leaving
@@ -217,6 +246,11 @@ pub(super) fn setup_fullscreen_autohide_controls() {}
 /// whole screen, so the stop-watching/exit-fullscreen buttons stayed
 /// visible forever. Runs once for the whole page (there's only ever one
 /// fullscreen element at a time), rather than per-card.
+///
+/// Keyed off `mousemove`: on desktop the pointer drives it; on touch a tap
+/// on a fullscreen card feeds it a synthetic `mousemove` via
+/// [`reveal_fullscreen_controls_if_active`], so the same reveal / re-arm
+/// path serves both.
 #[cfg(feature = "hydrate")]
 pub(super) fn setup_fullscreen_autohide_controls() {
     use std::cell::Cell;

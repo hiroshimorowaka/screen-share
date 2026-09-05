@@ -71,7 +71,8 @@ JS seam — a `matchMedia` helper (`features/room/touch.rs`) driving an
 - **Per-stream volume on touch is the mute toggle only** — the vertical
   fader popover needs a sustained hover to reach. Volume *level* stays a
   desktop affordance; the `.volume-control__popup` is `display: none` on
-  touch.
+  touch. *(Revised 2026-09-04 — see the follow-up below; touch now gets a
+  bottom-sheet fader.)*
 - **The transmission menu gets no bottom-sheet treatment** — it is
   sharer-only and a phone can't share, so it never renders there.
 
@@ -107,3 +108,68 @@ Not automatable here; check on a UI-touching mobile change:
   `prefers-reduced-motion` via the existing global rule — the sheet uses
   `transform`, which that rule doesn't currently disable; acceptable, it's
   a short 0.15s move).
+
+## Follow-up (2026-09-04): touch fullscreen fixed; PiP dropped on touch
+
+Round 2 of the mobile fixes
+(`docs/superpowers/plans/2026-09-02-mobile-ui-fixes.md`) found the card's
+"Tela cheia" button was a trap on touch: after entering fullscreen, the
+idle-hidden controls could only be brought back by a tap, and that tap
+(`card_click`) *exited* fullscreen instead — the `mousemove` reveal in
+`setup_fullscreen_autohide_controls` never fires without a pointer.
+
+Fixed by keeping fullscreen available on touch and changing the tap
+semantics there:
+
+- `card_click` on touch calls `reveal_fullscreen_controls_if_active()`
+  instead of `exit_fullscreen_if_active()` — it dispatches a synthetic
+  `mousemove` so the existing autohide wiring reveals the controls and
+  re-arms its timer, and never leaves fullscreen. Entering / leaving
+  fullscreen on touch is the "Tela cheia" button alone.
+- `.card:fullscreen .card__actions` is shown on touch independent of the
+  `chrome-hidden` focus-mode flag, gated only by `card--controls-idle`.
+- **Picture-in-picture is hidden on touch** (`is_touch` gate in
+  `participant/action_bar.rs`) — a phone browser has no PiP window, so the
+  button was a silent no-op.
+
+Desktop fullscreen behaviour (a click backs out of fullscreen) is
+unchanged.
+
+## Follow-up (2026-09-04): per-stream volume reachable on touch
+
+The original decision left touch with mute/unmute only. That is too blunt
+once a viewer watches several sharers that each carry their own audio
+(ADR-0009): the phone's own volume rocker is a single global control and
+can't balance one loud stream against a quiet one.
+
+The fader is the *exact same* component and CSS on touch as on desktop —
+`.volume-control` / `.volume-control__popup` / `.volume-control__slider`
+carry no touch-specific rule at all, no bottom sheet, unlike the quality
+picker. Only the trigger button's click semantics differ, in
+`VolumeControl` (`participant/parts.rs`):
+
+- **Desktop, unchanged.** Hover reveals the popup; clicking the button
+  mutes/unmutes instantly, exactly as before.
+- **Touch, no hover to reveal it.** The *first* tap on the button only
+  opens the popup — the tap's own default focus is what CSS
+  `:focus-within` (already unconditional on the popup) reacts to, so
+  nothing has to happen in the click handler beyond letting it through.
+  Distinguishing "this tap is opening it" from "it was already open" reads
+  the trigger's `mousedown`, before the browser's own focus-on-mousedown
+  applies (`event_target_already_focused`, the same trick `QualityMenu`
+  uses for its own open/close).
+- **Every tap after that, while still open, mutes/unmutes** — the same
+  action clicking the button while hovering it performs on desktop — and
+  leaves the popup open, so the next thing the viewer does is drag the
+  slider. `apply_mute_toggle` (`watch_widgets.rs`) skips its blur on touch
+  for exactly this: blurring would close the popup the same tap just used
+  to mute.
+- **Closing it is never a second tap on the trigger.** An outside tap
+  blurs it (same as a mouse losing hover), and so does the surrounding
+  chrome fading on its own after a few idle seconds
+  (`setup_auto_hide_controls`, `participant_grid/mod.rs`) — `.volume-control`
+  lives inside `.card__actions`, whose opacity/`pointer-events` already
+  compound over anything open inside it, no extra wiring needed.
+- The slider still writes through to `volume_by_peer` / the real `<video>`
+  on `input`; on touch it does **not** blur on `change`, so fine-tuning
+  the level doesn't dismiss the popup either.

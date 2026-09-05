@@ -7,8 +7,8 @@ import { session } from 'electron';
  * clipboard: `getUserMedia` (mic/camera), geolocation, notifications,
  * pointer lock, MIDI, clipboard **read**, etc. are all denied so a
  * compromised app origin can't prompt for — or in some cases silently
- * gain — them (follow-up audit finding 6). OS notifications go through the
- * native IPC bridge, not the web Notification permission.
+ * gain — them. OS notifications go through the native IPC bridge, not the
+ * web Notification permission.
  *
  * Screen capture is the first exception: it must be allowed *through the
  * permission layer* for `setDisplayMediaRequestHandler` (registered in
@@ -28,9 +28,9 @@ import { session } from 'electron';
  * "compartilhar áudio" tick starts a PipeWire loopback that exposes a
  * "Screen Share Mix" input device, and the renderer then grabs it with
  * `getUserMedia({ audio: { deviceId } })` — an audio-only `media` request.
- * A blanket deny here (audit finding 6: "covert system-audio capture")
- * leaves the share silently video-only. Rather than allow every
- * audio-only request, {@link armAudioCaptureGrant} opens a single,
+ * A blanket deny here leaves the share silently video-only; a blanket
+ * allow would let the app origin start a covert system-audio capture.
+ * Rather than either, {@link armAudioCaptureGrant} opens a single,
  * time-boxed window right after a user-confirmed loopback starts; the one
  * capture that follows is let through and nothing else.
  *

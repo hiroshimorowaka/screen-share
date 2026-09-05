@@ -25,7 +25,8 @@ function isValidInviteLink(link: string): boolean {
  * shared import. */
 export function registerQuickShareIpcHandlers(): void {
   ipcMain.on('desktop-share:link-ready', (event, link: string) => {
-    // Clipboard hijack / notification spoofing guard (finding F11).
+    // Clipboard hijack / notification spoofing guard: only the app's own
+    // top frame may drive this.
     if (!isTrustedFrame(event)) return;
     if (!isValidInviteLink(link)) return;
     clipboard.writeText(link);

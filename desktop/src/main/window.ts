@@ -9,10 +9,10 @@ let mainWindow: BrowserWindow | null = null;
 
 /** Keeps the privileged renderer pinned to the app's own origin. A hijack
  * or open-redirect on that origin could otherwise navigate it to
- * attacker content that then reaches the IPC bridges (finding F10). SPA
- * routing uses `history.pushState` and `loadURL` from the main process
- * (see `startQuickShare`) — neither fires `will-navigate` — so this only
- * ever blocks a real cross-origin navigation. */
+ * attacker content that then reaches the IPC bridges. SPA routing uses
+ * `history.pushState` and `loadURL` from the main process (see
+ * `startQuickShare`) — neither fires `will-navigate` — so this only ever
+ * blocks a real cross-origin navigation. */
 export function lockNavigation(window: BrowserWindow): void {
   const staysOnAppOrigin = (target: string): boolean => {
     try {
@@ -53,8 +53,8 @@ function enableDevToolsShortcuts(window: BrowserWindow): void {
  * `webrtc.rs`) is the normal path, but a quick-share `loadURL`, a manual
  * reload, or a renderer crash never runs it — leaving `pw-loopback` / the
  * WASAPI capture, its 1 s poll interval and its `pw-link`s orphaned, and
- * on Windows `desktop-audio-pcm-chunk` firing ~50x/s at a dead frame
- * (finding 7). Stop the loopback whenever the main frame goes away.
+ * on Windows `desktop-audio-pcm-chunk` firing ~50x/s at a dead frame.
+ * Stop the loopback whenever the main frame goes away.
  * `stopAudioLoopbackNow` is a safe no-op when nothing is running. */
 function stopLoopbackOnRendererGone(window: BrowserWindow): void {
   const { webContents } = window;
@@ -79,7 +79,7 @@ export function createMainWindow(): void {
       preload: path.join(__dirname, '..', 'preload.js'),
       // Pinned explicitly rather than relying on the Electron defaults —
       // this window loads a remote origin, so the isolation boundary must
-      // not silently change under a future Electron upgrade (finding F10).
+      // not silently change under a future Electron upgrade.
       contextIsolation: true,
       sandbox: true,
       nodeIntegration: false,

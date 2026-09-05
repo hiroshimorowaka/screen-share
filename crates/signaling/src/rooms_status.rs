@@ -71,10 +71,10 @@ impl RoomStatusLimiter {
 /// and to decide whether to show the password field.
 ///
 /// Deliberately does **not** return the human-chosen room name or the
-/// member count to this unauthenticated, membership-unchecked endpoint
-/// (finding F06): those are an information leak to anyone holding a code
-/// and make enumeration observable. They're delivered in the `Joined`
-/// snapshot once a client is actually in the room.
+/// member count to this unauthenticated, membership-unchecked endpoint:
+/// those are an information leak to anyone holding a code and make
+/// enumeration observable. They're delivered in the `Joined` snapshot
+/// once a client is actually in the room.
 pub async fn room_status_handler(
     State(registry): State<Registry>,
     State(limiter): State<RoomStatusLimiter>,

@@ -46,8 +46,8 @@ pub fn create_room_handler(
         let password_value = password.get_untracked();
         let is_public = public_room.get_untracked();
 
-        // Mirror the relay's checks (F08) so a bad nick/name/colour is
-        // caught before a round trip; the server still enforces them.
+        // Mirror the relay's checks so a bad nick/name/colour is caught
+        // before a round trip; the server still enforces them.
         let Ok(nick_value) = clean_nick(&nick.get_untracked()) else {
             set_status.set("Nick vazio, muito longo ou com caracteres não permitidos.".to_string());
             return;

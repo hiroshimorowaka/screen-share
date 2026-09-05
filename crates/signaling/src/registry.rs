@@ -18,7 +18,7 @@ use screen_share_protocol::{
 /// rebroadcast as a peer's latency. Anything above this is a spoof
 /// attempt, not a real measurement (a full minute of latency means the
 /// connection is already dead) — it's dropped rather than shown on the
-/// other members' cards (finding F15).
+/// other members' cards.
 pub const MAX_PLAUSIBLE_LATENCY_MS: u32 = 60_000;
 
 /// Depth of one connection's outbound queue. Bounded so a member that
@@ -103,8 +103,7 @@ struct Room {
     /// [`EMPTY_ROOM_GRACE_PERIOD`] in the past.
     emptied_at: Option<Instant>,
     /// `true` while a cleanup task is live for this room, so
-    /// leave -> rejoin -> leave churn can't stack a second one (P3
-    /// follow-up: one 30 s task per emptying event otherwise).
+    /// leave -> rejoin -> leave churn can't stack a second one.
     cleanup_scheduled: bool,
 }
 
@@ -366,7 +365,7 @@ impl Registry {
         // Skip this entirely for an empty device_id: `ensure_device_id` in the
         // web client returns `""` on every failure path (no localStorage, no
         // crypto), so two locked-down browsers would otherwise evict each other
-        // on join to a public room (finding F11).
+        // on join to a public room.
         if !device_id.is_empty() {
             if let Some(previous_peer_id) = room
                 .members
@@ -496,16 +495,14 @@ impl Registry {
             return;
         };
 
-        // A watch only makes sense for a peer that is in this room *and*
-        // currently sharing. Dropping the `sharers` half of this let a
-        // member `WatchShare` an idle co-member: that still fired a
-        // `WatchRequested` at the target (whose client then opened an
-        // `RTCPeerConnection` and trickled host/srflx ICE, leaking its
-        // LAN + public address) and, because `watch_related` now held,
-        // opened the `relay_peer_signal` gate between the two for
-        // unsolicited offers / renegotiation / quality spam — the exact
-        // surface F07 closed. The membership half still guards against a
-        // `sharer_id` that isn't in the room at all (finding F15).
+        // A watch is only allowed for a peer that is in this room *and*
+        // currently sharing. Without the `sharers` check, a member could
+        // `WatchShare` an idle co-member: that fires `WatchRequested` at
+        // the target (whose client then opens an `RTCPeerConnection` and
+        // trickles host/srflx ICE, leaking its LAN + public address) and
+        // opens the `relay_peer_signal` gate between the two for
+        // unsolicited offers / renegotiation / quality spam. The
+        // membership check also rejects a `sharer_id` not in the room.
         if !room.members.contains_key(sharer_id) || !room.sharers.contains(sharer_id) {
             return;
         }
@@ -549,7 +546,7 @@ impl Registry {
         };
 
         // Drop an implausible self-report rather than rebroadcast it as
-        // this peer's ping on everyone else's card (finding F15).
+        // this peer's ping on everyone else's card.
         if ms > MAX_PLAUSIBLE_LATENCY_MS {
             return;
         }
@@ -573,9 +570,9 @@ impl Registry {
     /// watching the other. Without that gate any co-member could push an
     /// unsolicited `Offer` at any other, making their client open an
     /// `RTCPeerConnection` and leak its host/srflx ICE candidates (LAN +
-    /// public IP), or spam renegotiation / quality changes (finding F07).
-    /// `from` is the connection's server-assigned `peer_id`, never a
-    /// client-supplied value.
+    /// public IP), or spam renegotiation / quality changes. `from` is the
+    /// connection's server-assigned `peer_id`, never a client-supplied
+    /// value.
     pub fn relay_peer_signal(&self, room_code: &str, from: &str, to: &str, message: ServerMessage) {
         let rooms = self.lock_rooms();
         let Some(room) = rooms.get(room_code) else {
@@ -649,7 +646,8 @@ impl Registry {
 }
 
 /// Rejects a password longer than [`MAX_PASSWORD_LEN`] before it ever
-/// reaches argon2 (finding F02). Absent or empty is always fine.
+/// reaches argon2 (an unbounded input there is a CPU-exhaustion vector).
+/// Absent or empty is always fine.
 fn password_too_long(password: Option<&str>) -> bool {
     password.is_some_and(|password| password.chars().count() > MAX_PASSWORD_LEN)
 }
@@ -684,10 +682,10 @@ fn password_attempts_exceeded(
     let now = Instant::now();
 
     // Sweep every client's window, not just this one's, and drop entries
-    // that have gone empty. Pruning only the caller's key leaks one
-    // `String` + `Vec` per distinct attacker IP forever (finding F04): a
-    // slow distributed brute force never revisits a key, so it would never
-    // be cleaned up.
+    // that have gone empty. Pruning only the caller's key would leak one
+    // `String` + `Vec` per distinct attacker IP forever: a slow
+    // distributed brute force never revisits a key, so it would never be
+    // cleaned up.
     attempts_by_client.retain(|_, attempts| {
         attempts.retain(|&attempt| now.duration_since(attempt) < PASSWORD_ATTEMPT_WINDOW);
         !attempts.is_empty()
@@ -763,9 +761,9 @@ fn generate_room_code() -> String {
 /// [`ROOM_CODE_COLLISION_RETRIES`] times. A collision in the 31^8 code
 /// space against [`MAX_ROOMS`] rooms is ~6e-9, but without this check the
 /// `rooms.insert` on a collision silently overwrites a live room and
-/// strands its members (P3 follow-up). The last try is accepted as-is:
-/// after this many misses the space is effectively exhausted and there is
-/// nothing better to return.
+/// strands its members. The last try is accepted as-is: after this many
+/// misses the space is effectively exhausted and there is nothing better
+/// to return.
 const ROOM_CODE_COLLISION_RETRIES: usize = 8;
 
 fn unique_room_code(

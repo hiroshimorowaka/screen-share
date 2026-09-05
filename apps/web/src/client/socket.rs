@@ -14,7 +14,7 @@ pub struct WsClient {
     // closes, so it fires (no leak), and its handler must outlive this
     // `WsClient` to run the reconnect check. `on_open` can genuinely never
     // fire — a failed `connect()` — so keeping its closure here means it's
-    // dropped with the client rather than leaked (P3 follow-up).
+    // dropped with the client rather than leaked.
     _on_open: RefCell<Option<Closure<dyn FnMut()>>>,
 }
 

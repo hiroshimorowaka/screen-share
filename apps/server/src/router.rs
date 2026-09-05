@@ -1,7 +1,7 @@
 //! Composes the full Axum service: the Leptos SSR routes (each wrapped to
 //! re-publish the per-request CSP nonce), the signaling relay (`/ws`,
 //! `/api/rooms/{code}`), and the DoS guards. Merge order matters — see
-//! the inline comments carried over from the old `apps/web/src/main.rs`.
+//! the inline comments below.
 
 use axum::routing::get;
 use axum::Router;
@@ -36,8 +36,8 @@ pub fn build(
         // `_with_context(provide_request_nonce)` on both the routes and the
         // fallback so every SSR render re-publishes the CSP nonce the
         // `security` middleware minted for this request — the inline
-        // hydration `<script>` then matches `script-src 'nonce-…'` (F12
-        // follow-up: `script-src` no longer carries `'unsafe-inline'`).
+        // hydration `<script>` then matches `script-src 'nonce-…'`, which
+        // carries no `'unsafe-inline'`.
         .leptos_routes_with_context(&leptos_options, routes, security::provide_request_nonce, {
             let leptos_options = leptos_options.clone();
             move || shell(leptos_options.clone())

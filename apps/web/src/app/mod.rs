@@ -21,8 +21,7 @@ pub fn shell(options: LeptosOptions) -> impl IntoView {
                 // can clear the notch / home indicator.
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
                 // Space Grotesk (display) + Space Mono (data readouts),
-                // pulled from Google Fonts rather than vendored — see
-                // docs/decisions/0006-visual-redesign.md.
+                // pulled from Google Fonts rather than vendored.
                 <link rel="preconnect" href="https://fonts.googleapis.com"/>
                 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
                 <link

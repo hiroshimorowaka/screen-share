@@ -24,8 +24,7 @@ pub(crate) enum LinkDirection {
 
 /// One peer connection bundled with the JS event callbacks bound to it.
 /// The pair is inserted and removed as a unit, so "a `pc` without its
-/// callbacks" (or vice versa) — previously possible with four parallel
-/// maps — can't be represented.
+/// callbacks", or the reverse, can't be represented.
 #[cfg(feature = "hydrate")]
 pub(crate) struct PeerLink {
     pub(crate) pc: web_sys::RtcPeerConnection,
@@ -72,7 +71,7 @@ pub struct RoomSession {
     // at a time, so this is a single slot rather than a map. Kept here
     // instead of `Closure::forget`'d so it — and the `RoomSession` clone it
     // captures — is freed on share teardown / source switch, not leaked
-    // once per share (finding F08a; also unblocks the F01 `Rc` cycle).
+    // once per share.
     pub(crate) local_capture_callback: LocalCaptureCallback,
     // Set before an intentional close; `on_close` (async, runs afterwards)
     // checks this flag so it doesn't overwrite the status already set with

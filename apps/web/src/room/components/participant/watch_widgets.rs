@@ -14,13 +14,17 @@ use crate::room::watch::stop_watching_click_handler;
 use crate::room::{RoomSession, RoomState};
 
 /// Flip one peer's local mute: update the shared set, apply it to the
-/// actual `<video>`, and drop focus off the button so a keyboard `Enter`
-/// doesn't re-fire it.
+/// actual `<video>`, and — on a mouse — drop focus off the button so a
+/// keyboard `Enter` doesn't re-fire it. On touch this same button is also
+/// the volume popup's trigger (see `VolumeControl`); blurring it here
+/// would close the popup the same tap just used to mute, so touch keeps
+/// focus and leaves closing it to an outside tap or the chrome fading.
 fn apply_mute_toggle(
     peer_id: &str,
     slot: VideoSlot,
     muted_by_peer: RwSignal<HashSet<String>>,
     now_muted: bool,
+    is_touch: bool,
 ) {
     muted_by_peer.update(|set| {
         if now_muted {
@@ -30,7 +34,9 @@ fn apply_mute_toggle(
         }
     });
     set_muted(slot, peer_id, now_muted);
-    blur_active_element();
+    if !is_touch {
+        blur_active_element();
+    }
 }
 
 #[component]
@@ -69,7 +75,13 @@ pub(super) fn WatchWidgets(conn: RoomSession, index: usize) -> impl IntoView {
     let mute_toggle_click = move |ev: leptos::ev::MouseEvent| {
         ev.stop_propagation();
         if let Some(member) = member_at() {
-            apply_mute_toggle(&member.peer_id, video_slot(), muted_by_peer, !is_muted());
+            apply_mute_toggle(
+                &member.peer_id,
+                video_slot(),
+                muted_by_peer,
+                !is_muted(),
+                is_touch.get_untracked(),
+            );
         }
     };
 
@@ -86,6 +98,7 @@ pub(super) fn WatchWidgets(conn: RoomSession, index: usize) -> impl IntoView {
         />
         <VolumeControl
             hidden=Signal::derive(move || !is_watching_this())
+            is_touch=is_touch
             is_muted=Signal::derive(is_muted)
             volume_pct=Signal::derive(move || {
                 let volume = member_at()

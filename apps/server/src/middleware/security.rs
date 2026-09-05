@@ -1,6 +1,6 @@
-//! Response-header hardening (finding F12). A middleware rather than a
-//! per-route concern: every response — page, asset, JSON, the `/ws`
-//! upgrade — gets the same set.
+//! Response-header hardening. A middleware rather than a per-route
+//! concern: every response — page, asset, JSON, the `/ws` upgrade — gets
+//! the same set.
 
 use axum::extract::{Request, State};
 use axum::http::{header::HeaderName, HeaderValue};

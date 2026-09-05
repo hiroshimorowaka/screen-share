@@ -34,13 +34,10 @@ fn room_session_key(room_code: &str) -> String {
 /// carry the room password — `sessionStorage`'s tab-scoped, auto-clearing
 /// lifetime is the boundary that makes that acceptable.
 ///
-/// Security note (finding F14): any script running on this origin can read
-/// this back. That risk is accepted rather than replaced with a
-/// server-issued rejoin token — see ADR-0008. The mitigations are the
-/// `Content-Security-Policy` (F12), which is what keeps injected script off
-/// the origin in the first place, and the desktop `senderFrame` IPC guard
-/// (F11). If an XSS foothold on this origin ever becomes plausible, revisit
-/// with a short-lived rejoin token minted in the `Joined` snapshot.
+/// Any script on this origin can read the password back from here; the
+/// `Content-Security-Policy` keeping injected script off the origin is what
+/// makes that acceptable. If XSS on this origin ever becomes plausible,
+/// switch to a short-lived server-issued rejoin token instead.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct RoomSession {
     pub nick: String,

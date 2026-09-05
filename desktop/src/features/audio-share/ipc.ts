@@ -18,7 +18,7 @@ export async function registerAudioIpcHandlers(): Promise<void> {
 
   // System-audio capture and process enumeration — only the app's own
   // frames may drive these, never a hijacked/XSS'd remote page that got
-  // into the renderer (finding F11).
+  // into the renderer.
   ipcMain.handle('start-audio-loopback', (event, target: AudioShareTarget) => {
     if (!isTrustedFrame(event)) throw new Error('start-audio-loopback: untrusted sender');
     return startAudioLoopback(target);

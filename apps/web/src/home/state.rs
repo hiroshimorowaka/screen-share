@@ -35,8 +35,8 @@ pub(crate) struct HomeState {
     pub(crate) recent_rooms: ReadSignal<Vec<RecentRoom>>,
     pub(crate) set_recent_rooms: WriteSignal<Vec<RecentRoom>>,
     /// Which remembered rooms answered the liveness check as still up.
-    /// From the server, never persisted; a plain set, not a count map
-    /// (finding F06).
+    /// From the server, never persisted; a plain set, not a count map —
+    /// the status endpoint exposes no occupancy.
     pub(crate) live_rooms: ReadSignal<HashSet<String>>,
     pub(crate) set_live_rooms: WriteSignal<HashSet<String>>,
 }

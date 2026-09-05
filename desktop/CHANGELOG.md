@@ -11,6 +11,11 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.5
+
+- Correção interna: limpeza de comentários no código. Sem mudança visível
+  no uso normal.
+
 ## 0.3.4
 
 - O botão "Convidar" volta a funcionar no app: ele não estava copiando o

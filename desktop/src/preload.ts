@@ -20,7 +20,7 @@ contextBridge.exposeInMainWorld('picker', {
   onSources: (callback: (sources: PickerSource[]) => void) => {
     // `picker:sources` is sent exactly once per picker window, so `once`
     // both matches the protocol and can't pile up an `ipcRenderer`
-    // listener if the page calls `onSources` more than once (finding 8c).
+    // listener if the page calls `onSources` more than once.
     ipcRenderer.once('picker:sources', (_event, sources: PickerSource[]) => {
       callback(sources);
     });
@@ -52,7 +52,7 @@ contextBridge.exposeInMainWorld('desktopAudio', {
           // main-window preload, so without clearing first a permanent
           // `desktop-audio-pcm-chunk` listener would accumulate per share
           // (Node warns past 10), each calling into a since-dropped
-          // generator (finding 8c).
+          // generator.
           ipcRenderer.removeAllListeners('desktop-audio-pcm-chunk');
           ipcRenderer.on('desktop-audio-pcm-chunk', (_event, chunk: ArrayBuffer) =>
             callback(chunk),

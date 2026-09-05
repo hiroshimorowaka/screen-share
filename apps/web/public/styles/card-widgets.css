@@ -124,7 +124,9 @@
   transform: translateX(-50%) scale(0.9);
   transform-origin: bottom center;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
   padding: 0.4rem 0.4rem;
   background: var(--surface-2);
   border: 1px solid var(--border);
@@ -187,9 +189,9 @@
   background: var(--accent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
 }
-/* --- touch: quality picker becomes a bottom sheet; the volume fader
-   drops to just the mute toggle. Was folded into card.css own
-   (hover: none) block. --- */
+
+/* --- touch: quality picker becomes a bottom sheet. Was folded into
+   card.css own (hover: none) block. --- */
 @media (hover: none) and (pointer: coarse) {
   .quality-menu__trigger {
     height: 2.75rem;
@@ -197,8 +199,10 @@
 
   /* The quality picker becomes a bottom sheet: full width, up from the
      bottom edge, big rows. No hover here, so it opens on `:focus-within` —
-     a tap on the trigger focuses it (see member_card.rs, which also
-     handles a second tap blurring it closed again). */
+     a tap on the trigger focuses it (see participant/parts.rs, which also
+     handles a second tap blurring it closed again). `z-index` clears
+     `.room-controls` (z-index 10 in room.css), which is fixed at the same
+     bottom edge, so its pills never cover the lower sheet rows. */
   .quality-menu__popup {
     position: fixed;
     inset: auto 0 0 0;
@@ -210,11 +214,25 @@
     padding: 0.5rem 0.75rem calc(0.75rem + env(safe-area-inset-bottom));
     border-radius: 1rem 1rem 0 0;
     box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.5);
+    z-index: 50;
   }
   .quality-menu:focus-within .quality-menu__popup {
     opacity: 1;
     pointer-events: auto;
     transform: translateY(0);
+  }
+  /* Dim the rest of the screen behind the open sheet so the options read
+     against a calm ground. Purely visual (`pointer-events: none`) — an
+     outside tap still lands on the page and blurs the trigger, which is
+     what closes the sheet. Sits above `.room-controls` (10), below the
+     sheet (50). */
+  .quality-menu:focus-within::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: color-mix(in srgb, var(--ink-0) 55%, transparent);
+    pointer-events: none;
   }
   .quality-menu__option {
     padding: 0.9rem 1rem;
@@ -222,11 +240,9 @@
     border-radius: 0.5rem;
   }
 
-  /* The vertical volume fader needs a persistent hover to reach on a
-     phone; drop it to just the mute toggle (a plain tap). Per-stream
-     volume level stays a desktop affordance. */
-  .volume-control__popup {
-    display: none;
-  }
+  /* The volume fader gets no touch-specific rule at all: it is the exact
+     same small floating popup as desktop (`.volume-control__popup` above),
+     opened by the same unconditional `:focus-within`. Only the trigger's
+     click semantics differ on touch — see `VolumeControl` in parts.rs. */
 }
 }

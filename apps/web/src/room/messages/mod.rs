@@ -197,10 +197,9 @@ fn on_kicked(conn: &RoomSession, signals: RoomState) {
 }
 
 /// A co-member we are watching sent an SDP offer: open the incoming
-/// connection, wire its callbacks, and answer. Ignores an unsolicited
-/// offer (defence in depth for F07) so it never opens a connection — and
-/// leaks host/srflx ICE candidates — for a screen the user did not choose
-/// to watch.
+/// connection, wire its callbacks, and answer. An unsolicited offer is
+/// ignored so it never opens a connection — and leaks host/srflx ICE
+/// candidates — for a screen the user did not choose to watch.
 #[cfg(feature = "hydrate")]
 fn answer_offer(conn: RoomSession, signals: RoomState, from: String, sdp: String) {
     if !signals.watching.get_untracked().contains(&from) {
@@ -410,7 +409,7 @@ fn fixed_status_text(msg: &ServerMessage) -> &'static str {
 /// A co-member asked to watch our screen: open the outgoing connection,
 /// attach the local tracks, establish the screen-tuned encoding, wire the
 /// callbacks, and send the offer. Ignores the request unless we actually
-/// have a local stream to offer (defence in depth for F07).
+/// have a local stream to offer.
 #[cfg(feature = "hydrate")]
 fn offer_to_watcher(conn: RoomSession, signals: RoomState, from: String) {
     if !conn.sharing.borrow().is_sharing() {
