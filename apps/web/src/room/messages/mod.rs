@@ -142,7 +142,10 @@ pub(crate) fn teardown_link(conn: &RoomSession, peer_id: &str, direction: LinkDi
             super::quality::stop_auto_polling(conn, peer_id);
             &conn.links_out
         }
-        LinkDirection::Incoming => &conn.links_in,
+        LinkDirection::Incoming => {
+            conn.incoming_streams.borrow_mut().remove(peer_id);
+            &conn.links_in
+        }
     };
     if let Some(link) = map.borrow_mut().remove(peer_id) {
         link.pc.close();
@@ -225,12 +228,17 @@ fn answer_offer(conn: RoomSession, signals: RoomState, from: String, sdp: String
         });
 
         let sharer_id = from.clone();
+        let conn_for_track = conn.clone();
         let ontrack = wasm_bindgen::prelude::Closure::<dyn FnMut(RtcTrackEvent)>::new(
             move |event: RtcTrackEvent| {
                 if let Ok(stream) = event.streams().get(0).dyn_into::<MediaStream>() {
                     // Fires once per track (video + tab audio = twice);
                     // `play_stream_in` is idempotent and swallows the
                     // resulting play/AbortError.
+                    conn_for_track
+                        .incoming_streams
+                        .borrow_mut()
+                        .insert(sharer_id.clone(), stream.clone());
                     crate::room::media::play_stream_in(
                         &format!("video-{sharer_id}"),
                         &stream,

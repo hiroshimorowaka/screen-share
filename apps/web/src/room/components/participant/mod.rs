@@ -108,6 +108,9 @@ fn MemberCard(conn: RoomSession, index: usize) -> impl IntoView {
     let showing_video = move || own_preview_visible() || (!is_self() && is_watching_this());
     let border_color = move || member_at().map_or(EMPTY_SLOT_COLORS, |m| color_hex(&m.color));
 
+    let peer_video: NodeRef<leptos::html::Video> = NodeRef::new();
+    rebind_slot_video(conn.clone(), members, peer_video, i);
+
     let watch = watch_click_handler(conn.clone(), members, watching, i);
     let card_click = move |ev: leptos::ev::MouseEvent| {
         // A tap/click on a fullscreen card: on desktop it backs out of
@@ -187,6 +190,7 @@ fn MemberCard(conn: RoomSession, index: usize) -> impl IntoView {
                 muted=true
             ></video>
             <video
+                node_ref=peer_video
                 id=move || member_at().map_or_else(String::new, |m| format!("video-{}", m.peer_id))
                 class:hidden=move || is_self() || !showing_video()
                 autoplay=true
@@ -212,6 +216,56 @@ fn MemberCard(conn: RoomSession, index: usize) -> impl IntoView {
             </div>
         </div>
     }
+}
+
+/// Keeps card slot `i`'s peer `<video>` pointed at the right inbound
+/// stream. The grid has `MAX_MEMBERS` fixed slots and slot `i` renders
+/// whoever is at roster position `i`, so a member leaving shifts everyone
+/// after them down one slot — the `<video>` node stays put but now renders
+/// a different member, stranding the `srcObject` that `ontrack` attached by
+/// element id. Binding through the slot's `NodeRef` (stable across the
+/// shift) instead of an id lookup, this effect re-points the node at the
+/// current occupant's stream from `RoomSession::incoming_streams` on every
+/// roster change, and clears it for a slot that no longer shows a stream we
+/// hold.
+#[cfg(feature = "hydrate")]
+fn rebind_slot_video(
+    conn: RoomSession,
+    members: ReadSignal<Vec<crate::room::RoomMember>>,
+    peer_video: NodeRef<leptos::html::Video>,
+    i: usize,
+) {
+    Effect::new(move |_| {
+        let Some(video) = peer_video.get() else {
+            return;
+        };
+        let stream = members
+            .get()
+            .get(i)
+            .and_then(|member| conn.incoming_streams.borrow().get(&member.peer_id).cloned());
+        match stream {
+            Some(stream) if video.src_object().as_ref() != Some(&stream) => {
+                video.set_src_object(Some(&stream));
+                if let Ok(promise) = video.play() {
+                    leptos::task::spawn_local(async move {
+                        let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+                    });
+                }
+            }
+            Some(_) => {}
+            None if video.src_object().is_some() => video.set_src_object(None),
+            None => {}
+        }
+    });
+}
+
+#[cfg(not(feature = "hydrate"))]
+fn rebind_slot_video(
+    _conn: RoomSession,
+    _members: ReadSignal<Vec<crate::room::RoomMember>>,
+    _peer_video: NodeRef<leptos::html::Video>,
+    _i: usize,
+) {
 }
 
 #[cfg(test)]

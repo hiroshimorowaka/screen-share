@@ -83,6 +83,7 @@ mod wiring {
     /// when the user leaves the room.
     pub(crate) fn drop_all_peer_connections(conn: &RoomSession) {
         crate::room::quality::stop_all_auto_polling(conn);
+        conn.incoming_streams.borrow_mut().clear();
         for (_, link) in conn.links_out.borrow_mut().drain() {
             link.pc.close();
         }

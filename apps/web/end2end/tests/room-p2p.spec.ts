@@ -189,6 +189,35 @@ test('one watcher stopping does not disturb another watching the same sharer', a
   await caioCtx.close();
 });
 
+test('a third member leaving does not black out a sharer you are watching', async ({ browser }) => {
+  const caioCtx = await browser.newContext();
+  const anaCtx = await browser.newContext();
+  const bobCtx = await browser.newContext();
+
+  // Caio owns the room, so his roster is built by `PeerJoined` in join
+  // order: [Caio, Ana, Bob]. Bob (the sharer Caio watches) sits at a
+  // higher slot than Ana, so Ana leaving shifts Bob's card down a slot.
+  const { page: caio, url } = await createPublicRoom(caioCtx, 'Caio', 'Sala saida');
+  const ana = await joinRoom(anaCtx, url, 'Ana');
+  const bob = await joinRoom(bobCtx, url, 'Bob');
+
+  await bob.getByRole('button', { name: SHARE_BUTTON }).click();
+  await watchSharer(caio, 'Bob');
+
+  // Ana disconnects. Nothing about Caio's watch of Bob changed — frames
+  // must keep flowing.
+  await anaCtx.close();
+  await expect(caio.locator('.card__nick', { hasText: 'Ana' })).toBeHidden();
+
+  await expect
+    .poll(async () => (await videoState(caio, 'Bob')).readyState, { timeout: 5_000 })
+    .toBeGreaterThanOrEqual(2);
+  expect((await videoState(caio, 'Bob')).width).toBeGreaterThan(0);
+
+  await caioCtx.close();
+  await bobCtx.close();
+});
+
 test('the watcher badge lists each viewer on its own line', async ({ browser }) => {
   const anaCtx = await browser.newContext();
   const bobCtx = await browser.newContext();
