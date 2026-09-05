@@ -25,7 +25,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,sharing=locked \
     --mount=type=cache,target=/app/target,sharing=locked \
     cargo leptos build --release \
     && cp target/release/screen-share-server /app/screen_share.out \
-    && cp -r target/site /app/site.out
+    && cp -r target/site /app/site.out \
+    && cp target/release/hash.txt /app/hash.txt.out
 
 # --- runtime image: only the compiled binary + generated site assets ---
 FROM debian:bookworm-slim AS runtime
@@ -47,11 +48,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 WORKDIR /app
 COPY --from=builder /app/screen_share.out ./screen_share
 COPY --from=builder /app/site.out ./site
+# Must sit next to the binary, not under ./site: leptos_meta locates it via
+# `current_exe()`'s own directory (see `hash-files` in the workspace
+# Cargo.toml), not LEPTOS_SITE_ROOT.
+COPY --from=builder /app/hash.txt.out ./hash.txt
 COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
 ENV LEPTOS_OUTPUT_NAME=screen_share
 ENV LEPTOS_SITE_ROOT=site
 ENV LEPTOS_SITE_PKG_DIR=pkg
+ENV LEPTOS_HASH_FILES=true
 ENV LEPTOS_ENV=PROD
 # Fly.io (unlike Render) doesn't inject a dynamic $PORT — you pick a fixed
 # port and declare it once in fly.toml's internal_port. Keep these in sync.

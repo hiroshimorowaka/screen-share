@@ -59,3 +59,13 @@ lib-default-features = false
 
 # The profile to use for the lib target when compiling for release.
 lib-profile-release = "wasm-release"
+
+# Appends a content hash to the compiled JS/WASM bundle's filename on every
+# build (via a `hash.txt` cargo-leptos writes next to the server binary —
+# see the Dockerfile). Without this, the bundle keeps the same URL across
+# deploys, and a browser that cached it under its own heuristics (no
+# `Cache-Control` on that response otherwise says how long) can keep
+# serving the old JS/WASM until a hard refresh. `security::apply` gives
+# `/pkg/` a long-lived immutable `Cache-Control` on top of this, since the
+# filename is now the thing that changes instead.
+hash-files = true

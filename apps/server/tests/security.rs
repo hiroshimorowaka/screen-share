@@ -13,6 +13,7 @@ use tower::ServiceExt;
 fn app(dev: bool) -> Router {
     Router::new()
         .route("/", get(|| async { "ok" }))
+        .route("/pkg/{*rest}", get(|| async { "asset" }))
         .layer(axum::middleware::from_fn_with_state(dev, security::apply))
 }
 
@@ -166,6 +167,43 @@ async fn the_hydration_bootstrap_script_carries_the_csp_nonce() {
     assert!(
         html.contains(&format!("nonce=\"{nonce}\"")),
         "hydration <script> must carry nonce {nonce}; html was: {html}"
+    );
+}
+
+/// Regression test: without a `Cache-Control` header at all, a browser
+/// falls back to its own heuristic freshness window and can keep serving a
+/// stale response well past a deploy, forcing a hard refresh to see a
+/// change (the bug this header exists to fix). Anything not under the
+/// hashed `/pkg/` bundle must instead be revalidated on every load.
+#[tokio::test]
+async fn unhashed_responses_are_marked_for_revalidation() {
+    assert_eq!(header_value(false, "cache-control").await, "no-cache");
+}
+
+/// The hashed JS/WASM bundle's filename changes whenever its content does
+/// (`hash-files` in the workspace `Cargo.toml`), so it's safe — and, given
+/// how often peers reconnect mid-call, important — to let it sit in the
+/// browser's cache indefinitely instead of revalidating on every load.
+#[tokio::test]
+async fn hashed_bundle_assets_get_a_long_lived_immutable_cache_control() {
+    let response = app(false)
+        .oneshot(
+            Request::builder()
+                .uri("/pkg/screen_share.abcd1234.js")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response
+            .headers()
+            .get("cache-control")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "public, max-age=31536000, immutable"
     );
 }
 
