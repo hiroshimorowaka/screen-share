@@ -11,12 +11,16 @@ const windowHandlers = new Map<string, Handler>();
 const sendMock = vi.fn();
 const closeMock = vi.fn();
 let destroyed = false;
+let constructorError: Error | null = null;
 
 vi.mock('electron', () => ({
   app: { isPackaged: false },
   desktopCapturer: { getSources: state.getSources },
   ipcMain: { once: vi.fn(), removeListener: vi.fn() },
   BrowserWindow: class {
+    constructor() {
+      if (constructorError) throw constructorError;
+    }
     webContents = { setWindowOpenHandler: vi.fn(), send: sendMock };
     on(event: string, handler: Handler) {
       // Real Electron throws "Object has been destroyed" here.
@@ -53,6 +57,7 @@ beforeEach(() => {
   state.getSources.mockClear();
   state.loadFileDeferred = null;
   destroyed = false;
+  constructorError = null;
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 
@@ -109,6 +114,16 @@ describe('showSourcePicker', () => {
 
     await expect(pending).resolves.toBeNull();
     expect(sendMock).toHaveBeenCalledWith('picker:sources', []);
+  });
+
+  it('resolves null and logs when the picker window cannot be created', async () => {
+    constructorError = new Error('Failed to create window');
+    const pending = showSourcePicker();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await expect(pending).resolves.toBeNull();
+    expect(console.error).toHaveBeenCalledOnce();
+    expect(sendMock).not.toHaveBeenCalled();
   });
 
   it('removes the picker:selected listener when the picker is dismissed (finding 8d)', async () => {

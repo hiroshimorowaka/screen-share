@@ -46,7 +46,12 @@ function createPickerWindow(parent: BrowserWindow | undefined): BrowserWindow {
     height: 720,
     parent,
     frame: false,
-    transparent: true,
+    // No `transparent: true`: a transparent frameless window needs the DWM
+    // compositor, which a headless/VM/software-rendering Windows box often
+    // doesn't have — there the window silently never paints and "share
+    // screen" looks like it does nothing. The page paints its own rounded
+    // panel; the window just needs a solid backing colour behind it.
+    backgroundColor: '#1e1f22',
     resizable: true,
     minWidth: 640,
     minHeight: 480,
@@ -84,8 +89,21 @@ function toShareChoice(
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {
     void (async () => {
-      const { sources, pickerSources } = await enumerateSources();
-      const pickerWindow = createPickerWindow(pickParentWindow());
+      let sources: Electron.DesktopCapturerSource[];
+      let pickerSources: PickerSource[];
+      let pickerWindow: BrowserWindow;
+      try {
+        ({ sources, pickerSources } = await enumerateSources());
+        pickerWindow = createPickerWindow(pickParentWindow());
+      } catch (err) {
+        // A throw here (e.g. `new BrowserWindow` failing on a broken GPU
+        // stack) would otherwise vanish into this `void`-invoked task and
+        // leave the caller's `getDisplayMedia` hanging with no picker and
+        // no error — the "share does nothing" report on headless/VM boxes.
+        console.error('Could not open the source picker:', err);
+        resolve(null);
+        return;
+      }
 
       let settled = false;
       const settle = (choice: PickerChoice | null) => {
