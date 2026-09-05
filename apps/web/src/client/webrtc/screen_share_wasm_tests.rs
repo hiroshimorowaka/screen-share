@@ -23,11 +23,34 @@ fn display_media_constraints_ask_only_for_video_in_the_desktop_shell() {
 }
 
 #[wasm_bindgen_test]
-fn display_media_constraints_ask_for_tab_audio_in_a_plain_browser() {
+fn display_media_constraints_ask_for_surface_matched_audio_in_a_plain_browser() {
     let constraints = display_media_constraints(false);
+
+    let audio = constraints.get_audio();
+    assert!(
+        audio.is_object(),
+        "audio is a constraints object, not a bare bool"
+    );
     assert_eq!(
-        constraints.get_audio().as_bool(),
+        js_sys::Reflect::get(&audio, &JsValue::from_str("restrictOwnAudio"))
+            .unwrap()
+            .as_bool(),
         Some(true),
-        "a plain browser tab asks getDisplayMedia for the picker's tab audio too"
+        "never captures this tab's (the room page's) own audio"
+    );
+
+    assert_eq!(
+        js_sys::Reflect::get(&constraints, &JsValue::from_str("systemAudio"))
+            .unwrap()
+            .as_string(),
+        Some("include".to_string()),
+        "offers system audio for a full-screen share"
+    );
+    assert_eq!(
+        js_sys::Reflect::get(&constraints, &JsValue::from_str("windowAudio"))
+            .unwrap()
+            .as_string(),
+        Some("window".to_string()),
+        "offers only that window's own audio for a window share"
     );
 }

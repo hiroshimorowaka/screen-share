@@ -16,16 +16,46 @@ use crate::client::desktop_bridge::{
 ///
 /// `desktop` (the Electron shell) captures audio through its own platform
 /// backend and only ever wants video from `getDisplayMedia`. A plain
-/// browser tab has no such backend, so it asks for audio here too: Chrome's
-/// own picker then offers a "share tab audio" checkbox, and a ticked box
-/// puts an audio track on the returned stream (browser capture only carries
-/// the audio of a shared *tab*, never a window or the whole system).
+/// browser tab has no such backend, so it asks for audio here too, with
+/// hints that steer Chrome's picker toward audio matching the surface the
+/// sharer actually picks (see ADR-0009): a tab's own audio (no hint
+/// needed — Chrome already pre-selects it for that surface), a window's
+/// own audio only, or the whole system's audio for a full-screen share.
+/// `restrictOwnAudio` is unconditional so this tab's own (the room page's)
+/// audio is never folded into the capture, echoing a sharer's audio back
+/// to their own viewers — defence in depth alongside the existing guard
+/// that a sharer never opens a peer connection to themselves.
+///
+/// web-sys 0.3.104 has no typed setter for `restrictOwnAudio`,
+/// `systemAudio`, or `windowAudio`, so they're set with `Reflect::set` on
+/// plain `js_sys::Object`s, the same pattern used for untyped
+/// `RTCRtpSender`/track properties in `room::video_mode`.
 fn display_media_constraints(desktop: bool) -> DisplayMediaStreamConstraints {
     let constraints = DisplayMediaStreamConstraints::new();
     constraints.set_video_bool(true);
-    if !desktop {
-        constraints.set_audio_bool(true);
+    if desktop {
+        return constraints;
     }
+
+    let audio = js_sys::Object::new();
+    let _ = js_sys::Reflect::set(
+        &audio,
+        &JsValue::from_str("restrictOwnAudio"),
+        &JsValue::from_bool(true),
+    );
+    constraints.set_audio(&audio);
+
+    let _ = js_sys::Reflect::set(
+        &constraints,
+        &JsValue::from_str("systemAudio"),
+        &JsValue::from_str("include"),
+    );
+    let _ = js_sys::Reflect::set(
+        &constraints,
+        &JsValue::from_str("windowAudio"),
+        &JsValue::from_str("window"),
+    );
+
     constraints
 }
 
