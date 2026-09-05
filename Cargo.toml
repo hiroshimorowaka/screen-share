@@ -2,6 +2,13 @@
 members = ["apps/server", "apps/web", "crates/domain", "crates/protocol", "crates/signaling"]
 resolver = "2"
 
+# Complexity gates: nursery/pedantic clippy lints, off by default, that flag
+# functions growing past a size/branching threshold before they become hard
+# to follow. Member crates opt in via `[lints] workspace = true`.
+[workspace.lints.clippy]
+cognitive_complexity = "warn"
+too_many_lines = "warn"
+
 # Line-tables-only debug info for dev builds. With full `debug = 2`, the
 # combined `.debug_info` of the ~250-crate dependency graph overflows the
 # 32-bit relocation range when rust-lld links the `screen_share` binary

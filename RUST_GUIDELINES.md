@@ -169,6 +169,13 @@ explaining **why that value**.
 - Code must compile with no warnings; CI uses `-D warnings` (do not put
   `#![deny(warnings)]` in source). If a lint must be allowed, do it at the
   item level with a one-line reason.
+- `[workspace.lints.clippy]` in the root `Cargo.toml` also warns on
+  `cognitive_complexity` and `too_many_lines` (every crate opts in via
+  `[lints] workspace = true`) — a function tripping either is a signal to
+  split it, not a lint to silence by default; existing debt is
+  `#[allow]`ed at the item with a one-line reason, same rule as above.
+- `cargo-machete` (`cargo install cargo-machete`) catches declared but
+  unused dependencies; part of `scripts/test-all.sh lint` and CI.
 - Build and run the web app only via `cargo leptos build` /
   `cargo leptos watch` — never the bare binary (`CLAUDE.md` §"Commands").
 

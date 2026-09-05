@@ -580,6 +580,7 @@ full-gate run is what's called for instead:
 - `cargo clippy -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate -- -D warnings`
   — clean (the browser/WASM build compiles different code).
 - `cargo fmt --check` — clean.
+- `cargo machete` — clean (no declared-but-unused dependencies).
 - `cargo leptos build` — succeeds. This is the web app's real build
   authority; a plain `cargo build` passing is not enough.
 - `cargo test -p screen_share --target wasm32-unknown-unknown --no-default-features --features hydrate --lib`
@@ -623,7 +624,9 @@ UI-touching change:
   user (pt-BR, no technical detail — that changelog becomes the GitHub
   release notes). A CI gate (`ci-cd.yml` "Desktop version + changelog
   bump") fails the PR otherwise. Do this in the same commit as the change.
-- `pnpm run check` — Biome (lint + format + import order) clean.
+- `pnpm run check` — Biome (lint + format + import order, incl. a
+  cognitive-complexity cap) clean.
+- `pnpm run check:unused` — knip (dead files/exports/dependencies) clean.
 - `pnpm build` — `tsc` clean. Note that `tsc` does **not** check
   `__dirname`-relative runtime paths or the `#…` import map — those only
   fail at launch.

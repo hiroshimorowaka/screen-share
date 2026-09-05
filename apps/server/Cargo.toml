@@ -3,6 +3,9 @@ name = "screen-share-server"
 version = "0.1.0"
 edition = "2021"
 
+[lints]
+workspace = true
+
 [lib]
 name = "screen_share_server"
 path = "src/lib.rs"
@@ -13,7 +16,6 @@ path = "src/main.rs"
 
 [dependencies]
 screen_share = { path = "../web", default-features = false }
-screen-share-protocol = { path = "../../crates/protocol" }
 screen-share-signaling = { path = "../../crates/signaling" }
 leptos = { version = "0.8.0" }
 leptos_axum = { version = "0.8.0" }

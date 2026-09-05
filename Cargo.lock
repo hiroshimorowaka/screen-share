@@ -2117,7 +2117,6 @@ dependencies = [
  "leptos_axum",
  "leptos_meta",
  "leptos_router",
- "screen-share-protocol",
  "screen-share-signaling",
  "screen_share",
  "tokio",
