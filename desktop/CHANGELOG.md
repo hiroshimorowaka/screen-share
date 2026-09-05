@@ -11,6 +11,16 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.8
+
+- Correção: em alguns computadores Windows (máquinas virtuais, servidores,
+  drivers de vídeo básicos) a janela "O que você quer compartilhar?" nunca
+  aparecia e o botão de compartilhar tela parecia não fazer nada. A janela
+  do seletor deixou de depender de um recurso de transparência que esses
+  ambientes não têm, e a inicialização do app foi reforçada para que uma
+  falha em outra parte (atualizador automático, ícone da bandeja) não
+  impeça mais o seletor de funcionar.
+
 ## 0.3.7
 
 - Correção: no Windows, clicar em "compartilhar tela" não abria o seletor

@@ -19,23 +19,36 @@ app.on('before-quit', () => {
   markQuitting();
 });
 
+// One bootstrap step. Isolated so a synchronous throw in any one of them
+// (a broken auto-updater, a tray-icon failure on an odd Windows build)
+// can't abort the rest of startup — most importantly not the
+// screen-share handler, whose absence makes `getDisplayMedia` silently do
+// nothing. The label goes to stderr so a failure is diagnosable in a
+// packaged build (`--enable-logging`).
+function step(label: string, run: () => void): void {
+  try {
+    run();
+  } catch (err) {
+    console.error(`[bootstrap] ${label} failed:`, err);
+  }
+}
+
 app
   .whenReady()
   .then(async () => {
-    Menu.setApplicationMenu(null);
-    lockDownPermissions();
-    createMainWindow();
-    createTray();
-    setupAutoUpdates();
-    registerQuickShareIpcHandlers();
-    // Register the screen-share picker first and unconditionally: it must
-    // not be gated on the audio backend, which pulls in a native addon
-    // that can fail to load on a user's machine.
-    registerDisplayMediaHandler();
+    step('menu', () => Menu.setApplicationMenu(null));
+    step('permissions', lockDownPermissions);
+    // First and on its own: nothing else in bootstrap may keep
+    // `getDisplayMedia` from finding a registered handler.
+    step('display-media', registerDisplayMediaHandler);
+    step('main-window', createMainWindow);
+    step('tray', createTray);
+    step('auto-updates', setupAutoUpdates);
+    step('quick-share-ipc', registerQuickShareIpcHandlers);
     await registerAudioIpcHandlers().catch((err) => {
-      console.error('Audio IPC handlers unavailable:', err);
+      console.error('[bootstrap] audio-ipc failed:', err);
     });
   })
   .catch((err) => {
-    console.error('Desktop bootstrap failed:', err);
+    console.error('[bootstrap] fatal:', err);
   });

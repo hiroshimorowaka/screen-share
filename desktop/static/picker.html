@@ -30,7 +30,9 @@
       body {
         margin: 0;
         height: 100%;
-        background: transparent;
+        /* Matches the BrowserWindow's backgroundColor — the window is no
+           longer `transparent` (unreliable on headless/VM Windows). */
+        background: var(--surface-2);
       }
 
       body {
