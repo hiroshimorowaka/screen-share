@@ -495,6 +495,9 @@ async fn joined_carries_turn_credentials_when_the_deployment_has_turn_configured
 /// the relay handles that the other tests don't already assert: the
 /// `Answer` / `IceCandidate` / `SetQuality` relays, the `Ping`→`Pong`
 /// echo, the `ReportLatency` broadcast, and `StopShare`.
+// Long by nature — one integration test exercising every remaining
+// message-type relay in sequence (see doc comment above); not code smell.
+#[allow(clippy::too_many_lines)]
 #[tokio::test]
 async fn relays_the_remaining_peer_to_peer_message_types() {
     let url = spawn_test_server().await;

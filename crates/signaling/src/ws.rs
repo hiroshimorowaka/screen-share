@@ -7,16 +7,18 @@ use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{ConnectInfo, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
+use futures_util::stream::SplitSink;
 use futures_util::{SinkExt, StreamExt};
+use tokio::task::JoinHandle;
 use tokio::time::Instant;
 
 use super::handshake::HandshakeConfig;
 use super::registry::{
     member_channel, ConnectionGuard, CreateRoomError, CreateRoomRequest, JoinError, JoinRequest,
-    Registry,
+    JoinedSnapshot, MemberRx, MemberTx, Registry,
 };
 use super::turn::TurnConfig;
-use screen_share_protocol::{ClientMessage, PeerId, RoomCode, ServerMessage};
+use screen_share_protocol::{ClientMessage, PeerId, RoomCode, ServerMessage, TurnCredentials};
 
 /// Largest text frame the signaling socket accepts. Signaling payloads are
 /// small — an SDP is a few KB, ICE candidates are trickled one per
@@ -86,26 +88,18 @@ async fn handle_socket(
     // Held for the whole task; dropping it frees the connection slot.
     _connection: ConnectionGuard,
 ) {
-    let (mut ws_sender, mut ws_receiver) = socket.split();
-    let (tx, mut rx) = member_channel();
+    let (ws_sender, mut ws_receiver) = socket.split();
+    let (tx, rx) = member_channel();
+    let send_task = spawn_outbound_writer(ws_sender, rx);
 
-    let send_task = tokio::spawn(async move {
-        while let Some(msg) = rx.recv().await {
-            let json = serde_json::to_string(&msg)
-                .expect("ServerMessage holds only primitives/strings, so it always serializes");
-            if ws_sender.send(Message::Text(json.into())).await.is_err() {
-                break;
-            }
-        }
-    });
-
-    let mut room_code: Option<String> = None;
-    let mut peer_id: Option<String> = None;
+    let mut state = ConnectionState::default();
     let mut recent_msgs: VecDeque<Instant> = VecDeque::new();
-    // Minted fresh per `Joined` rather than once per connection — cheap
-    // (one HMAC), and keeps this the single place that decides what a
-    // member's ICE config looks like.
-    let mint_turn_credentials = || turn.as_ref().map(TurnConfig::mint_credentials);
+    let ctx = ConnCtx {
+        registry: &registry,
+        tx: &tx,
+        client_key: &client_key,
+        turn: &turn,
+    };
 
     loop {
         let received = tokio::time::timeout(IDLE_TIMEOUT, ws_receiver.next()).await;
@@ -138,196 +132,274 @@ async fn handle_socket(
             continue;
         };
 
-        match client_msg {
-            ClientMessage::CreateRoom {
-                nick,
-                password,
-                room_name,
-                color,
-                device_id,
-            } => {
-                if room_code.is_some() {
-                    let _ = tx.try_send(ServerMessage::AlreadyInRoom);
-                    continue;
-                }
-                match registry.create_room(CreateRoomRequest {
-                    nick,
-                    color,
-                    room_name,
-                    password,
-                    device_id,
-                    client_key: client_key.clone(),
-                    sender: tx.clone(),
-                }) {
-                    Ok((code, snapshot)) => {
-                        let _ = tx.try_send(ServerMessage::Joined {
-                            peer_id: snapshot.peer_id.clone(),
-                            room: RoomCode::from_relay(code.clone()),
-                            room_name: snapshot.room_name,
-                            members: snapshot.members,
-                            active_sharers: snapshot.active_sharers,
-                            watcher_info: snapshot.watcher_info,
-                            latencies: snapshot.latencies,
-                            turn: mint_turn_credentials(),
-                        });
-                        room_code = Some(code);
-                        peer_id = Some(snapshot.peer_id.to_string());
-                    }
-                    Err(CreateRoomError::AtCapacity) => {
-                        let _ = tx.try_send(ServerMessage::ServerAtCapacity);
-                    }
-                    Err(CreateRoomError::InvalidInput) => {
-                        let _ = tx.try_send(ServerMessage::InvalidInput);
-                    }
-                }
-            }
-            ClientMessage::JoinRoom {
-                room,
-                nick,
-                password,
-                color,
-                device_id,
-            } => {
-                if room_code.is_some() {
-                    let _ = tx.try_send(ServerMessage::AlreadyInRoom);
-                    continue;
-                }
-                let request = JoinRequest {
-                    nick,
-                    color,
-                    password,
-                    device_id,
-                    client_key: client_key.clone(),
-                    sender: tx.clone(),
-                };
-                match registry.join_room(&room, request) {
-                    Ok(snapshot) => {
-                        let _ = tx.try_send(ServerMessage::Joined {
-                            peer_id: snapshot.peer_id.clone(),
-                            room: RoomCode::from_relay(room.clone()),
-                            room_name: snapshot.room_name,
-                            members: snapshot.members,
-                            active_sharers: snapshot.active_sharers,
-                            watcher_info: snapshot.watcher_info,
-                            latencies: snapshot.latencies,
-                            turn: mint_turn_credentials(),
-                        });
-                        peer_id = Some(snapshot.peer_id.to_string());
-                        room_code = Some(room);
-                    }
-                    Err(JoinError::NotFound) => {
-                        let _ = tx.try_send(ServerMessage::RoomNotFound);
-                    }
-                    Err(JoinError::WrongPassword) => {
-                        let _ = tx.try_send(ServerMessage::AuthFailed);
-                    }
-                    Err(JoinError::Full) => {
-                        let _ = tx.try_send(ServerMessage::RoomFull);
-                    }
-                    Err(JoinError::TooManyAttempts) => {
-                        let _ = tx.try_send(ServerMessage::TooManyAttempts);
-                    }
-                    Err(JoinError::InvalidInput) => {
-                        let _ = tx.try_send(ServerMessage::InvalidInput);
-                    }
-                }
-            }
-            ClientMessage::StartShare => {
-                if let (Some(room), Some(id)) = (&room_code, &peer_id) {
-                    registry.start_share(room, id);
-                }
-            }
-            ClientMessage::StopShare => {
-                if let (Some(room), Some(id)) = (&room_code, &peer_id) {
-                    registry.stop_share(room, id);
-                }
-            }
-            ClientMessage::WatchShare { sharer_id } => {
-                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.add_watcher(room, &sharer_id, from);
-                }
-            }
-            ClientMessage::StopWatching { sharer_id } => {
-                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.remove_watcher(room, &sharer_id, from);
-                }
-            }
-            ClientMessage::Ping => {
-                let _ = tx.try_send(ServerMessage::Pong);
-            }
-            ClientMessage::ReportLatency { ms } => {
-                if let (Some(room), Some(id)) = (&room_code, &peer_id) {
-                    registry.report_latency(room, id, ms);
-                }
-            }
-            ClientMessage::Offer { to, sdp } => {
-                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay_peer_signal(
-                        room,
-                        from,
-                        &to,
-                        ServerMessage::Offer {
-                            from: PeerId::from_relay(from.clone()),
-                            sdp,
-                        },
-                    );
-                }
-            }
-            ClientMessage::Answer { to, sdp } => {
-                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay_peer_signal(
-                        room,
-                        from,
-                        &to,
-                        ServerMessage::Answer {
-                            from: PeerId::from_relay(from.clone()),
-                            sdp,
-                        },
-                    );
-                }
-            }
-            ClientMessage::IceCandidate {
-                to,
-                stream_owner,
-                candidate,
-                sdp_mid,
-                sdp_m_line_index,
-            } => {
-                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay_peer_signal(
-                        room,
-                        from,
-                        &to,
-                        ServerMessage::IceCandidate {
-                            from: PeerId::from_relay(from.clone()),
-                            stream_owner: PeerId::from_relay(stream_owner),
-                            candidate,
-                            sdp_mid,
-                            sdp_m_line_index,
-                        },
-                    );
-                }
-            }
-            ClientMessage::SetQuality { to, quality } => {
-                if let (Some(room), Some(from)) = (&room_code, &peer_id) {
-                    registry.relay_peer_signal(
-                        room,
-                        from,
-                        &to,
-                        ServerMessage::QualityRequested {
-                            from: PeerId::from_relay(from.clone()),
-                            quality,
-                        },
-                    );
-                }
-            }
-        }
+        dispatch(client_msg, &mut state, &ctx);
     }
 
-    if let (Some(room), Some(id)) = (room_code, peer_id) {
+    if let (Some(room), Some(id)) = (state.room_code, state.peer_id) {
         registry.leave_room(&room, &id);
     }
     send_task.abort();
+}
+
+/// Drains the outbound queue onto the socket until the send side breaks or
+/// the registry drops every sender (connection torn down). Plain relay
+/// infrastructure — it has no idea what a `ServerMessage` variant means.
+fn spawn_outbound_writer(
+    mut ws_sender: SplitSink<WebSocket, Message>,
+    mut rx: MemberRx,
+) -> JoinHandle<()> {
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            let json = serde_json::to_string(&msg)
+                .expect("ServerMessage holds only primitives/strings, so it always serializes");
+            if ws_sender.send(Message::Text(json.into())).await.is_err() {
+                break;
+            }
+        }
+    })
+}
+
+/// What room (if any) and peer id this socket has joined as. `None`/`None`
+/// until a `CreateRoom`/`JoinRoom` succeeds; both are set together and
+/// never independently, since there's no such thing as a peer id without a
+/// room on this connection.
+#[derive(Default)]
+struct ConnectionState {
+    room_code: Option<String>,
+    peer_id: Option<String>,
+}
+
+/// The parts of a connection's handling that don't change message to
+/// message, grouped so `dispatch` and its helpers take one parameter for
+/// "the connection" instead of four.
+struct ConnCtx<'a> {
+    registry: &'a Registry,
+    tx: &'a MemberTx,
+    client_key: &'a str,
+    turn: &'a Option<TurnConfig>,
+}
+
+/// Minted fresh per `Joined` rather than once per connection — cheap (one
+/// HMAC), and keeps this the single place that decides what a member's ICE
+/// config looks like.
+fn mint_turn_credentials(turn: &Option<TurnConfig>) -> Option<TurnCredentials> {
+    turn.as_ref().map(TurnConfig::mint_credentials)
+}
+
+/// Applies one already-parsed client message: routes it to the registry and
+/// sends back whatever reply that produces, updating `state` when the
+/// connection just joined or left a room.
+fn dispatch(client_msg: ClientMessage, state: &mut ConnectionState, ctx: &ConnCtx<'_>) {
+    match client_msg {
+        ClientMessage::CreateRoom {
+            nick,
+            password,
+            room_name,
+            color,
+            device_id,
+        } => handle_create_room(
+            ctx,
+            state,
+            CreateRoomRequest {
+                nick,
+                color,
+                room_name,
+                password,
+                device_id,
+                client_key: ctx.client_key.to_string(),
+                sender: ctx.tx.clone(),
+            },
+        ),
+        ClientMessage::JoinRoom {
+            room,
+            nick,
+            password,
+            color,
+            device_id,
+        } => handle_join_room(
+            ctx,
+            state,
+            room,
+            JoinRequest {
+                nick,
+                color,
+                password,
+                device_id,
+                client_key: ctx.client_key.to_string(),
+                sender: ctx.tx.clone(),
+            },
+        ),
+        ClientMessage::StartShare => {
+            in_room(state, |room, id| ctx.registry.start_share(room, id));
+        }
+        ClientMessage::StopShare => {
+            in_room(state, |room, id| ctx.registry.stop_share(room, id));
+        }
+        ClientMessage::WatchShare { sharer_id } => {
+            in_room(state, |room, from| {
+                ctx.registry.add_watcher(room, &sharer_id, from);
+            });
+        }
+        ClientMessage::StopWatching { sharer_id } => {
+            in_room(state, |room, from| {
+                ctx.registry.remove_watcher(room, &sharer_id, from);
+            });
+        }
+        ClientMessage::Ping => {
+            let _ = ctx.tx.try_send(ServerMessage::Pong);
+        }
+        ClientMessage::ReportLatency { ms } => {
+            in_room(state, |room, id| ctx.registry.report_latency(room, id, ms));
+        }
+        ClientMessage::Offer { to, sdp } => {
+            relay(ctx, state, &to, |from| ServerMessage::Offer {
+                from: PeerId::from_relay(from.to_string()),
+                sdp,
+            });
+        }
+        ClientMessage::Answer { to, sdp } => {
+            relay(ctx, state, &to, |from| ServerMessage::Answer {
+                from: PeerId::from_relay(from.to_string()),
+                sdp,
+            });
+        }
+        ClientMessage::IceCandidate {
+            to,
+            stream_owner,
+            candidate,
+            sdp_mid,
+            sdp_m_line_index,
+        } => {
+            relay(ctx, state, &to, |from| ServerMessage::IceCandidate {
+                from: PeerId::from_relay(from.to_string()),
+                stream_owner: PeerId::from_relay(stream_owner),
+                candidate,
+                sdp_mid,
+                sdp_m_line_index,
+            });
+        }
+        ClientMessage::SetQuality { to, quality } => {
+            relay(ctx, state, &to, |from| ServerMessage::QualityRequested {
+                from: PeerId::from_relay(from.to_string()),
+                quality,
+            });
+        }
+    }
+}
+
+/// Runs `act` with this connection's room and peer id, once it has actually
+/// joined one — the guard every in-room message (share/watch toggles,
+/// latency reports) needs before touching the registry.
+fn in_room(state: &ConnectionState, act: impl FnOnce(&str, &str)) {
+    if let (Some(room), Some(id)) = (&state.room_code, &state.peer_id) {
+        act(room, id);
+    }
+}
+
+/// Shared shape of `Offer`/`Answer`/`IceCandidate`/`SetQuality`: relay
+/// `build(from)` to `to`, only once this socket has actually joined a room.
+/// `build` takes `from` because every one of those `ServerMessage` variants
+/// carries the sender's own peer id.
+fn relay(
+    ctx: &ConnCtx<'_>,
+    state: &ConnectionState,
+    to: &str,
+    build: impl FnOnce(&str) -> ServerMessage,
+) {
+    if let (Some(room), Some(from)) = (&state.room_code, &state.peer_id) {
+        ctx.registry.relay_peer_signal(room, from, to, build(from));
+    }
+}
+
+fn handle_create_room(ctx: &ConnCtx<'_>, state: &mut ConnectionState, request: CreateRoomRequest) {
+    if state.room_code.is_some() {
+        let _ = ctx.tx.try_send(ServerMessage::AlreadyInRoom);
+        return;
+    }
+    let result = ctx.registry.create_room(request);
+    reply_to_create_room(ctx, state, result);
+}
+
+fn handle_join_room(
+    ctx: &ConnCtx<'_>,
+    state: &mut ConnectionState,
+    room: String,
+    request: JoinRequest,
+) {
+    if state.room_code.is_some() {
+        let _ = ctx.tx.try_send(ServerMessage::AlreadyInRoom);
+        return;
+    }
+    let result = ctx.registry.join_room(&room, request);
+    reply_to_join_room(ctx, state, room, result);
+}
+
+fn reply_to_create_room(
+    ctx: &ConnCtx<'_>,
+    state: &mut ConnectionState,
+    result: Result<(String, JoinedSnapshot), CreateRoomError>,
+) {
+    match result {
+        Ok((code, snapshot)) => {
+            let _ = ctx.tx.try_send(ServerMessage::Joined {
+                peer_id: snapshot.peer_id.clone(),
+                room: RoomCode::from_relay(code.clone()),
+                room_name: snapshot.room_name,
+                members: snapshot.members,
+                active_sharers: snapshot.active_sharers,
+                watcher_info: snapshot.watcher_info,
+                latencies: snapshot.latencies,
+                turn: mint_turn_credentials(ctx.turn),
+            });
+            state.peer_id = Some(snapshot.peer_id.to_string());
+            state.room_code = Some(code);
+        }
+        Err(CreateRoomError::AtCapacity) => {
+            let _ = ctx.tx.try_send(ServerMessage::ServerAtCapacity);
+        }
+        Err(CreateRoomError::InvalidInput) => {
+            let _ = ctx.tx.try_send(ServerMessage::InvalidInput);
+        }
+    }
+}
+
+fn reply_to_join_room(
+    ctx: &ConnCtx<'_>,
+    state: &mut ConnectionState,
+    room: String,
+    result: Result<JoinedSnapshot, JoinError>,
+) {
+    match result {
+        Ok(snapshot) => {
+            let _ = ctx.tx.try_send(ServerMessage::Joined {
+                peer_id: snapshot.peer_id.clone(),
+                room: RoomCode::from_relay(room.clone()),
+                room_name: snapshot.room_name,
+                members: snapshot.members,
+                active_sharers: snapshot.active_sharers,
+                watcher_info: snapshot.watcher_info,
+                latencies: snapshot.latencies,
+                turn: mint_turn_credentials(ctx.turn),
+            });
+            state.peer_id = Some(snapshot.peer_id.to_string());
+            state.room_code = Some(room);
+        }
+        Err(JoinError::NotFound) => {
+            let _ = ctx.tx.try_send(ServerMessage::RoomNotFound);
+        }
+        Err(JoinError::WrongPassword) => {
+            let _ = ctx.tx.try_send(ServerMessage::AuthFailed);
+        }
+        Err(JoinError::Full) => {
+            let _ = ctx.tx.try_send(ServerMessage::RoomFull);
+        }
+        Err(JoinError::TooManyAttempts) => {
+            let _ = ctx.tx.try_send(ServerMessage::TooManyAttempts);
+        }
+        Err(JoinError::InvalidInput) => {
+            let _ = ctx.tx.try_send(ServerMessage::InvalidInput);
+        }
+    }
 }
 
 #[cfg(test)]

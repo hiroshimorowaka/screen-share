@@ -6,58 +6,86 @@ import type { PickerChoice, PickerSource, ShareChoice } from '#ipc/types.js';
 import { isTrustedFrame } from '#main/ipc-guard.js';
 import { getMainWindow, lockNavigation } from '#main/window.js';
 
+async function enumerateSources(): Promise<{
+  sources: Electron.DesktopCapturerSource[];
+  pickerSources: PickerSource[];
+}> {
+  let sources: Electron.DesktopCapturerSource[];
+  try {
+    sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 300, height: 200 },
+      fetchWindowIcons: true,
+    });
+  } catch (err) {
+    // Log rather than swallow: otherwise the picker just opens empty
+    // with no indication anything went wrong.
+    console.error('desktopCapturer.getSources failed:', err);
+    sources = [];
+  }
+  const pickerSources: PickerSource[] = sources.map((s) => ({
+    id: s.id,
+    name: s.name,
+    thumbnailDataUrl: s.thumbnail.toDataURL(),
+    iconDataUrl: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : null,
+  }));
+  return { sources, pickerSources };
+}
+
+// Skip anchoring to a hidden main window (the tray's quick share flow) —
+// several window managers won't surface a child window whose parent isn't
+// visible, and the picker must always show up.
+function pickParentWindow(): BrowserWindow | undefined {
+  const owner = getMainWindow();
+  return owner?.isVisible() ? owner : undefined;
+}
+
+function createPickerWindow(parent: BrowserWindow | undefined): BrowserWindow {
+  const pickerWindow = new BrowserWindow({
+    width: 1000,
+    height: 720,
+    parent,
+    frame: false,
+    transparent: true,
+    resizable: true,
+    minWidth: 640,
+    minHeight: 480,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, '..', '..', 'preload.js'),
+      contextIsolation: true,
+      sandbox: true,
+      nodeIntegration: false,
+      // Match the main window: no DevTools in a packaged build.
+      devTools: !app.isPackaged,
+    },
+  });
+  // Same navigation lock the main window gets — `will-navigate` /
+  // `will-redirect` / `window.open` off the picker page all blocked.
+  // `loadFile` below does not fire `will-navigate`.
+  lockNavigation(pickerWindow);
+  return pickerWindow;
+}
+
+// The chosen source id only names a `PickerSource` (the picker page's own
+// DTO); this resolves it back to the real `DesktopCapturerSource` the rest
+// of the app needs to actually start the capture.
+function toShareChoice(
+  sources: Electron.DesktopCapturerSource[],
+  choice: PickerChoice | null,
+): ShareChoice | null {
+  if (!choice) return null;
+  const source = sources.find((s) => s.id === choice.sourceId) ?? null;
+  return source
+    ? { source, shareAudio: choice.shareAudio, excludedBinaries: choice.excludedBinaries }
+    : null;
+}
+
 export function showSourcePicker(): Promise<ShareChoice | null> {
   return new Promise((resolve) => {
     void (async () => {
-      let sources: Electron.DesktopCapturerSource[];
-      try {
-        sources = await desktopCapturer.getSources({
-          types: ['screen', 'window'],
-          thumbnailSize: { width: 300, height: 200 },
-          fetchWindowIcons: true,
-        });
-      } catch (err) {
-        // Log rather than swallow: otherwise the picker just opens empty
-        // with no indication anything went wrong.
-        console.error('desktopCapturer.getSources failed:', err);
-        sources = [];
-      }
-      const pickerSources: PickerSource[] = sources.map((s) => ({
-        id: s.id,
-        name: s.name,
-        thumbnailDataUrl: s.thumbnail.toDataURL(),
-        iconDataUrl: s.appIcon && !s.appIcon.isEmpty() ? s.appIcon.toDataURL() : null,
-      }));
-
-      // Skip anchoring to a hidden main window (the tray's quick share
-      // flow) — several window managers won't surface a child window
-      // whose parent isn't visible, and the picker must always show up.
-      const owner = getMainWindow();
-      const parent = owner?.isVisible() ? owner : undefined;
-
-      const pickerWindow = new BrowserWindow({
-        width: 1000,
-        height: 720,
-        parent,
-        frame: false,
-        transparent: true,
-        resizable: true,
-        minWidth: 640,
-        minHeight: 480,
-        skipTaskbar: true,
-        webPreferences: {
-          preload: path.join(__dirname, '..', '..', 'preload.js'),
-          contextIsolation: true,
-          sandbox: true,
-          nodeIntegration: false,
-          // Match the main window: no DevTools in a packaged build.
-          devTools: !app.isPackaged,
-        },
-      });
-      // Same navigation lock the main window gets — `will-navigate` /
-      // `will-redirect` / `window.open` off the picker page all blocked.
-      // `loadFile` below does not fire `will-navigate`.
-      lockNavigation(pickerWindow);
+      const { sources, pickerSources } = await enumerateSources();
+      const pickerWindow = createPickerWindow(pickParentWindow());
 
       let settled = false;
       const settle = (choice: PickerChoice | null) => {
@@ -67,20 +95,7 @@ export function showSourcePicker(): Promise<ShareChoice | null> {
         // was never consumed — one leaked `ipcMain` listener per
         // cancelled picker otherwise. Safe if already spent.
         ipcMain.removeListener('picker:selected', onSelected);
-        if (!choice) {
-          resolve(null);
-        } else {
-          const source = sources.find((s) => s.id === choice.sourceId) ?? null;
-          resolve(
-            source
-              ? {
-                  source,
-                  shareAudio: choice.shareAudio,
-                  excludedBinaries: choice.excludedBinaries,
-                }
-              : null,
-          );
-        }
+        resolve(toShareChoice(sources, choice));
         if (!pickerWindow.isDestroyed()) pickerWindow.close();
       };
 
