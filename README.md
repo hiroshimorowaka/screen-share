@@ -1,5 +1,9 @@
 # Compartilhamento de tela P2P
 
+[![CI/CD](https://github.com/hiroshimorowaka/screen-share/actions/workflows/ci-cd.yml/badge.svg)](https://github.com/hiroshimorowaka/screen-share/actions/workflows/ci-cd.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Leptos](https://img.shields.io/badge/built%20with-Leptos-orange.svg)](https://leptos.dev)
+
 Salas persistentes e protegidas por senha para compartilhar tela com um
 grupo pequeno (até 10 pessoas), direto do navegador (Windows e Linux) — sem
 instalar nada, sem contas. Qualquer pessoa na sala pode compartilhar a
@@ -7,17 +11,32 @@ própria tela a qualquer momento; assistir é uma escolha individual de cada
 um, sem afetar quem mais está assistindo. O vídeo trafega direto entre os
 navegadores via WebRTC; o servidor só cuida da sinalização.
 
-Pelo navegador o compartilhamento é só de vídeo. Quem instalar o
-[app desktop](#app-desktop) (Linux ou Windows) também leva o áudio do
-sistema junto com a tela — de um app específico automaticamente, ou da
-tela inteira excluindo os apps que quiser — e pode compartilhar direto
-pela bandeja do sistema, sem abrir a janela do app.
+Pelo navegador o compartilhamento já pode levar áudio, dependendo do que
+você escolhe compartilhar (guia, janela ou tela inteira). Quem instalar o
+[app desktop](#app-desktop) (Linux ou Windows) leva o áudio do sistema de
+forma mais completa — de um app específico automaticamente, ou da tela
+inteira excluindo os apps que quiser — e pode compartilhar direto pela
+bandeja do sistema, sem abrir a janela do app.
 
 Compartilhar exige um navegador de desktop (o `getDisplayMedia` não existe
 em navegador de celular). No celular dá pra entrar na sala e assistir
 normalmente — a interface se adapta ao toque: foca uma transmissão por vez,
 toque no vídeo mostra/esconde os controles, e o resto vira folha inferior.
-Detalhes em `docs/decisions/0007-mobile-responsiveness.md`.
+
+## Funcionalidades
+
+- Salas persistentes, com código curto e nome, públicas ou protegidas por
+  senha.
+- Sem host: qualquer membro compartilha ou para de compartilhar a própria
+  tela quando quiser.
+- Assistir é escolha de cada espectador, sem afetar quem mais está
+  assistindo.
+- Vídeo peer-to-peer via WebRTC — o servidor só faz a sinalização.
+- Áudio pelo navegador conforme o que for compartilhado; áudio completo do
+  sistema pelo app desktop, com inclusão/exclusão por app.
+- Cada navegador lembra as salas que já criou ou entrou.
+- Relé TURN próprio opcional, pra redes mais restritivas.
+- No celular dá pra entrar e assistir (compartilhar exige desktop).
 
 ## Rodando localmente
 
@@ -31,6 +50,21 @@ cargo leptos watch
 ```
 
 Abra `http://127.0.0.1:3000/`.
+
+## Estrutura do projeto
+
+Rust + Leptos como único framework, compilado duas vezes: renderizado no
+servidor (SSR) e hidratado no navegador (WASM). O código é dividido por
+responsabilidade:
+
+```
+apps/web          UI (componentes Leptos, roda em ssr e hydrate)
+apps/server       host Axum/Tokio — HTTP, WebSocket, middlewares
+crates/domain     lógica pura sem I/O (SDP, backoff)
+crates/protocol   tipos do protocolo de sinalização
+crates/signaling  relé de sinalização — registro de salas, roteamento
+desktop/          wrapper Electron — áudio de sistema, bandeja
+```
 
 ## App desktop
 
@@ -105,7 +139,7 @@ dentro de um navegador de verdade e são cobertos pelos testes Playwright em
 WebRTC real trafegando; um projeto `mobile-web` à parte cobre a UI de toque
 num viewport de celular). O que ainda não é automatizado: o controle de
 "parar de compartilhar" do próprio navegador, captura de janela/tela real,
-áudio e adaptação de bitrate.
+áudio real e adaptação de bitrate.
 
 ## CI/CD
 
@@ -123,10 +157,14 @@ Este projeto compila para um único binário Rust. Em produção:
   seguro fora de `localhost`).
 - Não precisa de banco de dados — o estado das salas vive em memória e é
   descartado quando o processo reinicia.
-- Sem TURN configurado (só STUN público). Redes muito restritivas (CGNAT,
-  firewall corporativo) podem não conseguir conectar.
+- Funciona só com STUN público, mas também dá pra configurar um TURN
+  próprio pra redes mais restritivas (CGNAT, firewall corporativo).
 
 **Não** rode o binário compilado diretamente
 (`./target/debug/screen-share-server`) para testar localmente — nesse modo
 a página falha ao hidratar. Use sempre `cargo leptos watch` (dev) ou
 `cargo leptos serve --release` (produção local).
+
+## Licença
+
+[MIT](LICENSE).
