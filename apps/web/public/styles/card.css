@@ -422,6 +422,19 @@
   font-size: 0.65rem;
 }
 
+/* --- narrow screens: "Assistir transmissão" doesn't fit a 2-up phone
+   roster tile on one line — let it wrap instead of truncating to
+   "Assistir tra…". The focused card is wide enough, and the filmstrip
+   tiles keep the smaller nowrap treatment from the rules above. --- */
+@media (max-width: 40rem) {
+  .grid:not(.grid--focused) .card__watch-pill {
+    white-space: normal;
+    line-height: 1.2;
+    font-size: 0.95rem;
+    padding: 0.6rem 1rem;
+  }
+}
+
 /* --- touch: no hover, so the card's controls follow the shared "chrome
    shown" flag (`.room-page.chrome-hidden`, toggled by a tap on the video),
    the way the fullscreen idle state already fades them. --- */
@@ -456,6 +469,21 @@
     opacity: 0;
   }
 
+  /* In OS fullscreen the card's action row is the only chrome. Show it
+     regardless of the `chrome-hidden` focus-mode flag; `card--controls-idle`
+     (the shared autohide, re-armed on a tap via a synthetic mousemove —
+     see reveal_fullscreen_controls_if_active) hides it again after a few
+     seconds, and a tap brings it back without leaving fullscreen. */
+  .card:fullscreen .card__actions {
+    opacity: 1;
+    pointer-events: auto;
+    transition: opacity 0.2s ease;
+  }
+  .card:fullscreen.card--controls-idle .card__actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+
   /* Finger-sized hit areas. */
   .icon-btn {
     min-width: 2.75rem;
@@ -467,6 +495,31 @@
   .card__actions .icon-btn {
     width: 2.75rem;
     height: 2.75rem;
+  }
+
+  /* Filmstrip tiles on touch are ~96x68px — too small for the corner
+     cluster and a full-size avatar/nick, which overlapped. Drop the ping /
+     "você" cluster, shrink the avatar, and pin a tighter nick pill to the
+     very bottom so they clear each other. */
+  .grid--focused .card:not(.card--focus) .card__corner-start {
+    display: none;
+  }
+  .grid--focused .card:not(.card--focus) .card__avatar {
+    width: 1.75rem;
+    height: 1.75rem;
+  }
+  .grid--focused .card:not(.card--focus) .card__avatar-letter {
+    font-size: 0.8rem;
+  }
+  .grid--focused .card:not(.card--focus) .card__footer {
+    left: 2px;
+    right: 2px;
+    bottom: 1px;
+  }
+  .grid--focused .card:not(.card--focus) .card__nick {
+    max-width: 100%;
+    padding: 0.05rem 0.3rem;
+    font-size: 0.55rem;
   }
 }
 }

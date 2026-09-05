@@ -28,6 +28,23 @@ body:has(.room-page.hidden) {
   height: 100dvh;
   display: flex;
   flex-direction: column;
+  /* The room is a control surface, not a document — nothing in it is meant
+     to be selected. Without this, dragging across a card (or a double-tap
+     on a phone) highlights its nick/label text, and a long-press on touch
+     pops up the OS copy/lookup callout; neither means anything here (the
+     invite link has its own copy button). `user-select` is inherited, so
+     one rule on the root covers every card, badge, and control; form
+     controls (chat/nick inputs, were one ever added) stay selectable on
+     their own regardless — the UA stylesheet overrides inherited
+     `user-select: none` for those. */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+  /* The other half of the same "weird blue" complaint: Android Chrome
+     flashes a translucent highlight over whatever was tapped (cards,
+     icon-btns, the whole action row are all `on:click` divs/buttons).
+     Also inherited, so the root rule is enough. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .stage-header {
@@ -440,19 +457,45 @@ body:has(.room-page.hidden) {
 
 /* --- touch: rework the room around watching one screen at a time --- */
 @media (hover: none) and (pointer: coarse) {
+  .room-page {
+    /* Vertical space kept clear at the bottom of the roster scroll area
+       for the fixed control bar (touch button 3.25rem + pill padding /
+       border ~0.9rem + the bar's 1.5rem bottom offset + slack), plus the
+       home-indicator inset. The bar does not auto-hide in the roster view
+       on touch, so without this the last row sat underneath it. */
+    --controls-reserve: calc(7rem + env(safe-area-inset-bottom));
+  }
+
   .stage-header {
     gap: 0.35rem;
   }
 
-  /* Focus mode is the default watching view on a phone (see member_card.rs
-     — patching a sharer also focuses them). The filmstrip below the
-     focused video is a compact tray; it scrolls (inheriting `.grid`'s
-     `overflow-y`) when there are more members than fit. A true sideways
-     tray needs a wrapper element this CSS-only pass doesn't add. */
+  /* Roster only — in focus mode the filmstrip already sits above an
+     auto-hiding bar. */
+  .grid:not(.grid--focused) {
+    padding-bottom: var(--controls-reserve);
+  }
+
+  /* Focus mode is the default watching view on a phone (see
+     participant/mod.rs — patching a sharer also focuses them). The
+     filmstrip below the focused video is a compact tray; it scrolls
+     (inheriting `.grid`'s `overflow-y`) when there are more members than
+     fit. A true sideways tray needs a wrapper element this CSS-only pass
+     doesn't add. */
   .grid--focused {
     grid-template-columns: repeat(auto-fit, minmax(4.5rem, 6rem));
     grid-template-rows: minmax(0, 1fr) 4.25rem;
     grid-auto-rows: 4.25rem;
+  }
+
+  /* While the quality bottom sheet is open, get the bar out of its way.
+     The sheet's `z-index` (card-widgets.css) already wins the paint order;
+     this stops the bar covering the rows just above the sheet and reads
+     calmer. The volume fader stays a small floating popup, not a sheet, so
+     it doesn't need this. */
+  .room-page:has(.quality-menu:focus-within) .room-controls {
+    opacity: 0;
+    pointer-events: none;
   }
 
   /* The floating bar is the only persistent chrome; give its buttons a

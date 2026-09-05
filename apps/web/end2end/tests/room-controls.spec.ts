@@ -452,3 +452,22 @@ test('card state classes mark who is sharing, who is watched, and which card is 
   await anaCtx.close();
   await bobCtx.close();
 });
+
+test('nothing in the room is selectable — no text-selection highlight, no tap flash', async ({
+  browser,
+}) => {
+  const anaCtx = await browser.newContext();
+  const { page: ana } = await createPublicRoom(anaCtx, 'Ana', 'Sala sem seleção');
+
+  // Both properties are inherited from `.room-page`, so checking them on a
+  // nested card is really checking the root rule took effect everywhere,
+  // not just on the element itself. `-webkit-touch-callout` (the iOS
+  // long-press copy/lookup menu) has no Chromium equivalent to assert on
+  // here — hand-verify on a real iPhone, same as the rest of the touch
+  // callout/gesture surface (`CLAUDE.md` "Browser layer").
+  const card = memberCard(ana, 'Ana');
+  await expect(card).toHaveCSS('user-select', 'none');
+  await expect(card).toHaveCSS('-webkit-tap-highlight-color', 'rgba(0, 0, 0, 0)');
+
+  await anaCtx.close();
+});

@@ -1,7 +1,9 @@
 use leptos::prelude::*;
 
 use crate::components::palette::{avatar_letter, color_hex};
-use crate::room::media_controls::exit_fullscreen_if_active;
+use crate::room::media_controls::{
+    exit_fullscreen_if_active, reveal_fullscreen_controls_if_active,
+};
 use crate::room::watch::watch_click_handler;
 use crate::room::RoomSession;
 use crate::room::RoomState;
@@ -108,10 +110,16 @@ fn MemberCard(conn: RoomSession, index: usize) -> impl IntoView {
 
     let watch = watch_click_handler(conn.clone(), members, watching, i);
     let card_click = move |ev: leptos::ev::MouseEvent| {
-        // Clicking a fullscreen card should just back out of fullscreen and
-        // leave the expanded/normal state untouched — not fall through and
-        // toggle it too (see `exit_fullscreen_if_active`'s doc comment).
-        if exit_fullscreen_if_active() {
+        // A tap/click on a fullscreen card: on desktop it backs out of
+        // fullscreen (leaving the expanded/normal state untouched); on
+        // touch it only reveals the idle-hidden controls — entering and
+        // leaving fullscreen there is the "Tela cheia" button's job, so a
+        // stray tap is no longer a one-way trip out.
+        if is_touch.get_untracked() {
+            if reveal_fullscreen_controls_if_active() {
+                return;
+            }
+        } else if exit_fullscreen_if_active() {
             return;
         }
         // Discord-style: the whole tile is the "watch" affordance, not just

@@ -18,6 +18,7 @@ pub(super) fn CardActionBar(conn: RoomSession, index: usize) -> impl IntoView {
         is_sharing,
         watching,
         own_preview_hidden,
+        is_touch,
         ..
     } = expect_context::<RoomState>();
 
@@ -53,6 +54,12 @@ pub(super) fn CardActionBar(conn: RoomSession, index: usize) -> impl IntoView {
         }
     };
 
+    // Picture-in-picture is desktop-only: a phone browser has no PiP
+    // window, so the button is a silent no-op on touch. Fullscreen stays —
+    // `card_click` (participant/mod.rs) makes a tap in fullscreen reveal
+    // the controls instead of exiting, so it is no longer a trap there.
+    let pip_hidden = move || !showing_video() || is_touch.get();
+
     view! {
         <div class="card__actions">
             <button
@@ -66,7 +73,7 @@ pub(super) fn CardActionBar(conn: RoomSession, index: usize) -> impl IntoView {
             </button>
             <button
                 class="icon-btn icon-btn--neutral"
-                class:hidden=move || !showing_video()
+                class:hidden=pip_hidden
                 title="Picture-in-picture"
                 aria-label="Picture-in-picture"
                 on:click=video_action(toggle_picture_in_picture)
