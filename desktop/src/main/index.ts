@@ -19,13 +19,23 @@ app.on('before-quit', () => {
   markQuitting();
 });
 
-app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null);
-  lockDownPermissions();
-  createMainWindow();
-  createTray();
-  setupAutoUpdates();
-  registerQuickShareIpcHandlers();
-  await registerAudioIpcHandlers();
-  await registerDisplayMediaHandler();
-});
+app
+  .whenReady()
+  .then(async () => {
+    Menu.setApplicationMenu(null);
+    lockDownPermissions();
+    createMainWindow();
+    createTray();
+    setupAutoUpdates();
+    registerQuickShareIpcHandlers();
+    // Register the screen-share picker first and unconditionally: it must
+    // not be gated on the audio backend, which pulls in a native addon
+    // that can fail to load on a user's machine.
+    registerDisplayMediaHandler();
+    await registerAudioIpcHandlers().catch((err) => {
+      console.error('Audio IPC handlers unavailable:', err);
+    });
+  })
+  .catch((err) => {
+    console.error('Desktop bootstrap failed:', err);
+  });

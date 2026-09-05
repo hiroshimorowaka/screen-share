@@ -11,6 +11,13 @@ Regras:
 - A seção mais recente fica no topo, com o formato `## X.Y.Z`.
 - Suba o último número para correções, o número do meio para novidades.
 
+## 0.3.7
+
+- Correção: no Windows, clicar em "compartilhar tela" não abria o seletor
+  quando o áudio de sistema não estava disponível no computador. Agora o
+  compartilhamento de tela funciona de forma independente e, se o áudio
+  não puder ser capturado, a transmissão segue só com vídeo.
+
 ## 0.3.6
 
 - Correção interna: reorganização do código do seletor de tela e checagem
