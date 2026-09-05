@@ -63,6 +63,17 @@ pub struct RoomSession {
     /// Connections where the keyed peer is the sharer and we are watching.
     pub(crate) links_in:
         std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, PeerLink>>>,
+    /// The live inbound `MediaStream` per sharer we are watching, keyed by
+    /// that sharer's `peer_id`. Kept here — not just handed to the `<video>`
+    /// once in `ontrack` — because the participant grid renders a fixed set
+    /// of card slots whose `<video>` element ids track whoever currently
+    /// occupies the slot: when a member leaves, everyone after them shifts
+    /// down a slot and each shifted `<video>` is relabeled, orphaning the
+    /// `srcObject` attached to the node that used to carry that id. The
+    /// per-slot effect in `participant` re-binds from this map on every
+    /// roster change so a watched stream follows its sharer's card.
+    pub(crate) incoming_streams:
+        std::rc::Rc<std::cell::RefCell<std::collections::HashMap<String, web_sys::MediaStream>>>,
     /// Whether we're sharing and, if so, the captured stream — see
     /// `SharingState` for why this isn't a bare `Option<MediaStream>`.
     pub(crate) sharing: std::rc::Rc<std::cell::RefCell<super::SharingState>>,
@@ -104,6 +115,7 @@ impl RoomSession {
             ws: Default::default(),
             links_out: Default::default(),
             links_in: Default::default(),
+            incoming_streams: Default::default(),
             sharing: Default::default(),
             local_capture_callback: Default::default(),
             expected_close: Default::default(),
