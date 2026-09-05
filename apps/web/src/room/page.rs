@@ -70,6 +70,19 @@ pub fn RoomPage() -> impl IntoView {
         state.expanded,
     );
 
+    // A dismissible pre-auth gate error (bad nick/password, room full, a
+    // wrong password...) reverts on its own instead of sitting on screen
+    // forever once it's been read — see
+    // `crate::client::dom::auto_dismiss_error`. A no-op once past the gate:
+    // the only errors `status` still carries then are the reconnect
+    // give-up and "kicked" sentences, neither of which is dismissible.
+    #[cfg(feature = "hydrate")]
+    crate::client::dom::auto_dismiss_error(
+        state.status,
+        state.set_status,
+        crate::room::state::INITIAL_STATUS,
+    );
+
     room_check::start_room_check(
         initial_code.clone(),
         state.authenticated,

@@ -29,6 +29,21 @@ fn status_message_marks_an_error_sentence_with_the_error_modifier_class() {
 }
 
 #[test]
+fn status_message_marks_a_validation_error_with_the_error_modifier_class() {
+    // Regression test: this exact sentence used to render with no
+    // `status-text--error` class — the old classifier only recognized a
+    // handful of error prefixes and fell through to "idle" for anything
+    // else, including every real form-validation message in the app.
+    let html = render(|| {
+        let (status, _) =
+            signal("Nick vazio, muito longo ou com caracteres não permitidos.".to_string());
+        view! { <StatusMessage status /> }
+    });
+
+    assert!(html.contains("status-text--error"), "html was: {html}");
+}
+
+#[test]
 fn status_message_leaves_a_non_error_sentence_unmodified() {
     let html = render(|| {
         let (status, _) = signal("Conectado.".to_string());

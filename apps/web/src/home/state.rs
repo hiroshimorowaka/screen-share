@@ -9,6 +9,11 @@ use leptos::prelude::*;
 
 use crate::profile::RecentRoom;
 
+/// The create panel's status sentence before anything is submitted. Also
+/// what a dismissible error on that signal reverts to — see
+/// `crate::client::dom::auto_dismiss_error` in `home::page`.
+pub(crate) const INITIAL_STATUS: &str = "Pronto para criar uma sala.";
+
 #[derive(Clone, Copy)]
 pub(crate) struct HomeState {
     // --- create panel ---
@@ -52,7 +57,7 @@ impl HomeState {
         let (room_name, set_room_name) = signal(String::new());
         let (password, set_password) = signal(String::new());
         let (public_room, set_public_room) = signal(false);
-        let (status, set_status) = signal("Pronto para criar uma sala.".to_string());
+        let (status, set_status) = signal(INITIAL_STATUS.to_string());
         let (submitting, set_submitting) = signal(false);
         let (join_input, set_join_input) = signal(String::new());
         let (join_status, set_join_status) = signal(String::new());

@@ -127,7 +127,7 @@ into `.wasm-browser/` (git-ignored). It also `cargo install`s
 (default `all`) plus flags:
 
 ```bash
-scripts/test-all.sh --no-mutants   # all checks except mutation (the usual pre-change run)
+scripts/test-all.sh --no-mutants   # all checks except Rust mutation (the full pre-merge gate)
 scripts/test-all.sh                 # everything, incl. mutation + coverage, like scheduled CI
 scripts/test-all.sh e2e             # just the Playwright suites (web + desktop)
 scripts/test-all.sh e2e-web         # just one suite: e2e-web | e2e-desktop | lint | build | rust | wasm | mutants | desktop
@@ -139,6 +139,13 @@ optional tools are skipped, not failed. The Playwright suites run hidden
 under `xvfb-run` when it is installed (`--no-xvfb` to show the windows).
 The full matrix with prerequisites is in
 `docs/superpowers/plans/2026-08-28-quality-gate.md`.
+
+**`--no-mutants` does not mean light** — target `all` still runs the
+`desktop` group unconditionally, StrykerJS mutation included (one
+parallel worker per CPU core; not gated by `--no-mutants`, which only
+skips the Rust `cargo-mutants` step). For day-to-day work, run scoped
+targets instead — see §"Running tests" → "Scope the run to what the
+change actually touches".
 
 Production build:
 
@@ -267,11 +274,23 @@ a nick.
 ### Status-driven UI
 
 Each page tracks connection state as one human-readable status sentence
-(a single reactive value), and a small pure function classifies that
-sentence into a visual state (idle / busy / live / error) used to drive a
-status indicator and its color. New states should extend that
-classification rather than introducing a second, parallel piece of state to
-keep in sync with the status text.
+(a single reactive value), and a small pure function (`status_kind`, in
+`crates/domain`) classifies that sentence into a visual state (idle / busy
+/ live / error) used to drive a status indicator and its color. New states
+should extend that classification rather than introducing a second,
+parallel piece of state to keep in sync with the status text.
+
+The classifier defaults unrecognized text to **error**, not idle: only the
+small, closed set of genuine idle/busy/live sentences is allow-listed, so
+a new failure message a call site forgets to register still renders red
+instead of silently blending in as neutral (see
+`docs/decisions/0010-error-status-default.md`). Errors that are one-off
+blips from a single form submission or protocol response (`is_dismissible_error`)
+auto-revert to that page's initial status sentence after a fixed delay
+(`client::dom::auto_dismiss_error`) instead of sitting on screen forever;
+errors describing an actually-dead connection (the reconnect give-up, the
+"kicked" sentence) are exempt and stay until the visitor reloads or
+leaves.
 
 ### Configuration
 
@@ -308,12 +327,27 @@ considering a change to that layer done (see §"Definition of done" →
 
 ### Running tests
 
-- Run `scripts/test-all.sh --no-mutants` for every change. It runs
-  `cargo fmt`, `cargo clippy`, `cargo leptos build`, the Rust suite, the
-  WASM suite, and the Playwright suites.
-- While iterating, narrow to one group with a target — e.g.
+- **Scope the run to what the change actually touches — never reach for
+  the bare `all` target out of habit.** `--no-mutants` only skips the
+  Rust `cargo-mutants` step; the `desktop` group's own StrykerJS mutation
+  run (`pnpm run test:mutation`, on by default for target `all`) is
+  **not** covered by that flag and is one of the heaviest things this
+  script can do (it defaults to one parallel worker per CPU core). A
+  change that never touches `desktop/` should never trigger it.
+  - Diff touches only `apps/web/` and/or `crates/*`: run the targets one
+    at a time, in this order, instead of `all` —
+    `scripts/test-all.sh lint`, then `... build`, then `... rust`, then
+    `... e2e-web` (add `... wasm` too if the change touches `hydrate`
+    code). This is what gates the change; all four passing is equivalent
+    to `all --no-mutants` minus the irrelevant `desktop` group.
+  - Diff touches `desktop/`: include `scripts/test-all.sh desktop` (or
+    run the full `all --no-mutants`).
+  - Only run the unscoped `all` (with `--no-mutants`) when the change
+    spans both areas, or the maintainer explicitly asks for the full
+    gate before merging.
+- While iterating within one group, narrow further the same way — e.g.
   `scripts/test-all.sh e2e-web`, `scripts/test-all.sh lint` (`--help`
-  lists them) — but the full `--no-mutants` run is what gates the change.
+  lists every target).
 - Do not run individual `cargo test` / `cargo clippy` / `playwright test`
   commands by hand.
 - Mutation tests are not run locally — CI runs them.
@@ -532,8 +566,11 @@ hand work over for the maintainer to discover a failing check.
 
 ### Rust — `crates/*` and `apps/web` (run from the repo root)
 
-Run `scripts/test-all.sh --no-mutants` — it covers every check below.
-The list is what must pass:
+Run `scripts/test-all.sh lint`, `... build`, `... rust` (add `... wasm`
+for `hydrate` changes) — see §"Running tests" for why not the bare `all`.
+The list below is what must pass; `scripts/test-all.sh --no-mutants`
+(or `all`) also covers it, plus the unrelated `desktop` group, if a
+full-gate run is what's called for instead:
 
 - `cargo test --workspace --features ssr` — all green. The test count
   must not silently drop; removing a test is a deliberate, explained

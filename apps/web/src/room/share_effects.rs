@@ -120,6 +120,7 @@ pub(crate) fn setup_share_side_effects(
     share: RoomState,
     invite_copied: RwSignal<bool>,
 ) {
+    use crate::room::audio_health::AudioHealth;
     use crate::room::copy_invite_link;
 
     let conn_for_probe = conn.clone();
@@ -127,7 +128,7 @@ pub(crate) fn setup_share_side_effects(
         // Re-run after a source switch (see `share_generation`).
         share.share_generation.track();
         if !share.is_sharing.get() {
-            share.audio_warning.set(None);
+            share.audio_health.set(AudioHealth::NotShared);
             share.share_has_audio.set(false);
             return;
         }
@@ -145,7 +146,7 @@ pub(crate) fn setup_share_side_effects(
         leptos::task::spawn_local(async move {
             let health =
                 crate::room::audio_health::probe_share_audio(&stream, has_audio_track).await;
-            share.audio_warning.set(health.warning());
+            share.audio_health.set(health);
         });
     });
 

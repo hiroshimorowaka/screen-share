@@ -35,6 +35,19 @@ pub fn HomePage() -> impl IntoView {
     start_quick_share_after_mount(state.set_status, state.set_submitting);
     let join_room = join_room_handler(state.join_input, state.set_join_status);
 
+    // A dismissible validation/protocol error on either panel reverts on
+    // its own instead of sitting on screen forever once it's been read —
+    // see `crate::client::dom::auto_dismiss_error`.
+    #[cfg(feature = "hydrate")]
+    {
+        crate::client::dom::auto_dismiss_error(
+            state.status,
+            state.set_status,
+            crate::home::state::INITIAL_STATUS,
+        );
+        crate::client::dom::auto_dismiss_error(state.join_status, state.set_join_status, "");
+    }
+
     // The one live element on the lobby: a mono readout of how many of the
     // recent rooms this browser knows about are currently up (`live_rooms`
     // only holds the ones that answered the prune check).
